@@ -1462,6 +1462,14 @@ function renderFirebase(){
 /* ═══════════════════════════════════════════
    AZURE AD / MICROSOFT GRAPH EMAIL
 ═══════════════════════════════════════════ */
+/* ═══════════════════════════════════════════
+   AZURE AD / MICROSOFT GRAPH EMAIL
+   WHY A PROXY: Browsers block direct calls to
+   login.microsoftonline.com via CORS — Microsoft
+   intentionally prevents browsers from fetching
+   tokens to protect client secrets. The Firebase
+   Function runs server-side where CORS doesn't apply.
+═══════════════════════════════════════════ */
 const AZURE_CFG_KEY = 'mompro_azure_email_config';
 
 function azureSavedConfig(){
@@ -1470,7 +1478,8 @@ function azureSavedConfig(){
 
 function azureConnectionStatus(){
   const cfg = azureSavedConfig();
-  if(!cfg || !cfg.tenantId || cfg.tenantId.includes('your-')) return 'not-configured';
+  if(!cfg||!cfg.tenantId||!cfg.clientId||!cfg.clientSecret) return 'not-configured';
+  if(!cfg.proxyUrl) return 'no-proxy';
   if(cfg._connected) return 'connected';
   return 'saved';
 }
@@ -1480,58 +1489,32 @@ function _updateAzureBanner(){
   if(!banner) return;
   const cfg = azureSavedConfig();
   const status = azureConnectionStatus();
-  if(status === 'connected'){
-    banner.style.cssText='background:var(--ol);border:1px solid var(--ok);border-radius:var(--r);padding:12px 18px;margin-bottom:18px;display:flex;align-items:center;gap:12px;';
-    banner.innerHTML=`<span style="font-size:20px;">✉️</span><div style="flex:1;"><div style="font-size:13px;font-weight:600;color:var(--ok);">Microsoft Graph Connected — ${cfg?.tenantId?.slice(0,8)}…</div><div style="font-size:11px;color:var(--t3);margin-top:2px;">Sending as: ${cfg?.senderEmail||'—'} · OAuth 2.0 Client Credentials · No password required</div></div><span class="bdg b-ok">● Live</span>`;
-  } else if(status === 'saved'){
-    banner.style.cssText='background:var(--il);border:1px solid var(--in);border-radius:var(--r);padding:12px 18px;margin-bottom:18px;display:flex;align-items:center;gap:12px;';
-    banner.innerHTML=`<span style="font-size:20px;">🔑</span><div style="flex:1;"><div style="font-size:13px;font-weight:600;color:var(--in);">Azure AD credentials saved — not yet verified</div><div style="font-size:11px;color:var(--t3);margin-top:2px;">Click "Verify & Save" to test the connection with Microsoft Graph.</div></div><span class="bdg b-in">⚙ Saved</span>`;
-  } else {
-    banner.style.cssText='background:var(--wl);border:1px solid var(--wn);border-radius:var(--r);padding:12px 18px;margin-bottom:18px;display:flex;align-items:center;gap:12px;';
-    banner.innerHTML=`<span style="font-size:20px;">⚠️</span><div style="flex:1;"><div style="font-size:13px;font-weight:600;color:var(--wn);">Not configured — no username or password needed</div><div style="font-size:11px;color:var(--t3);margin-top:2px;">Enter your Azure AD App credentials below. Email is sent via Microsoft Graph API using OAuth 2.0.</div></div><span class="bdg b-wn">⚙ Not Connected</span>`;
-  }
-}
-
-async function azureGetToken(cfg){
-  // Fetch OAuth2 token from Microsoft using client credentials flow
-  const url = `https://login.microsoftonline.com/${cfg.tenantId}/oauth2/v2.0/token`;
-  const body = new URLSearchParams({
-    grant_type:    'client_credentials',
-    client_id:     cfg.clientId,
-    client_secret: cfg.clientSecret,
-    scope:         'https://graph.microsoft.com/.default'
-  });
-  const res = await fetch(url, { method:'POST', body, headers:{'Content-Type':'application/x-www-form-urlencoded'} });
-  const data = await res.json();
-  if(!res.ok || !data.access_token) throw new Error(data.error_description || data.error || 'Token request failed');
-  return data.access_token;
-}
-
-async function azureSendEmail(to, subject, bodyHtml){
-  const cfg = azureSavedConfig();
-  if(!cfg || !cfg.tenantId) throw new Error('Azure AD not configured');
-  const token = await azureGetToken(cfg);
-  const url = `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(cfg.senderEmail)}/sendMail`;
-  const payload = {
-    message: {
-      subject,
-      body:{ contentType:'HTML', content:bodyHtml },
-      toRecipients:[{ emailAddress:{ address:to } }],
-      from:{ emailAddress:{ address:cfg.senderEmail, name:cfg.displayName||'MoM Pro' } }
-    },
-    saveToSentItems: false
+  const base = 'border-radius:var(--r);padding:12px 18px;margin-bottom:18px;display:flex;align-items:center;gap:12px;border:1px solid;';
+  const map = {
+    connected:        {bg:'var(--ol)',bc:'var(--ok)', icon:'✉️', title:'Microsoft Graph connected — emails live', sub:`Sending as: ${cfg?.senderEmail||'—'} · OAuth 2.0 · No password`, badge:'<span class="bdg b-ok">● Live</span>'},
+    saved:            {bg:'var(--il)',bc:'var(--in)', icon:'💾', title:'Credentials saved — click Verify & Save', sub:'Proxy URL set. Click Verify to confirm connection.', badge:'<span class="bdg b-in">⚙ Saved</span>'},
+    'no-proxy':       {bg:'var(--wl)',bc:'var(--wn)', icon:'⚠️', title:'Credentials saved — Firebase Function proxy URL missing', sub:'Deploy the proxy function (Step 2) and paste the URL.', badge:'<span class="bdg b-wn">⚙ Needs Proxy</span>'},
+    'not-configured': {bg:'var(--bg3)',bc:'var(--br)', icon:'🔐', title:'Azure AD not configured yet', sub:'Fill in your Azure credentials and deploy the proxy function.', badge:'<span class="bdg b-df">Not Set</span>'}
   };
-  const res = await fetch(url, {
-    method:'POST',
-    headers:{ 'Authorization':'Bearer '+token, 'Content-Type':'application/json' },
-    body: JSON.stringify(payload)
-  });
-  if(res.status===202||res.status===200) return true;
-  const err = await res.json().catch(()=>({}));
-  throw new Error(err?.error?.message || `HTTP ${res.status}`);
+  const m = map[status]||map['not-configured'];
+  banner.style.cssText = base + `background:${m.bg};border-color:${m.bc};`;
+  banner.innerHTML = `<span style="font-size:20px;">${m.icon}</span><div style="flex:1;"><div style="font-size:13px;font-weight:600;">${m.title}</div><div style="font-size:11px;color:var(--t3);margin-top:2px;">${m.sub}</div></div>${m.badge}`;
 }
 
-async function azureVerifyAndSave(){
+async function azureCallProxy(action, payload){
+  const cfg = azureSavedConfig();
+  if(!cfg?.proxyUrl) throw new Error('Proxy URL not set. Deploy the Firebase Function first.');
+  const res = await fetch(cfg.proxyUrl, {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({action, ...payload})
+  });
+  const data = await res.json().catch(()=>({error:'Invalid JSON from proxy'}));
+  if(!res.ok) throw new Error(data.error||data.message||`Proxy HTTP ${res.status}`);
+  return data;
+}
+
+function azureSaveConfig(){
   const cfg = {
     tenantId:     document.getElementById('az-tenantId')?.value.trim(),
     clientId:     document.getElementById('az-clientId')?.value.trim(),
@@ -1539,165 +1522,182 @@ async function azureVerifyAndSave(){
     senderEmail:  document.getElementById('az-senderEmail')?.value.trim(),
     displayName:  document.getElementById('az-displayName')?.value.trim()||'MoM Pro Notifications',
     bcc:          document.getElementById('az-bcc')?.value.trim(),
+    proxyUrl:     document.getElementById('az-proxyUrl')?.value.trim(),
   };
-  // Validation
-  if(!cfg.tenantId || cfg.tenantId.length < 10){ showToast('Enter your Azure Tenant ID (from Azure Portal → Azure Active Directory → Overview).','warn'); return; }
-  if(!cfg.clientId || cfg.clientId.length < 10){ showToast('Enter your Application (Client) ID from Azure App Registration.','warn'); return; }
-  if(!cfg.clientSecret || cfg.clientSecret.length < 5){ showToast('Enter the Client Secret value (not the Secret ID).','warn'); return; }
-  if(!cfg.senderEmail || !cfg.senderEmail.includes('@')){ showToast('Enter the sender mailbox email address.','warn'); return; }
+  if(!cfg.tenantId||cfg.tenantId.length<10){showToast('Enter your Azure Tenant ID.','warn');return null;}
+  if(!cfg.clientId||cfg.clientId.length<10){showToast('Enter your Client ID.','warn');return null;}
+  if(!cfg.clientSecret||cfg.clientSecret.length<5){showToast('Enter the Client Secret Value.','warn');return null;}
+  if(!cfg.senderEmail||!cfg.senderEmail.includes('@')){showToast('Enter the sender email address.','warn');return null;}
+  return cfg;
+}
 
+async function azureVerifyAndSave(){
+  const cfg = azureSaveConfig();
+  if(!cfg) return;
   const btn = document.getElementById('az-save-btn');
-  if(btn){ btn.textContent='Verifying…'; btn.disabled=true; }
+  if(btn){btn.textContent='Saving…';btn.disabled=true;}
 
-  try{
-    const token = await azureGetToken(cfg);
-    if(!token) throw new Error('No token received');
-    cfg._connected = true;
-    cfg._verifiedAt = new Date().toISOString().slice(0,16).replace('T',' ');
+  if(!cfg.proxyUrl){
+    cfg._connected=false;
     localStorage.setItem(AZURE_CFG_KEY, JSON.stringify(cfg));
-    AUDIT_LOG.unshift({time:cfg._verifiedAt, user:'Super Admin', action:`Azure AD email verified: ${cfg.senderEmail} via tenant ${cfg.tenantId.slice(0,8)}…`, entity:'SYSTEM', type:'config'});
     _updateAzureBanner();
-    showToast(`✅ Connected! Token received from Azure AD. Email ready to send via ${cfg.senderEmail}.`, 'ok');
-    if(btn){ btn.textContent='✓ Verified & Saved'; btn.style.background='var(--ok)'; btn.disabled=false; }
-  } catch(e){
-    cfg._connected = false;
-    if(btn){ btn.textContent='Verify & Save'; btn.disabled=false; }
-    showToast('Azure AD error: '+e.message,'warn');
-    console.error('Azure token error:', e);
+    showToast('Credentials saved. Deploy the Firebase Function proxy (Step 2) and paste its URL, then verify again.','info');
+    if(btn){btn.textContent='Verify & Save';btn.disabled=false;}
+    return;
+  }
+
+  if(btn){btn.textContent='Verifying…';}
+  try{
+    await azureCallProxy('verify',{tenantId:cfg.tenantId,clientId:cfg.clientId,clientSecret:cfg.clientSecret});
+    cfg._connected=true;
+    cfg._verifiedAt=new Date().toISOString().slice(0,16).replace('T',' ');
+    localStorage.setItem(AZURE_CFG_KEY, JSON.stringify(cfg));
+    AUDIT_LOG.unshift({time:cfg._verifiedAt,user:'Super Admin',action:`Azure AD verified: ${cfg.senderEmail}`,entity:'SYSTEM',type:'config'});
+    _updateAzureBanner();
+    showToast('✅ Azure AD token verified via proxy. Email ready.','ok');
+    if(btn){btn.textContent='✓ Verified';btn.style.background='var(--ok)';btn.disabled=false;}
+  }catch(e){
+    cfg._connected=false;
+    localStorage.setItem(AZURE_CFG_KEY, JSON.stringify(cfg));
+    _updateAzureBanner();
+    if(btn){btn.textContent='Verify & Save';btn.disabled=false;}
+    showToast('Error: '+e.message,'warn');
   }
 }
 
 async function azureSendTestEmail(){
   const cfg = azureSavedConfig();
-  if(!cfg || !cfg._connected){ showToast('Verify & Save your Azure AD credentials first.','warn'); return; }
-  const testTo = cfg.senderEmail; // send test to self
+  if(!cfg?.proxyUrl){showToast('Deploy the Firebase Function and add its URL first.','warn');return;}
   const btn = document.getElementById('az-test-btn');
-  if(btn){ btn.textContent='Sending…'; btn.disabled=true; }
+  if(btn){btn.textContent='Sending…';btn.disabled=true;}
   try{
-    await azureSendEmail(testTo,
-      '[MoM Pro] SMTP Test Email',
-      `<p>This is a test email from <b>MoM Pro</b> sent via <b>Microsoft Graph API</b>.</p>
-       <p>Sender: ${cfg.senderEmail}<br>Tenant: ${cfg.tenantId}<br>Sent at: ${new Date().toLocaleString()}</p>
-       <p style="color:#888;font-size:12px;">If you received this, your Azure AD integration is working correctly.</p>`
-    );
-    showToast(`Test email sent to ${testTo} via Microsoft Graph. Check your inbox.`,'ok');
-  } catch(e){
+    await azureCallProxy('sendMail',{
+      tenantId:cfg.tenantId,clientId:cfg.clientId,clientSecret:cfg.clientSecret,
+      senderEmail:cfg.senderEmail,displayName:cfg.displayName,
+      to:cfg.senderEmail,
+      subject:'[MoM Pro] Test Email — Azure AD Integration',
+      html:`<p>✅ Test email from <b>MoM Pro</b> via Microsoft Graph API.</p><p>Sender: ${cfg.senderEmail}<br>Sent: ${new Date().toLocaleString()}</p><p style="color:#888;font-size:12px;">If you received this, your Azure AD + Firebase Function proxy is working correctly.</p>`
+    });
+    cfg._connected=true;
+    localStorage.setItem(AZURE_CFG_KEY, JSON.stringify(cfg));
+    _updateAzureBanner();
+    showToast(`Test email sent to ${cfg.senderEmail}. Check your inbox.`,'ok');
+  }catch(e){
     showToast('Send failed: '+e.message,'warn');
-    console.error('Test email error:', e);
-  } finally {
-    if(btn){ btn.textContent='Send Test Email'; btn.disabled=false; }
+  }finally{
+    if(btn){btn.textContent='Send Test Email';btn.disabled=false;}
   }
 }
 
-function renderEmailCfg(){
-  const cfg = azureSavedConfig()||{};
-  document.getElementById('content').innerHTML=`
-  <div style="max-width:680px;">
+async function sendNotificationEmail(to,subject,html){
+  const cfg=azureSavedConfig();
+  if(!cfg?.proxyUrl||!cfg._connected) return;
+  try{
+    await azureCallProxy('sendMail',{
+      tenantId:cfg.tenantId,clientId:cfg.clientId,clientSecret:cfg.clientSecret,
+      senderEmail:cfg.senderEmail,displayName:cfg.displayName,to,subject,html
+    });
+  }catch(e){console.warn('Email failed:',e.message);}
+}
 
-    <!-- Dynamic status banner -->
+function renderEmailCfg(){
+  const cfg=azureSavedConfig()||{};
+  document.getElementById('content').innerHTML=`
+  <div style="max-width:720px;">
     <div id="azure-status-banner"></div>
 
-    <!-- Why Azure AD section -->
+    <!-- Why a proxy -->
     <div class="card" style="margin-bottom:18px;background:var(--bg3);border-style:dashed;">
-      <div style="display:flex;gap:14px;align-items:flex-start;">
+      <div style="display:flex;gap:14px;">
         <span style="font-size:28px;flex-shrink:0;">🔐</span>
         <div>
-          <div style="font-size:13px;font-weight:600;margin-bottom:6px;">Why Azure AD instead of username &amp; password?</div>
+          <div style="font-size:13px;font-weight:600;margin-bottom:6px;">Why Azure AD + a proxy function instead of username &amp; password?</div>
           <div style="font-size:12px;color:var(--t2);line-height:1.8;">
-            Microsoft deprecated basic auth (username + password) for SMTP in 2023. Azure AD uses <b>OAuth 2.0 Client Credentials</b> — your app gets a short-lived token automatically. No password stored, no MFA issues, no SMTP AUTH to enable, and it works even when users change their passwords.
+            Microsoft deprecated basic SMTP auth (username + password) in 2023. Azure AD uses <b>OAuth 2.0 Client Credentials</b> — short-lived tokens, no password stored.<br>
+            <b style="color:var(--er);">Why a proxy?</b> Browsers block direct calls to <code style="font-family:var(--mo)">login.microsoftonline.com</code> due to CORS — Microsoft intentionally prevents this to protect client secrets from being exposed in browser code. The Firebase Cloud Function runs server-side where CORS does not apply, and takes only ~20 lines to deploy.
           </div>
           <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;">
             <span class="bdg b-ok">✓ No password stored</span>
             <span class="bdg b-ok">✓ No SMTP AUTH setup</span>
             <span class="bdg b-ok">✓ No MFA issues</span>
-            <span class="bdg b-ok">✓ Token auto-refreshes</span>
+            <span class="bdg b-ok">✓ CORS-safe via proxy</span>
             <span class="bdg b-ok">✓ Microsoft recommended</span>
           </div>
         </div>
       </div>
     </div>
 
-    <!-- Azure AD Credentials form -->
+    <!-- Step 1: Azure credentials -->
     <div class="card" style="margin-bottom:18px;">
-      <div class="ch"><div class="ctit">Azure AD App Registration</div>
+      <div class="ch">
+        <div class="ctit">Step 1 — Azure AD App Credentials</div>
         <a href="https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade" target="_blank" class="btn bs">Open Azure Portal →</a>
-      </div>
-      <div style="background:var(--bg3);border-radius:var(--rs);padding:10px 14px;font-size:11px;color:var(--t2);margin-bottom:14px;line-height:1.8;">
-        📋 You need 3 values from <b>portal.azure.com → Azure Active Directory → App registrations</b>. See the step-by-step guide below the form.
       </div>
       <div class="fgrid">
         <div class="fg full">
-          <label>TENANT ID (DIRECTORY ID) *</label>
+          <label>TENANT ID *</label>
           <input id="az-tenantId" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" value="${cfg.tenantId||''}" style="font-family:var(--mo);font-size:12px;">
-          <div style="font-size:10px;color:var(--t3);margin-top:3px;">Azure Portal → Azure Active Directory → Overview → Directory (tenant) ID</div>
+          <div style="font-size:10px;color:var(--t3);margin-top:3px;">Azure Active Directory → Overview → Directory (tenant) ID</div>
         </div>
         <div class="fg">
-          <label>APPLICATION (CLIENT) ID *</label>
+          <label>CLIENT ID *</label>
           <input id="az-clientId" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" value="${cfg.clientId||''}" style="font-family:var(--mo);font-size:12px;">
           <div style="font-size:10px;color:var(--t3);margin-top:3px;">App registrations → your app → Overview → Application (client) ID</div>
         </div>
         <div class="fg">
           <label>CLIENT SECRET VALUE *</label>
-          <input id="az-clientSecret" type="password" placeholder="Paste the secret VALUE (not the ID)" value="${cfg.clientSecret||''}">
-          <div style="font-size:10px;color:var(--t3);margin-top:3px;">App registrations → your app → Certificates &amp; secrets → Secret Value</div>
+          <input id="az-clientSecret" type="password" placeholder="Secret Value — not Secret ID" value="${cfg.clientSecret||''}">
+          <div style="font-size:10px;color:var(--er);margin-top:3px;font-weight:500;">⚠ Copy Value column, NOT Secret ID</div>
         </div>
         <div class="fg">
           <label>SENDER MAILBOX EMAIL *</label>
           <input id="az-senderEmail" type="email" placeholder="noreply@yourcompany.com" value="${cfg.senderEmail||''}">
-          <div style="font-size:10px;color:var(--t3);margin-top:3px;">The mailbox that will appear as sender. Must exist in your Microsoft 365 tenant.</div>
         </div>
         <div class="fg">
           <label>DISPLAY NAME</label>
           <input id="az-displayName" placeholder="MoM Pro Notifications" value="${cfg.displayName||'MoM Pro Notifications'}">
         </div>
         <div class="fg full">
-          <label>BCC ALL NOTIFICATIONS TO <span style="font-weight:400;color:var(--t3)">(optional)</span></label>
+          <label>BCC <span style="font-weight:400;color:var(--t3)">(optional)</span></label>
           <input id="az-bcc" placeholder="admin@yourcompany.com" value="${cfg.bcc||''}">
         </div>
       </div>
-      ${cfg._verifiedAt ? `<div style="font-size:11px;color:var(--ok);margin-bottom:10px;">✓ Last verified: ${cfg._verifiedAt}</div>` : ''}
+    </div>
+
+    <!-- Step 2: Firebase Function proxy -->
+    <div class="card" style="margin-bottom:18px;">
+      <div class="ch"><div class="ctit">Step 2 — Firebase Function Proxy (deploy once)</div></div>
+      <div class="alert ad" style="margin-bottom:14px;">
+        <b>Why this is required:</b> Microsoft blocks token requests from browsers via CORS. This 20-line Firebase Function runs on a server and acts as the secure middleman. You deploy it once and it works forever.
+      </div>
+      <div style="font-size:12px;color:var(--t2);font-weight:600;margin-bottom:6px;">1. Create <code style="font-family:var(--mo)">functions/index.js</code>:</div>
+      <div class="code" style="font-size:10px;line-height:1.7;margin-bottom:14px;">const functions = require('firebase-functions');<br>const fetch = require('node-fetch');<br><br>exports.azureEmailProxy = functions.https.onRequest(async (req, res) => {<br>&nbsp;&nbsp;res.set('Access-Control-Allow-Origin', '*');<br>&nbsp;&nbsp;res.set('Access-Control-Allow-Methods', 'POST,OPTIONS');<br>&nbsp;&nbsp;res.set('Access-Control-Allow-Headers', 'Content-Type');<br>&nbsp;&nbsp;if (req.method === 'OPTIONS') { res.status(204).send(''); return; }<br>&nbsp;&nbsp;const { action, tenantId, clientId, clientSecret, senderEmail, displayName, to, subject, html } = req.body;<br>&nbsp;&nbsp;const tokenRes = await fetch('https://login.microsoftonline.com/'+tenantId+'/oauth2/v2.0/token', {<br>&nbsp;&nbsp;&nbsp;&nbsp;method: 'POST',<br>&nbsp;&nbsp;&nbsp;&nbsp;headers: { 'Content-Type': 'application/x-www-form-urlencoded' },<br>&nbsp;&nbsp;&nbsp;&nbsp;body: new URLSearchParams({ grant_type:'client_credentials', client_id:clientId, client_secret:clientSecret, scope:'https://graph.microsoft.com/.default' })<br>&nbsp;&nbsp;});<br>&nbsp;&nbsp;const tokenData = await tokenRes.json();<br>&nbsp;&nbsp;if (!tokenData.access_token) { res.status(400).json({ error: tokenData.error_description||'Token failed' }); return; }<br>&nbsp;&nbsp;if (action === 'verify') { res.json({ ok:true }); return; }<br>&nbsp;&nbsp;const mailRes = await fetch('https://graph.microsoft.com/v1.0/users/'+senderEmail+'/sendMail', {<br>&nbsp;&nbsp;&nbsp;&nbsp;method: 'POST',<br>&nbsp;&nbsp;&nbsp;&nbsp;headers: { 'Authorization':'Bearer '+tokenData.access_token, 'Content-Type':'application/json' },<br>&nbsp;&nbsp;&nbsp;&nbsp;body: JSON.stringify({ message:{ subject, body:{ contentType:'HTML', content:html }, toRecipients:[{ emailAddress:{ address:to } }], from:{ emailAddress:{ address:senderEmail, name:displayName||'MoM Pro' } } }, saveToSentItems:false })<br>&nbsp;&nbsp;});<br>&nbsp;&nbsp;if (mailRes.status===202) { res.json({ ok:true }); return; }<br>&nbsp;&nbsp;const mailErr = await mailRes.json().catch(()=>({}));<br>&nbsp;&nbsp;res.status(500).json({ error: mailErr?.error?.message||'Send failed' });<br>});</div>
+      <div style="font-size:12px;color:var(--t2);font-weight:600;margin-bottom:6px;">2. Deploy commands (terminal, one time):</div>
+      <div class="code" style="margin-bottom:14px;">npm install -g firebase-tools<br>firebase login<br>firebase init functions &nbsp;&nbsp;# pick your project · JavaScript · install deps<br>cd functions &amp;&amp; npm install node-fetch@2<br># paste the index.js above, then:<br>firebase deploy --only functions<br># Copy the URL printed: https://us-central1-YOUR-PROJECT.cloudfunctions.net/azureEmailProxy</div>
+      <div class="fg">
+        <label>PROXY URL *</label>
+        <input id="az-proxyUrl" placeholder="https://us-central1-your-project.cloudfunctions.net/azureEmailProxy" value="${cfg.proxyUrl||''}" style="font-family:var(--mo);font-size:11px;">
+        <div style="font-size:10px;color:var(--t3);margin-top:3px;">Paste the URL printed after <code style="font-family:var(--mo)">firebase deploy</code></div>
+      </div>
+    </div>
+
+    <!-- Step 3: Verify -->
+    <div class="card">
+      <div class="ch"><div class="ctit">Step 3 — Verify &amp; Test</div></div>
+      ${cfg._verifiedAt?`<div style="font-size:11px;color:var(--ok);margin-bottom:10px;">✓ Last verified: ${cfg._verifiedAt}</div>`:''}
       <div style="display:flex;gap:9px;flex-wrap:wrap;">
         <button id="az-test-btn" class="btn" onclick="azureSendTestEmail()">Send Test Email</button>
         <button id="az-save-btn" class="btn bp" onclick="azureVerifyAndSave()">🔐 Verify &amp; Save</button>
-        <button class="btn" onclick="localStorage.removeItem('${AZURE_CFG_KEY}');_updateAzureBanner();showToast('Azure credentials cleared.','info')">Clear Saved</button>
+        <button class="btn" onclick="localStorage.removeItem('mompro_azure_email_config');_updateAzureBanner();showToast('Cleared.','info')">Clear Saved</button>
       </div>
-    </div>
-
-    <!-- Step-by-step guide -->
-    <div class="card">
-      <div class="ch"><div class="ctit">📋 How to Set Up Azure AD App Registration</div></div>
-      <div style="font-size:12px;line-height:2;color:var(--t2);">
-
-        <div class="divl">Step 1 — Register a new app</div>
-        <div>1. Go to <b>portal.azure.com</b> → sign in as admin.</div>
-        <div>2. Search <b>"App registrations"</b> in the top bar → click <b>+ New registration</b>.</div>
-        <div>3. Name: <code style="font-family:var(--mo)">MoM Pro Email</code> · Supported account type: <b>Single tenant</b> · No redirect URI needed.</div>
-        <div>4. Click <b>Register</b>.</div>
-        <div>5. Copy the <b>Application (client) ID</b> and <b>Directory (tenant) ID</b> from the Overview page.</div>
-
-        <div class="divl" style="margin-top:14px;">Step 2 — Create a Client Secret</div>
-        <div>1. In your app, click <b>Certificates &amp; secrets</b> → <b>+ New client secret</b>.</div>
-        <div>2. Description: <code style="font-family:var(--mo)">MoM Pro</code> · Expiry: 24 months.</div>
-        <div>3. Click <b>Add</b>. <span style="color:var(--er);font-weight:500;">Copy the VALUE immediately</span> — it's hidden after you leave the page.</div>
-        <div style="background:var(--el);color:var(--er);padding:6px 10px;border-radius:var(--rs);margin:6px 0;font-size:11px;">⚠️ Copy the <b>Value</b> column, NOT the Secret ID. They look similar but Secret ID won't work.</div>
-
-        <div class="divl" style="margin-top:14px;">Step 3 — Add Mail.Send Permission</div>
-        <div>1. Click <b>API permissions</b> → <b>+ Add a permission</b>.</div>
-        <div>2. Choose <b>Microsoft Graph</b> → <b>Application permissions</b>.</div>
-        <div>3. Search <b>Mail.Send</b> → check the box → click <b>Add permissions</b>.</div>
-        <div>4. Click <b>Grant admin consent for [your org]</b> → confirm. The status should turn green ✅.</div>
-
-        <div class="divl" style="margin-top:14px;">Step 4 — Verify sender mailbox exists</div>
-        <div>The sender email (e.g. <code style="font-family:var(--mo)">noreply@yourcompany.com</code>) must be a real licensed mailbox in your Microsoft 365 tenant. You can create a shared mailbox in <b>Exchange Admin Center → Recipients → Mailboxes</b> for free (no extra license needed).</div>
-
-        <div class="divl" style="margin-top:14px;">Step 5 — Fill in the form above &amp; click Verify</div>
-        <div>Paste your Tenant ID, Client ID, and Secret Value into the fields above. Click <b>🔐 Verify &amp; Save</b>. The app will request a token from Azure — if credentials are correct the banner turns green.</div>
+      <div style="margin-top:10px;font-size:11px;color:var(--t3);line-height:1.7;">
+        <b>Order:</b> Fill Step 1 → deploy Step 2 function → paste proxy URL → Verify &amp; Save → Send Test Email.
       </div>
     </div>
   </div>`;
-
   _updateAzureBanner();
 }
+
 
 function renderUsers(){
   if(currentRole!=='super-admin'&&currentRole!=='admin'){document.getElementById('content').innerHTML=`<div class="card" style="text-align:center;padding:48px;"><div style="font-size:30px;margin-bottom:12px;">🔒</div><div style="font-size:15px;font-weight:600;">Access Restricted</div><div style="font-size:13px;color:var(--t2);margin-top:6px;">User management is available to Admins only.</div></div>`;return;}
