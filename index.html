@@ -877,7 +877,7 @@ function renderEscalations(){
       <td>${eb(t.esc)}</td>
       <td style="display:flex;gap:5px;">
         <button class="btn bs" onclick="openModal('task','${t.id}')">Update</button>
-        <button class="btn bs" onclick="showToast('Reminder sent to ${u.name} via Office 365','ok')">Notify</button>
+        <button class="btn bs" onclick="showToast('Email not sent — SMTP not connected in demo mode.','warn')">Notify</button>
       </td>
     </tr>`}).join('')}</tbody></table></div>
   </div>
@@ -928,16 +928,72 @@ function renderCalendar(){
 /* ═══════════════════════════════════════════
    BULK UPLOAD
 ═══════════════════════════════════════════ */
+function downloadBulkTemplate(){
+  const headers=['meeting_no','meeting_date','action_item','assignee_email','due_date','priority','attendees'];
+  const example=['MTG-2024-01','2024-01-15','Prepare Q1 budget report','r.kumar@corp.com','2024-02-15','high','a.singh@corp.com'];
+  const csv=[headers.join(','), example.join(',')].join('\n');
+  const blob=new Blob([csv],{type:'text/csv'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download='mom_bulk_upload_template.csv';
+  a.click();
+  URL.revokeObjectURL(a.href);
+  showToast('Template CSV downloaded — open in Excel to fill in your data.','ok');
+}
+
+function handleBulkFile(input){
+  const file=input.files[0];
+  if(!file){return;}
+  const allowed=['text/csv','application/vnd.ms-excel','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'];
+  if(!allowed.includes(file.type)&&!file.name.match(/\.(csv|xls|xlsx)$/i)){
+    showToast('Unsupported file type. Use .csv, .xls or .xlsx','warn');
+    return;
+  }
+  document.getElementById('upzone-label').textContent=`📎 ${file.name} selected (${(file.size/1024).toFixed(1)} KB)`;
+  document.getElementById('btn-process').disabled=false;
+  document.getElementById('btn-process').classList.remove('btn');
+  document.getElementById('btn-process').classList.add('btn','bp');
+  showToast(`${file.name} ready — click Process Upload to import.`,'info');
+}
+
+function processBulkUpload(){
+  const input=document.getElementById('bulk-file-input');
+  const file=input?.files[0];
+  if(!file){showToast('Please select a file first.','warn');return;}
+  // Demo: parse CSV and show row count
+  const reader=new FileReader();
+  reader.onload=function(e){
+    const text=e.target.result;
+    const rows=text.trim().split('\n').filter(r=>r.trim()).length-1; // minus header
+    const ts=new Date().toISOString().slice(0,10);
+    // Add to upload history
+    const tbody=document.getElementById('upload-history');
+    if(tbody){
+      const tr=document.createElement('tr');
+      tr.innerHTML=`<td style="font-family:var(--mo);font-size:11px;">${file.name}</td><td>${ts}</td><td>${Math.max(0,rows)}</td><td><span class="bdg b-ok">Imported</span></td>`;
+      tbody.insertBefore(tr,tbody.firstChild);
+    }
+    AUDIT_LOG.unshift({time:new Date().toISOString().slice(0,16).replace('T',' '),user:'Super Admin',action:`Bulk imported ${rows} row(s) from ${file.name}`,entity:'BULK',type:'import'});
+    showToast(`${Math.max(0,rows)} row(s) parsed from ${file.name}. Note: live DB write requires backend integration.`,'ok');
+    input.value='';
+    document.getElementById('upzone-label').textContent='Drop file here or click to browse';
+  };
+  reader.readAsText(file);
+}
+
 function renderBulkUpload(){
   document.getElementById('content').innerHTML=`
   <div style="max-width:680px;">
+    <div class="alert aw" style="margin-bottom:16px;">
+      ⚠️ <b>Demo Mode:</b> File parsing works in-browser. Actual DB write requires backend API integration (Firebase Functions / REST endpoint).
+    </div>
     <div class="card" style="margin-bottom:18px;">
       <div class="ch"><div class="ctit">Bulk Upload Action Items</div></div>
-      <div class="upzone" onclick="showToast('File picker opened. Select .xlsx or .csv','info')">
-        <div style="font-size:28px;margin-bottom:8px;">📄</div>
-        <div style="font-weight:500;margin-bottom:4px;">Drop file here or click to browse</div>
-        <div style="font-size:12px;color:var(--t3);">Supports .xlsx, .csv, .xls — Max 10 MB</div>
-      </div>
+      <label for="bulk-file-input" style="cursor:pointer;">
+        <div class="upzone" id="upzone-label">Drop file here or click to browse</div>
+      </label>
+      <input type="file" id="bulk-file-input" accept=".csv,.xls,.xlsx" style="display:none;" onchange="handleBulkFile(this)">
+      <div style="font-size:11px;color:var(--t3);margin-top:6px;">Supports .xlsx, .csv, .xls — Max 10 MB</div>
       <div style="margin-top:16px;">
         <div class="divl">Required columns</div>
         <table style="font-size:12px;">
@@ -948,13 +1004,14 @@ function renderBulkUpload(){
         </table>
       </div>
       <div style="display:flex;gap:9px;margin-top:14px;">
-        <button class="btn" onclick="showToast('Template downloaded','ok')">Download Template</button>
-        <button class="btn bp" onclick="showToast('File processed. 12 tasks imported, 0 errors.','ok')">Process Upload</button>
+        <button class="btn" onclick="downloadBulkTemplate()">⬇ Download Template (.csv)</button>
+        <button class="btn" id="btn-process" onclick="processBulkUpload()">Process Upload</button>
       </div>
     </div>
     <div class="card">
       <div class="ch"><div class="ctit">Upload History</div></div>
-      <table><thead><tr><th>Filename</th><th>Uploaded</th><th>Records</th><th>Status</th></tr></thead><tbody>
+      <table><thead><tr><th>Filename</th><th>Uploaded</th><th>Records</th><th>Status</th></tr></thead>
+      <tbody id="upload-history">
         <tr><td style="font-family:var(--mo);font-size:11px;">tasks_jan_2024.xlsx</td><td>2024-01-20</td><td>18</td><td><span class="bdg b-ok">Imported</span></td></tr>
         <tr><td style="font-family:var(--mo);font-size:11px;">mom_q4_2023.csv</td><td>2023-12-15</td><td>34</td><td><span class="bdg b-ok">Imported</span></td></tr>
         <tr><td style="font-family:var(--mo);font-size:11px;">bulk_tasks_nov.xlsx</td><td>2023-11-08</td><td>12</td><td><span class="bdg b-wn">Partial (2 errors)</span></td></tr>
@@ -1078,21 +1135,21 @@ function renderFirebase(){
   <div style="max-width:760px;">
     <div class="alert aw" style="margin-bottom:14px;">Super Admin only — changes affect all users.</div>
 
-    <!-- Live connection banner -->
-    <div style="background:var(--ol);border:1px solid var(--ok);border-radius:var(--r);padding:12px 18px;margin-bottom:18px;display:flex;align-items:center;gap:12px;">
-      <span style="font-size:20px;">🔥</span>
+    <!-- Demo mode notice -->
+    <div style="background:var(--wl);border:1px solid var(--wn);border-radius:var(--r);padding:12px 18px;margin-bottom:18px;display:flex;align-items:center;gap:12px;">
+      <span style="font-size:20px;">⚠️</span>
       <div style="flex:1;">
-        <div style="font-size:13px;font-weight:600;color:var(--ok);">Firebase Connected — mom-pro-dev</div>
-        <div style="font-size:11px;color:var(--t3);margin-top:2px;">Realtime Database + Authentication active · Last ping 42 ms · Region: asia-south1</div>
+        <div style="font-size:13px;font-weight:600;color:var(--wn);">Demo Mode — Firebase not connected</div>
+        <div style="font-size:11px;color:var(--t3);margin-top:2px;">This is a prototype UI. Fill in your real Firebase project credentials and integrate the SDK to enable live Auth, Realtime DB, and presence features.</div>
       </div>
-      <span class="bdg b-ok" style="font-size:11px;">● Live</span>
+      <span class="bdg b-wn">⚙ Not Connected</span>
     </div>
 
     <!-- Live Account Status -->
     <div class="card" style="padding:0;margin-bottom:18px;">
       <div style="padding:13px 18px;border-bottom:1px solid var(--br);display:flex;align-items:center;justify-content:space-between;">
         <div class="ctit" style="display:flex;align-items:center;gap:8px;">
-          <span style="color:var(--ok);">●</span> Firebase Live Account Status
+          🔥 Firebase Account Status <span class="bdg b-wn" style="font-size:10px;">Demo Data</span>
         </div>
         <div style="display:flex;gap:8px;align-items:center;">
           <span style="font-size:11px;color:var(--t3);">${USERS.filter(u=>FB_STATUS[u.id].online).length} / ${USERS.length} online</span>
@@ -1141,8 +1198,8 @@ function renderFirebase(){
         <div class="fg full"><label>MEASUREMENT ID (Analytics)</label><input value="G-XXXXXXXXXX"></div>
       </div>
       <div style="display:flex;gap:9px;margin-top:4px;">
-        <button class="btn" onclick="showToast('Connection test passed — Firebase reachable (42 ms)','ok')">Test Connection</button>
-        <button class="btn bp" onclick="showToast('Firebase configuration saved','ok')">Save Configuration</button>
+        <button class="btn" onclick="showToast('Cannot test — Firebase SDK not initialised. Add your config and include the Firebase SDK scripts.','warn')">Test Connection</button>
+        <button class="btn bp" onclick="showToast('Credentials saved in-memory (demo only). Integrate Firebase SDK to activate.','info')">Save Configuration</button>
       </div>
     </div>
   </div>`;
@@ -1150,7 +1207,11 @@ function renderFirebase(){
 
 function renderEmailCfg(){
   document.getElementById('content').innerHTML=`
-  <div style="max-width:620px;"><div class="card">
+  <div style="max-width:620px;">
+  <div class="alert aw" style="margin-bottom:16px;">
+    ⚠️ <b>Demo Mode:</b> SMTP is not connected. Saving credentials stores them in-memory only. Integrate a backend mailer (e.g. Firebase Functions + Nodemailer) to send real emails.
+  </div>
+  <div class="card">
     <div class="ch"><div class="ctit">Outlook Office 365 SMTP</div></div>
     <div class="fgrid">
       <div class="fg"><label>SMTP HOST</label><input value="smtp.office365.com"></div>
@@ -1163,8 +1224,8 @@ function renderEmailCfg(){
       <div class="fg full"><label>BCC ALL NOTIFICATIONS TO</label><input value="admin@yourorg.com"></div>
     </div>
     <div style="display:flex;gap:9px;">
-      <button class="btn" onclick="showToast('Test email sent via Office 365','ok')">Send Test Email</button>
-      <button class="btn bp" onclick="showToast('Email configuration saved','ok')">Save</button>
+      <button class="btn" onclick="showToast('SMTP not connected — email not sent in demo mode.','warn')">Send Test Email</button>
+      <button class="btn bp" onclick="showToast('Settings saved in-memory (demo only — not persisted).','info')">Save</button>
     </div>
   </div></div>`;
 }
@@ -1278,13 +1339,13 @@ function renderAddUserModal(){
   document.getElementById('modal-title').textContent='Add New User';
   document.getElementById('modal-body').innerHTML=`
   <!-- Firebase Auth notice -->
-  <div style="display:flex;align-items:center;gap:10px;background:var(--ol);border:1px solid var(--ok);border-radius:var(--rs);padding:10px 14px;margin-bottom:18px;">
-    <span style="font-size:18px;">🔥</span>
+  <div style="display:flex;align-items:center;gap:10px;background:var(--wl);border:1px solid var(--wn);border-radius:var(--rs);padding:10px 14px;margin-bottom:18px;">
+    <span style="font-size:18px;">⚠️</span>
     <div style="flex:1;">
-      <div style="font-size:12px;font-weight:600;color:var(--ok);">Connected to Firebase Auth — mom-pro-dev</div>
-      <div style="font-size:11px;color:var(--t3);margin-top:2px;">This account will be created in Firebase Authentication and synced to the app database.</div>
+      <div style="font-size:12px;font-weight:600;color:var(--wn);">Demo Mode — Firebase Auth not connected</div>
+      <div style="font-size:11px;color:var(--t3);margin-top:2px;">User will be added to the in-memory list only. Connect Firebase SDK to create real auth accounts.</div>
     </div>
-    <span class="bdg b-ok">● Live</span>
+    <span class="bdg b-wn">⚙ Not Connected</span>
   </div>
 
   <!-- Auth method toggle -->
@@ -1592,12 +1653,34 @@ function addAIItem(){
 }
 
 function saveMeeting(){
-  const intCount=document.querySelectorAll('.int-att-cb:checked').length;
+  const no=document.getElementById('nm-no')?.value.trim()||`MTG-${Date.now()}`;
+  const date=document.getElementById('nm-date')?.value||new Date().toISOString().slice(0,10);
+  const title=document.getElementById('nm-title')?.value.trim();
+  const venue=document.getElementById('nm-venue')?.value.trim()||'TBD';
+  if(!title){showToast('Please enter a meeting title.','warn');return;}
+
+  // Collect internal attendees
+  const intAtt=[...document.querySelectorAll('.int-att-cb:checked')].map(c=>parseInt(c.value));
+  const chairId=parseInt(document.getElementById('nm-chair')?.value)||intAtt[0]||1;
   const extCount=extAttendees.length;
-  const total=intCount+extCount;
-  showToast(`Meeting saved. Notifications sent to ${total} attendee${total!==1?'s':''} via Outlook Office 365.`,'ok');
+  const total=intAtt.length+extCount;
+
+  // Create new meeting object and push to MEETINGS
+  const newMeeting={
+    id:'MOM-'+(MEETINGS.length+1).toString().padStart(3,'0'),
+    no,date,title,
+    chairperson:chairId,
+    attendees:intAtt,
+    externalAttendees:[...extAttendees],
+    status:'active',
+    venue
+  };
+  MEETINGS.unshift(newMeeting);
+  AUDIT_LOG.unshift({time:new Date().toISOString().slice(0,16).replace('T',' '),user:document.getElementById('un').textContent,action:`Created meeting ${no}: "${title}"`,entity:newMeeting.id,type:'create'});
+
   closeModal();
   navigate('meetings');
+  showToast(`Meeting "${title}" saved. Email notifications require SMTP integration — not sent in demo mode.`,'ok');
 }
 
 function renderTaskModal(taskId){
@@ -1689,7 +1772,7 @@ function saveTask(id){
     const cmt=document.getElementById('new-cmt')?.value?.trim();
     if(cmt){if(!COMMENTS[id])COMMENTS[id]=[];COMMENTS[id].push({uid:1,time:'Just now',text:cmt});}
   }
-  showToast('Task updated. Assignee notified via Office 365.','ok');
+  showToast('Task updated. Email notification requires SMTP integration — not sent in demo mode.','info');
   closeModal();
 }
 
@@ -1743,8 +1826,8 @@ function renderMeetingDetailModal(meetingId){
   </div>`;
   document.getElementById('modal-footer').innerHTML=`
     <button class="btn" onclick="closeModal()">Close</button>
-    <button class="btn" onclick="closeModal();showToast('MoM emailed to all ${att.length+extAtt.length} attendees','ok')">Email MoM</button>
-    <button class="btn bp" onclick="closeModal();showToast('PDF export started','ok')">Export PDF</button>`;
+    <button class="btn" onclick="closeModal();showToast('Email not sent — SMTP not connected in demo mode.','warn')">Email MoM</button>
+    <button class="btn bp" onclick="closeModal();showToast('PDF export requires backend integration (e.g. Puppeteer / wkhtmltopdf).','warn')">Export PDF</button>`;
 }
 
 /* ═══════════════════════════════════════════
