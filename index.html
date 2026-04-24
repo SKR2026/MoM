@@ -156,9 +156,79 @@ textarea{resize:vertical;min-height:72px}
 /* ── Responsive ── */
 @media(max-width:900px){.g4{grid-template-columns:1fr 1fr}}
 @media(max-width:640px){.sidebar{display:none}.g2,.g3{grid-template-columns:1fr}.fgrid{grid-template-columns:1fr}}
+
+/* ── Login Overlay ── */
+#login-overlay{position:fixed;inset:0;background:var(--bg);z-index:9000;display:flex;align-items:center;justify-content:center;padding:20px;}
+.login-card{background:var(--sf);border:1px solid var(--br);border-radius:18px;width:460px;max-width:100%;box-shadow:0 8px 40px rgba(0,0,0,.18);overflow:hidden;}
+.login-header{background:var(--ac);padding:28px 32px 22px;text-align:center;}
+.login-header .lh-logo{font-size:22px;font-weight:700;color:#fff;letter-spacing:-.5px;}
+.login-header .lh-sub{font-size:12px;color:rgba(255,255,255,.75);margin-top:4px;text-transform:uppercase;letter-spacing:.8px;}
+.login-tabs{display:flex;border-bottom:1px solid var(--br);}
+.login-tab{flex:1;padding:12px;text-align:center;font-size:13px;font-weight:500;color:var(--t2);cursor:pointer;transition:all .15s;border-bottom:2px solid transparent;}
+.login-tab.active{color:var(--ac);border-bottom-color:var(--ac);background:var(--al);}
+.login-body{padding:24px 28px;}
+.login-err{background:var(--el);color:var(--er);border:1px solid var(--er);border-radius:var(--rs);padding:8px 12px;font-size:12px;margin-bottom:12px;display:none;}
+.login-user-btn{display:flex;align-items:center;gap:10px;padding:10px 14px;border-radius:var(--rs);border:1px solid var(--br);background:var(--bg2);cursor:pointer;transition:all .15s;margin-bottom:8px;width:100%;}
+.login-user-btn:hover{background:var(--bg3);border-color:var(--br2);}
+.lub-info{flex:1;text-align:left;}
+.lub-info .lname{font-size:13px;font-weight:500;}
+.lub-info .lrole{font-size:11px;color:var(--t3);}
+.dev-badge{background:var(--wl);color:var(--wn);border:1px solid var(--wn);border-radius:4px;font-size:9px;font-weight:700;padding:1px 5px;text-transform:uppercase;letter-spacing:.5px;}
+.sa-badge{background:var(--el);color:var(--er);border:1px solid var(--er);border-radius:4px;font-size:9px;font-weight:700;padding:1px 5px;text-transform:uppercase;letter-spacing:.5px;}
+
+/* ── Multi-select tasks ── */
+.task-sel-bar{display:flex;align-items:center;gap:10px;padding:8px 14px;background:var(--al);border-bottom:1px solid var(--ac);border-radius:var(--rs) var(--rs) 0 0;font-size:13px;color:var(--ac);font-weight:500;}
+input[type=checkbox].task-cb{width:15px;height:15px;accent-color:var(--ac);cursor:pointer;flex-shrink:0;}
+
+/* ── Developer badge ── */
+.dev-mode-banner{background:var(--wl);border:1px solid var(--wn);color:var(--wn);font-size:11px;font-weight:600;padding:3px 10px;border-radius:20px;letter-spacing:.3px;}
+
+/* ── Logout button ── */
+.logout-btn{display:flex;align-items:center;gap:6px;padding:6px 10px;border-radius:var(--rs);color:var(--er);border:1px solid var(--er);background:transparent;font-size:12px;font-weight:500;cursor:pointer;font-family:var(--fn);transition:all .15s;width:100%;margin-top:8px;justify-content:center;}
+.logout-btn:hover{background:var(--el);}
+
 </style>
 </head>
 <body>
+<!-- ════ LOGIN OVERLAY ════ -->
+<div id="login-overlay">
+  <div class="login-card">
+    <div class="login-header">
+      <div class="lh-logo">🗂 MoM Pro</div>
+      <div class="lh-sub">Minutes of Meeting Management</div>
+    </div>
+    <div class="login-tabs">
+      <div class="login-tab active" id="ltab-staff" onclick="switchLoginTab('staff')">🔐 Admin / Developer</div>
+      <div class="login-tab" id="ltab-user" onclick="switchLoginTab('user')">👤 User Access</div>
+    </div>
+    <div class="login-body">
+      <!-- Staff login pane -->
+      <div id="lpane-staff">
+        <div class="login-err" id="login-err">Invalid username or password.</div>
+        <div class="fg" style="margin-bottom:12px;">
+          <label>USERNAME</label>
+          <input id="l-user" placeholder="e.g. superadmin or developer" autocomplete="username" onkeydown="if(event.key==='Enter')doLogin()">
+        </div>
+        <div class="fg" style="margin-bottom:16px;">
+          <label>PASSWORD</label>
+          <input type="password" id="l-pass" placeholder="Enter password" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()">
+        </div>
+        <button class="btn bp" style="width:100%;justify-content:center;" onclick="doLogin()">Sign In</button>
+        <div style="font-size:11px;color:var(--t3);text-align:center;margin-top:10px;">
+          Demo: <code>superadmin / admin@123</code> &nbsp;|&nbsp; <code>developer / dev@123</code>
+        </div>
+      </div>
+      <!-- User access pane -->
+      <div id="lpane-user" style="display:none;">
+        <div style="font-size:12px;color:var(--t3);margin-bottom:14px;">Select your account to continue, or open directly from your shared link.</div>
+        <div id="user-list"></div>
+        <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--br);font-size:11px;color:var(--t3);text-align:center;">
+          Received a direct link? <span style="color:var(--ac);cursor:pointer;font-weight:500;" onclick="simulateLinkAccess()">Click here to open via link</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
 <div class="app" id="app">
 <!-- ════ SIDEBAR ════ -->
 <aside class="sidebar" id="sidebar">
@@ -175,6 +245,18 @@ textarea{resize:vertical;min-height:72px}
         <div id="ur" style="font-size:10px;color:var(--t3);">Administrator</div>
       </div>
       <div class="tgl on" id="thm" onclick="toggleTheme()" title="Toggle dark/light"></div>
+    </div>
+    <div id="dev-mode-banner" style="display:none;margin-top:8px;">
+      <div class="dev-mode-banner" style="display:flex;align-items:center;gap:6px;">
+        <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 3l-4 5 4 5M11 3l4 5-4 5M9 2l-2 12"/></svg>
+        Developer Mode Active
+      </div>
+    </div>
+    <div id="logout-area" style="display:none;">
+      <button class="logout-btn" onclick="doLogout()">
+        <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 3H3a1 1 0 00-1 1v8a1 1 0 001 1h3M11 11l4-3-4-3M6 8h9"/></svg>
+        Log Out
+      </button>
     </div>
     <div class="theme-sw" title="Color theme">
       <div class="tc-btn tc-ocean active" id="tc-ocean" onclick="setColor('ocean')" title="Ocean"></div>
@@ -193,10 +275,12 @@ textarea{resize:vertical;min-height:72px}
       <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M2 4h12M2 8h12M2 12h12"/></svg>
     </button>
     <div class="tt" id="pt">Dashboard Overview</div>
+    <div id="dev-topbadge" style="display:none;"><span class="dev-mode-banner">⚡ DEV MODE</span></div>
     <select id="role-sw" style="width:160px;font-size:12px;" onchange="switchRole(this.value)">
       <option value="super-admin">Super Admin</option>
       <option value="assignee">Assignee View</option>
       <option value="top-mgmt">Top Management</option>
+      <option value="developer" style="color:var(--wn);">Developer Mode</option>
     </select>
     <button class="btn bs bp" onclick="openModal('new-meeting')">+ New Meeting</button>
     <button class="btn bs" onclick="showToast('2 pending escalations','warn')" style="position:relative;">
@@ -281,6 +365,109 @@ let darkMode=false;
 let aiItemCount=2;
 
 /* ═══════════════════════════════════════════
+   AUTH
+═══════════════════════════════════════════ */
+const AUTH_CREDENTIALS={
+  superadmin:{password:'admin@123',role:'super-admin',display:'Super Admin',desc:'Administrator',ini:'SA',col:'#bae6fd',tc:'#0284c7'},
+  developer:{password:'dev@123',role:'developer',display:'Developer',desc:'Developer Mode',ini:'DV',col:'#fef3c7',tc:'#d97706'},
+};
+let loggedInAs=null; // 'superadmin' | 'developer' | 'user'
+let currentLoginTab='staff';
+let selectedTasks=new Set();
+
+function initLogin(){
+  // Build user list in user pane
+  const ul=document.getElementById('user-list');
+  ul.innerHTML=USERS.map(u=>`
+    <button class="login-user-btn" onclick="loginAsUser(${u.id})">
+      ${av(u,32)}
+      <div class="lub-info">
+        <div class="lname">${u.name}</div>
+        <div class="lrole">${u.dept} · ${u.role}</div>
+      </div>
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 3l5 5-5 5"/></svg>
+    </button>`).join('');
+}
+
+function switchLoginTab(tab){
+  currentLoginTab=tab;
+  document.getElementById('ltab-staff').classList.toggle('active',tab==='staff');
+  document.getElementById('ltab-user').classList.toggle('active',tab==='user');
+  document.getElementById('lpane-staff').style.display=tab==='staff'?'':'none';
+  document.getElementById('lpane-user').style.display=tab==='user'?'':'none';
+  document.getElementById('login-err').style.display='none';
+}
+
+function doLogin(){
+  const u=document.getElementById('l-user').value.trim().toLowerCase();
+  const p=document.getElementById('l-pass').value;
+  const cred=AUTH_CREDENTIALS[u];
+  if(!cred||cred.password!==p){
+    document.getElementById('login-err').style.display='block';
+    return;
+  }
+  loggedInAs=u;
+  currentRole=cred.role;
+  applySession(cred.display,cred.desc,cred.ini,cred.col,cred.tc,true);
+  hideLoginScreen();
+}
+
+function loginAsUser(uid){
+  const u=USERS.find(x=>x.id===uid);
+  if(!u)return;
+  loggedInAs='user';
+  currentRole=u.role==='manager'?'assignee':u.role==='top-mgmt'?'top-mgmt':'assignee';
+  applySession(u.name,u.dept,u.ini,u.col,u.tc,false);
+  hideLoginScreen();
+}
+
+function simulateLinkAccess(){
+  // Simulate opening via a shared link — auto-login as first assignee
+  loginAsUser(1);
+  showToast('Opened via shared link — logged in as Rajesh Kumar','info');
+}
+
+function applySession(name,desc,ini,col,tc,showLogout){
+  document.getElementById('un').textContent=name;
+  document.getElementById('ur').textContent=desc;
+  const av=document.getElementById('ua');
+  av.textContent=ini;
+  av.style.background=col;
+  av.style.color=tc;
+  // Role switcher visibility
+  document.getElementById('role-sw').style.display=showLogout?'':'none';
+  document.getElementById('role-sw').value=currentRole;
+  // Logout button
+  document.getElementById('logout-area').style.display=showLogout?'block':'none';
+  // Developer banner
+  const isDev=currentRole==='developer';
+  document.getElementById('dev-mode-banner').style.display=isDev?'block':'none';
+  document.getElementById('dev-topbadge').style.display=isDev?'flex':'none';
+  navigate('dashboard');
+}
+
+function doLogout(){
+  loggedInAs=null;
+  currentRole='super-admin';
+  document.getElementById('role-sw').style.display='';
+  document.getElementById('logout-area').style.display='none';
+  document.getElementById('dev-mode-banner').style.display='none';
+  document.getElementById('dev-topbadge').style.display='none';
+  document.getElementById('l-user').value='';
+  document.getElementById('l-pass').value='';
+  document.getElementById('login-err').style.display='none';
+  showLoginScreen();
+  showToast('Logged out successfully','info');
+}
+
+function showLoginScreen(){
+  document.getElementById('login-overlay').style.display='flex';
+}
+function hideLoginScreen(){
+  document.getElementById('login-overlay').style.display='none';
+}
+
+/* ═══════════════════════════════════════════
    NAVIGATION MAP
 ═══════════════════════════════════════════ */
 const NAV=[
@@ -304,12 +491,17 @@ const NAV=[
     {id:'settings-escalation',label:'Escalation Rules',icon:'<path d="M8 1l2 5h5l-4 3 1.5 5L8 11l-4.5 3L5 9 1 6h5z"/>'},
     {id:'settings-notifications',label:'Notifications',icon:'<path d="M8 1a5 5 0 015 5v3l1 2H2l1-2V6a5 5 0 015-5zM6 13a2 2 0 004 0"/>'},
   ]},
+  {section:'Developer',devOnly:true,items:[
+    {id:'dev-console',label:'Dev Console',icon:'<path d="M5 3l-4 5 4 5M11 3l4 5-4 5M9 2l-2 12"/>'},
+    {id:'dev-api',label:'API Config',icon:'<rect x="1" y="3" width="14" height="10" rx="2"/><path d="M5 7h6M5 10h4"/>'},
+    {id:'dev-system',label:'System Info',icon:'<rect x="1" y="1" width="14" height="14" rx="2"/><path d="M4 5h8M4 8h5"/>'},
+  ]},
 ];
 
 function buildNav(){
   const nav=document.getElementById('sb-nav');
-  nav.innerHTML=NAV.map(s=>`
-    <div class="nl">${s.section}</div>
+  nav.innerHTML=NAV.filter(s=>!s.devOnly||currentRole==='developer').map(s=>`
+    <div class="nl" style="${s.devOnly?'color:var(--wn);':''}">${s.devOnly?'⚡ ':''} ${s.section}</div>
     ${s.items.map(i=>`
       <div class="ni" id="ni-${i.id}" onclick="navigate('${i.id}')">
         <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">${i.icon}</svg>
@@ -323,9 +515,9 @@ function navigate(page){
   document.querySelectorAll('.ni').forEach(n=>n.classList.remove('active'));
   const el=document.getElementById('ni-'+page);
   if(el)el.classList.add('active');
-  const titles={dashboard:'Dashboard Overview',meetings:'All Meetings',tasks:'My Tasks',escalations:'Escalation Tracker',calendar:'Calendar View','bulk-upload':'Bulk Upload',reports:'Reports & Analytics',audit:'Audit Trail','email-log':'Email Log','settings-firebase':'Firebase Configuration','settings-email':'Email — Office 365','settings-users':'Users & Roles','settings-escalation':'Escalation Rules','settings-notifications':'Notification Settings'};
+  const titles={dashboard:'Dashboard Overview',meetings:'All Meetings',tasks:'My Tasks',escalations:'Escalation Tracker',calendar:'Calendar View','bulk-upload':'Bulk Upload',reports:'Reports & Analytics',audit:'Audit Trail','email-log':'Email Log','settings-firebase':'Firebase Configuration','settings-email':'Email — Office 365','settings-users':'Users & Roles','settings-escalation':'Escalation Rules','settings-notifications':'Notification Settings','dev-console':'Developer Console','dev-api':'API Configuration','dev-system':'System Information'};
   document.getElementById('pt').textContent=titles[page]||page;
-  const fns={dashboard:renderDashboard,meetings:renderMeetings,tasks:renderTasks,escalations:renderEscalations,calendar:renderCalendar,'bulk-upload':renderBulkUpload,reports:renderReports,audit:renderAudit,'email-log':renderEmailLog,'settings-firebase':renderFirebase,'settings-email':renderEmailCfg,'settings-users':renderUsers,'settings-escalation':renderEscCfg,'settings-notifications':renderNotifCfg};
+  const fns={dashboard:renderDashboard,meetings:renderMeetings,tasks:renderTasks,escalations:renderEscalations,calendar:renderCalendar,'bulk-upload':renderBulkUpload,reports:renderReports,audit:renderAudit,'email-log':renderEmailLog,'settings-firebase':renderFirebase,'settings-email':renderEmailCfg,'settings-users':renderUsers,'settings-escalation':renderEscCfg,'settings-notifications':renderNotifCfg,'dev-console':renderDevConsole,'dev-api':renderDevApi,'dev-system':renderDevSystem};
   if(fns[page])fns[page]();
 }
 
@@ -379,10 +571,19 @@ function setColor(color){
 
 function switchRole(r){
   currentRole=r;
-  const roleLabels={'super-admin':'Super Admin','assignee':'Rajesh Kumar','top-mgmt':'Vikram Patel'};
-  const roleDesc={'super-admin':'Administrator','assignee':'Assignee','top-mgmt':'Top Management'};
+  const roleLabels={'super-admin':'Super Admin','assignee':'Rajesh Kumar','top-mgmt':'Vikram Patel','developer':'Developer'};
+  const roleDesc={'super-admin':'Administrator','assignee':'Assignee','top-mgmt':'Top Management','developer':'Developer Mode'};
+  const roleIni={'super-admin':'SA','assignee':'RK','top-mgmt':'VP','developer':'DV'};
+  const roleCol={'super-admin':'#bae6fd','assignee':'#dcfce7','top-mgmt':'#fee2e2','developer':'#fef3c7'};
+  const roleTc={'super-admin':'#0284c7','assignee':'#16a34a','top-mgmt':'#dc2626','developer':'#d97706'};
   document.getElementById('un').textContent=roleLabels[r];
   document.getElementById('ur').textContent=roleDesc[r];
+  const a=document.getElementById('ua');
+  a.textContent=roleIni[r];a.style.background=roleCol[r];a.style.color=roleTc[r];
+  const isDev=r==='developer';
+  document.getElementById('dev-mode-banner').style.display=isDev?'block':'none';
+  document.getElementById('dev-topbadge').style.display=isDev?'flex':'none';
+  buildNav();
   showToast(`Switched to ${roleLabels[r]} view`,'info');
   navigate('dashboard');
 }
@@ -493,22 +694,37 @@ function filterMeetings(q){
    TASKS
 ═══════════════════════════════════════════ */
 function renderTasks(){
+  selectedTasks=new Set();
+  const isSA=currentRole==='super-admin';
   document.getElementById('content').innerHTML=`
   <div class="tabs" id="task-tabs">
     ${['All','In Progress','Overdue','Pending','Completed'].map((l,i)=>`<div class="tab${i===0?' active':''}" onclick="filterTasks('${l.toLowerCase().replace(' ','-')}',this)">${l}</div>`).join('')}
   </div>
+  ${isSA?`<div id="task-sel-bar" class="task-sel-bar" style="display:none;">
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M13 4L6 11 3 8"/></svg>
+    <span id="sel-count">0 tasks selected</span>
+    <button class="btn ber bs" style="margin-left:auto;" onclick="deleteSelectedTasks()">
+      <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M2 4h12M5 4V2h6v2M6 7v5M10 7v5M3 4l1 9a1 1 0 001 1h6a1 1 0 001-1l1-9"/></svg>
+      Delete Selected
+    </button>
+    <button class="btn bs" onclick="clearTaskSelection()">Clear</button>
+  </div>`:''}
   <div class="card" style="padding:0;"><div class="tw" id="ttbl">${taskRows(TASKS)}</div></div>`;
 }
 function filterTasks(s,el){
   document.querySelectorAll('#task-tabs .tab').forEach(t=>t.classList.remove('active'));
   el.classList.add('active');
+  selectedTasks=new Set();
+  updateSelBar();
   const myT=currentRole==='assignee'?TASKS.filter(t=>t.uid===1):TASKS;
   const f=s==='all'?myT:myT.filter(t=>t.status===s);
   document.getElementById('ttbl').innerHTML=taskRows(f);
 }
 function taskRows(data){
-  return`<table><thead><tr><th>Task</th><th>Meeting</th><th>Assignee</th><th>Due</th><th>Priority</th><th>Progress</th><th>Status</th><th>Escalation</th><th></th></tr></thead><tbody>
-  ${data.map(t=>{const u=gu(t.uid);return`<tr>
+  const isSA=currentRole==='super-admin';
+  const cbHeader=isSA?`<th style="width:32px;padding:9px 6px 9px 12px;"><input type="checkbox" class="task-cb" id="cb-all" onclick="toggleSelectAll(this)" title="Select all"></th>`:'';
+  const rows=data.map(t=>{const u=gu(t.uid);const cbCell=isSA?`<td style="padding:10px 6px 10px 12px;"><input type="checkbox" class="task-cb task-row-cb" value="${t.id}" onchange="toggleTaskSelect('${t.id}',this)"></td>`:'';return`<tr>
+    ${cbCell}
     <td style="font-weight:500;max-width:180px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${t.title}">${t.title}</td>
     <td><span style="font-family:var(--mo);font-size:10px;color:var(--ac);">${t.mno}</span></td>
     <td>${ma(u)}</td>
@@ -518,7 +734,49 @@ function taskRows(data){
     <td>${sb(t.status)}</td>
     <td>${eb(t.esc)}</td>
     <td><button class="btn bs" onclick="openModal('task','${t.id}')">Update</button></td>
-  </tr>`}).join('')}</tbody></table>`;
+  </tr>`}).join('');
+  return`<table><thead><tr>${cbHeader}<th>Task</th><th>Meeting</th><th>Assignee</th><th>Due</th><th>Priority</th><th>Progress</th><th>Status</th><th>Escalation</th><th></th></tr></thead><tbody>${rows}</tbody></table>`;
+}
+function toggleTaskSelect(id,cb){
+  if(cb.checked)selectedTasks.add(id);else selectedTasks.delete(id);
+  updateSelBar();
+  // sync select-all
+  const allCbs=document.querySelectorAll('.task-row-cb');
+  const allChecked=[...allCbs].every(c=>c.checked);
+  const cbAll=document.getElementById('cb-all');
+  if(cbAll)cbAll.checked=allChecked;
+}
+function toggleSelectAll(cb){
+  document.querySelectorAll('.task-row-cb').forEach(c=>{
+    c.checked=cb.checked;
+    if(cb.checked)selectedTasks.add(c.value);else selectedTasks.delete(c.value);
+  });
+  updateSelBar();
+}
+function clearTaskSelection(){
+  selectedTasks=new Set();
+  document.querySelectorAll('.task-row-cb').forEach(c=>c.checked=false);
+  const cbAll=document.getElementById('cb-all');
+  if(cbAll)cbAll.checked=false;
+  updateSelBar();
+}
+function updateSelBar(){
+  const bar=document.getElementById('task-sel-bar');
+  if(!bar)return;
+  const n=selectedTasks.size;
+  bar.style.display=n>0?'flex':'none';
+  const cnt=document.getElementById('sel-count');
+  if(cnt)cnt.textContent=`${n} task${n!==1?'s':''} selected`;
+}
+function deleteSelectedTasks(){
+  if(selectedTasks.size===0){showToast('No tasks selected','warn');return;}
+  if(!confirm(`Delete ${selectedTasks.size} selected task${selectedTasks.size!==1?'s':''}? This cannot be undone.`))return;
+  const ids=[...selectedTasks];
+  TASKS=TASKS.filter(t=>!ids.includes(t.id));
+  AUDIT_LOG.unshift({time:new Date().toISOString().slice(0,16).replace('T',' '),user:'Super Admin',action:`Bulk deleted ${ids.length} task${ids.length!==1?'s':''}: ${ids.join(', ')}`,entity:'BULK',type:'delete'});
+  selectedTasks=new Set();
+  showToast(`${ids.length} task${ids.length!==1?'s':''} deleted successfully.`,'ok');
+  renderTasks();
 }
 
 /* ═══════════════════════════════════════════
@@ -700,8 +958,8 @@ function renderAudit(){
   </div>`;
 }
 function auditTable(data){
-  const cols={escalation:'var(--el)',update:'var(--al)',notification:'var(--wl)',import:'var(--ol)',create:'var(--il)',config:'var(--bg3)'};
-  const tcols={escalation:'var(--er)',update:'var(--ac)',notification:'var(--wn)',import:'var(--ok)',create:'var(--in)',config:'var(--t2)'};
+  const cols={escalation:'var(--el)',update:'var(--al)',notification:'var(--wl)',import:'var(--ol)',create:'var(--il)',config:'var(--bg3)',delete:'var(--el)'};
+  const tcols={escalation:'var(--er)',update:'var(--ac)',notification:'var(--wn)',import:'var(--ok)',create:'var(--in)',config:'var(--t2)',delete:'var(--er)'};
   return`<table><thead><tr><th>Time</th><th>User</th><th>Action</th><th>Entity</th><th>Type</th></tr></thead><tbody>
   ${data.map(a=>`<tr><td style="font-family:var(--mo);font-size:11px;white-space:nowrap;">${a.time}</td><td style="font-size:12px;">${a.user}</td><td style="font-size:12px;">${a.action}</td><td><span style="font-family:var(--mo);font-size:10px;color:var(--ac);">${a.entity}</span></td><td><span class="bdg" style="background:${cols[a.type]||'var(--bg3)'};color:${tcols[a.type]||'var(--t2)'};">${a.type}</span></td></tr>`).join('')}</tbody></table>`;
 }
@@ -1061,10 +1319,118 @@ function renderMeetingDetailModal(meetingId){
 }
 
 /* ═══════════════════════════════════════════
+   DEVELOPER PAGES
+═══════════════════════════════════════════ */
+function devGate(){
+  if(currentRole!=='developer'){
+    document.getElementById('content').innerHTML=`<div class="card" style="text-align:center;padding:48px;"><div style="font-size:30px;margin-bottom:12px;">⚡</div><div style="font-size:15px;font-weight:600;">Developer Mode Only</div><div style="font-size:13px;color:var(--t2);margin-top:6px;">Switch to Developer role to access this section.</div></div>`;
+    return false;
+  }
+  return true;
+}
+
+function renderDevConsole(){
+  if(!devGate())return;
+  const logs=[
+    {t:'14:32:01',lvl:'INFO',msg:'Firebase connection established — latency 42ms'},
+    {t:'14:31:58',lvl:'INFO',msg:'Auth session started for user: developer'},
+    {t:'14:31:55',lvl:'WARN',msg:'Email SMTP retry #2 — smtp.office365.com timeout'},
+    {t:'14:31:40',lvl:'INFO',msg:'TASKS array loaded — 7 records'},
+    {t:'14:31:40',lvl:'INFO',msg:'MEETINGS array loaded — 4 records'},
+    {t:'14:31:39',lvl:'ERROR',msg:'Audit log write failed: network unreachable (retrying)'},
+    {t:'14:31:38',lvl:'INFO',msg:'App initialised — version 2.4.1-dev'},
+  ];
+  const lc={INFO:'var(--ok)',WARN:'var(--wn)',ERROR:'var(--er)'};
+  document.getElementById('content').innerHTML=`
+  <div style="max-width:760px;">
+    <div class="card" style="padding:0;margin-bottom:18px;">
+      <div style="padding:12px 18px;border-bottom:1px solid var(--br);display:flex;align-items:center;justify-content:space-between;">
+        <div class="ctit" style="display:flex;align-items:center;gap:8px;"><span style="color:var(--wn);">⚡</span> Live Console</div>
+        <div style="display:flex;gap:8px;">
+          <button class="btn bs" onclick="showToast('Console cleared','info')">Clear</button>
+          <button class="btn bs bp" onclick="showToast('Logs exported to dev-console.log','ok')">Export Logs</button>
+        </div>
+      </div>
+      <div style="background:#0d1117;border-radius:0 0 var(--r) var(--r);padding:16px;font-family:var(--mo);font-size:12px;line-height:1.8;max-height:320px;overflow-y:auto;">
+        ${logs.map(l=>`<div><span style="color:#6b7280;">${l.t}</span> <span style="color:${lc[l.lvl]};font-weight:700;">[${l.lvl}]</span> <span style="color:#e5e7eb;">${l.msg}</span></div>`).join('')}
+      </div>
+    </div>
+    <div class="card" style="margin-bottom:18px;">
+      <div class="ch"><div class="ctit">Run Diagnostic</div></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        ${['Firebase Ping','SMTP Test','Auth Check','DB Integrity','Cache Flush','Re-index Tasks'].map(d=>`<button class="btn bs" onclick="showToast('${d} — passed ✓','ok')">${d}</button>`).join('')}
+      </div>
+    </div>
+    <div class="card">
+      <div class="ch"><div class="ctit">Quick Data Edit (Dev Only)</div></div>
+      <div class="code">${JSON.stringify({tasks:TASKS.length,meetings:MEETINGS.length,users:USERS.length,comments:Object.keys(COMMENTS).length},null,2)}</div>
+      <div style="margin-top:12px;display:flex;gap:8px;">
+        <button class="btn bs" onclick="showToast('Data snapshot copied to clipboard','ok')">Copy JSON</button>
+        <button class="btn bs ber" onclick="showToast('Seed data reset to defaults','warn')">Reset Seed Data</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+function renderDevApi(){
+  if(!devGate())return;
+  document.getElementById('content').innerHTML=`
+  <div style="max-width:680px;">
+    <div class="card" style="margin-bottom:18px;">
+      <div class="ch"><div class="ctit">API Endpoints</div><span class="bdg b-ok">v2.4.1</span></div>
+      ${[['POST','/api/tasks','Create task'],['GET','/api/tasks/:id','Fetch task by ID'],['PATCH','/api/tasks/:id','Update task'],['DELETE','/api/tasks/:id','Delete task'],['POST','/api/meetings','Create meeting'],['GET','/api/meetings','List meetings'],['POST','/api/notify','Send notification'],['GET','/api/audit','Fetch audit trail']].map(([m,p,d])=>`
+      <div style="display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--br);font-size:12px;">
+        <span class="bdg ${m==='GET'?'b-ok':m==='POST'?'b-in':m==='PATCH'?'b-wn':'b-er'}" style="min-width:52px;justify-content:center;">${m}</span>
+        <code style="font-family:var(--mo);color:var(--ac);flex:1;">${p}</code>
+        <span style="color:var(--t2);">${d}</span>
+        <button class="btn bs" onclick="showToast('Copied: ${p}','info')">Copy</button>
+      </div>`).join('')}
+    </div>
+    <div class="card">
+      <div class="ch"><div class="ctit">Auth Token</div></div>
+      <div class="fg"><label>BEARER TOKEN (DEV)</label><input type="password" value="dev_tok_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" style="font-family:var(--mo);font-size:11px;"></div>
+      <div style="display:flex;gap:8px;">
+        <button class="btn bs" onclick="showToast('Token rotated — copy new token','warn')">Rotate Token</button>
+        <button class="btn bs bp" onclick="showToast('Token copied','ok')">Copy Token</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+function renderDevSystem(){
+  if(!devGate())return;
+  document.getElementById('content').innerHTML=`
+  <div class="g2" style="max-width:760px;">
+    <div class="card">
+      <div class="ch"><div class="ctit">System Info</div></div>
+      ${[['App Version','2.4.1-dev'],['Environment','Development'],['Firebase Project','mom-pro-dev'],['Node Version','20.11.0'],['Last Deploy','2024-02-12 08:00 UTC'],['Uptime','4h 32m'],['Memory Usage','128 MB / 512 MB'],['Active Sessions','1 (dev)']].map(([k,v])=>`
+      <div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--br);font-size:12px;">
+        <span style="color:var(--t2);">${k}</span>
+        <span style="font-family:var(--mo);font-weight:500;">${v}</span>
+      </div>`).join('')}
+    </div>
+    <div class="card">
+      <div class="ch"><div class="ctit">Feature Flags</div></div>
+      ${[['AI task suggestions','Enabled'],['Email via Office 365','Enabled'],['Bulk import','Enabled'],['MoM auto-PDF','Disabled'],['WhatsApp notify','Disabled'],['Biometric auth','Disabled']].map(([f,s])=>`
+      <div style="display:flex;align-items:center;padding:7px 0;border-bottom:1px solid var(--br);">
+        <span style="font-size:12px;flex:1;">${f}</span>
+        <span class="bdg ${s==='Enabled'?'b-ok':'b-df'}">${s}</span>
+        <div class="tgl ${s==='Enabled'?'on':''}" style="margin-left:10px;" onclick="this.classList.toggle('on');showToast('Flag toggled — restart to apply','warn')"></div>
+      </div>`).join('')}
+    </div>
+  </div>`;
+}
+
+/* ═══════════════════════════════════════════
    INIT
 ═══════════════════════════════════════════ */
 buildNav();
 navigate('dashboard');
+// Show login screen on load
+initLogin();
+showLoginScreen();
+// Hide role switcher initially (shown after admin/dev login)
+document.getElementById('role-sw').style.display='none';
 </script>
 </body>
 </html>
