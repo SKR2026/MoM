@@ -366,10 +366,10 @@ function renderDashboard(){
     <div class="card">
       <div class="ch"><div class="ctit">Task Status</div></div>
       <div style="display:flex;align-items:center;gap:20px;">
-        <svg width="110" height="110" viewBox="0 0 110 110">
-          ${donut([comp,inp,over,myTasks.filter(t=>t.status==='pending').length],['#16a34a','#2563eb','#dc2626','#9ca3af'],55,38)}
-          <text x="55" y="51" text-anchor="middle" font-size="18" font-weight="600" fill="currentColor">${pct}%</text>
-          <text x="55" y="64" text-anchor="middle" font-size="10" fill="var(--t3)">done</text>
+        <svg width="180" height="180" viewBox="0 0 180 180">
+          ${donut([comp,inp,over,myTasks.filter(t=>t.status==='pending').length],['#16a34a','#2563eb','#dc2626','#9ca3af'],90,68)}
+          <text x="90" y="86" text-anchor="middle" font-size="26" font-weight="600" fill="currentColor">${pct}%</text>
+          <text x="90" y="103" text-anchor="middle" font-size="13" fill="var(--t3)">done</text>
         </svg>
         <div style="flex:1;">
           ${[['Completed','#16a34a',comp],['In Progress','#2563eb',inp],['Overdue','#dc2626',over],['Pending','#9ca3af',myTasks.filter(t=>t.status==='pending').length]].map(([l,c,v])=>`
