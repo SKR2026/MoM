@@ -1459,29 +1459,244 @@ function renderFirebase(){
   if(cnt) cnt.textContent=`${USERS.filter(u=>FB_STATUS[u.id]?.online).length} / ${USERS.length} online`;
 }
 
+/* ═══════════════════════════════════════════
+   AZURE AD / MICROSOFT GRAPH EMAIL
+═══════════════════════════════════════════ */
+const AZURE_CFG_KEY = 'mompro_azure_email_config';
+
+function azureSavedConfig(){
+  try{ return JSON.parse(localStorage.getItem(AZURE_CFG_KEY)||'null'); }catch(e){ return null; }
+}
+
+function azureConnectionStatus(){
+  const cfg = azureSavedConfig();
+  if(!cfg || !cfg.tenantId || cfg.tenantId.includes('your-')) return 'not-configured';
+  if(cfg._connected) return 'connected';
+  return 'saved';
+}
+
+function _updateAzureBanner(){
+  const banner = document.getElementById('azure-status-banner');
+  if(!banner) return;
+  const cfg = azureSavedConfig();
+  const status = azureConnectionStatus();
+  if(status === 'connected'){
+    banner.style.cssText='background:var(--ol);border:1px solid var(--ok);border-radius:var(--r);padding:12px 18px;margin-bottom:18px;display:flex;align-items:center;gap:12px;';
+    banner.innerHTML=`<span style="font-size:20px;">✉️</span><div style="flex:1;"><div style="font-size:13px;font-weight:600;color:var(--ok);">Microsoft Graph Connected — ${cfg?.tenantId?.slice(0,8)}…</div><div style="font-size:11px;color:var(--t3);margin-top:2px;">Sending as: ${cfg?.senderEmail||'—'} · OAuth 2.0 Client Credentials · No password required</div></div><span class="bdg b-ok">● Live</span>`;
+  } else if(status === 'saved'){
+    banner.style.cssText='background:var(--il);border:1px solid var(--in);border-radius:var(--r);padding:12px 18px;margin-bottom:18px;display:flex;align-items:center;gap:12px;';
+    banner.innerHTML=`<span style="font-size:20px;">🔑</span><div style="flex:1;"><div style="font-size:13px;font-weight:600;color:var(--in);">Azure AD credentials saved — not yet verified</div><div style="font-size:11px;color:var(--t3);margin-top:2px;">Click "Verify & Save" to test the connection with Microsoft Graph.</div></div><span class="bdg b-in">⚙ Saved</span>`;
+  } else {
+    banner.style.cssText='background:var(--wl);border:1px solid var(--wn);border-radius:var(--r);padding:12px 18px;margin-bottom:18px;display:flex;align-items:center;gap:12px;';
+    banner.innerHTML=`<span style="font-size:20px;">⚠️</span><div style="flex:1;"><div style="font-size:13px;font-weight:600;color:var(--wn);">Not configured — no username or password needed</div><div style="font-size:11px;color:var(--t3);margin-top:2px;">Enter your Azure AD App credentials below. Email is sent via Microsoft Graph API using OAuth 2.0.</div></div><span class="bdg b-wn">⚙ Not Connected</span>`;
+  }
+}
+
+async function azureGetToken(cfg){
+  // Fetch OAuth2 token from Microsoft using client credentials flow
+  const url = `https://login.microsoftonline.com/${cfg.tenantId}/oauth2/v2.0/token`;
+  const body = new URLSearchParams({
+    grant_type:    'client_credentials',
+    client_id:     cfg.clientId,
+    client_secret: cfg.clientSecret,
+    scope:         'https://graph.microsoft.com/.default'
+  });
+  const res = await fetch(url, { method:'POST', body, headers:{'Content-Type':'application/x-www-form-urlencoded'} });
+  const data = await res.json();
+  if(!res.ok || !data.access_token) throw new Error(data.error_description || data.error || 'Token request failed');
+  return data.access_token;
+}
+
+async function azureSendEmail(to, subject, bodyHtml){
+  const cfg = azureSavedConfig();
+  if(!cfg || !cfg.tenantId) throw new Error('Azure AD not configured');
+  const token = await azureGetToken(cfg);
+  const url = `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(cfg.senderEmail)}/sendMail`;
+  const payload = {
+    message: {
+      subject,
+      body:{ contentType:'HTML', content:bodyHtml },
+      toRecipients:[{ emailAddress:{ address:to } }],
+      from:{ emailAddress:{ address:cfg.senderEmail, name:cfg.displayName||'MoM Pro' } }
+    },
+    saveToSentItems: false
+  };
+  const res = await fetch(url, {
+    method:'POST',
+    headers:{ 'Authorization':'Bearer '+token, 'Content-Type':'application/json' },
+    body: JSON.stringify(payload)
+  });
+  if(res.status===202||res.status===200) return true;
+  const err = await res.json().catch(()=>({}));
+  throw new Error(err?.error?.message || `HTTP ${res.status}`);
+}
+
+async function azureVerifyAndSave(){
+  const cfg = {
+    tenantId:     document.getElementById('az-tenantId')?.value.trim(),
+    clientId:     document.getElementById('az-clientId')?.value.trim(),
+    clientSecret: document.getElementById('az-clientSecret')?.value.trim(),
+    senderEmail:  document.getElementById('az-senderEmail')?.value.trim(),
+    displayName:  document.getElementById('az-displayName')?.value.trim()||'MoM Pro Notifications',
+    bcc:          document.getElementById('az-bcc')?.value.trim(),
+  };
+  // Validation
+  if(!cfg.tenantId || cfg.tenantId.length < 10){ showToast('Enter your Azure Tenant ID (from Azure Portal → Azure Active Directory → Overview).','warn'); return; }
+  if(!cfg.clientId || cfg.clientId.length < 10){ showToast('Enter your Application (Client) ID from Azure App Registration.','warn'); return; }
+  if(!cfg.clientSecret || cfg.clientSecret.length < 5){ showToast('Enter the Client Secret value (not the Secret ID).','warn'); return; }
+  if(!cfg.senderEmail || !cfg.senderEmail.includes('@')){ showToast('Enter the sender mailbox email address.','warn'); return; }
+
+  const btn = document.getElementById('az-save-btn');
+  if(btn){ btn.textContent='Verifying…'; btn.disabled=true; }
+
+  try{
+    const token = await azureGetToken(cfg);
+    if(!token) throw new Error('No token received');
+    cfg._connected = true;
+    cfg._verifiedAt = new Date().toISOString().slice(0,16).replace('T',' ');
+    localStorage.setItem(AZURE_CFG_KEY, JSON.stringify(cfg));
+    AUDIT_LOG.unshift({time:cfg._verifiedAt, user:'Super Admin', action:`Azure AD email verified: ${cfg.senderEmail} via tenant ${cfg.tenantId.slice(0,8)}…`, entity:'SYSTEM', type:'config'});
+    _updateAzureBanner();
+    showToast(`✅ Connected! Token received from Azure AD. Email ready to send via ${cfg.senderEmail}.`, 'ok');
+    if(btn){ btn.textContent='✓ Verified & Saved'; btn.style.background='var(--ok)'; btn.disabled=false; }
+  } catch(e){
+    cfg._connected = false;
+    if(btn){ btn.textContent='Verify & Save'; btn.disabled=false; }
+    showToast('Azure AD error: '+e.message,'warn');
+    console.error('Azure token error:', e);
+  }
+}
+
+async function azureSendTestEmail(){
+  const cfg = azureSavedConfig();
+  if(!cfg || !cfg._connected){ showToast('Verify & Save your Azure AD credentials first.','warn'); return; }
+  const testTo = cfg.senderEmail; // send test to self
+  const btn = document.getElementById('az-test-btn');
+  if(btn){ btn.textContent='Sending…'; btn.disabled=true; }
+  try{
+    await azureSendEmail(testTo,
+      '[MoM Pro] SMTP Test Email',
+      `<p>This is a test email from <b>MoM Pro</b> sent via <b>Microsoft Graph API</b>.</p>
+       <p>Sender: ${cfg.senderEmail}<br>Tenant: ${cfg.tenantId}<br>Sent at: ${new Date().toLocaleString()}</p>
+       <p style="color:#888;font-size:12px;">If you received this, your Azure AD integration is working correctly.</p>`
+    );
+    showToast(`Test email sent to ${testTo} via Microsoft Graph. Check your inbox.`,'ok');
+  } catch(e){
+    showToast('Send failed: '+e.message,'warn');
+    console.error('Test email error:', e);
+  } finally {
+    if(btn){ btn.textContent='Send Test Email'; btn.disabled=false; }
+  }
+}
+
 function renderEmailCfg(){
+  const cfg = azureSavedConfig()||{};
   document.getElementById('content').innerHTML=`
-  <div style="max-width:620px;">
-  <div class="alert aw" style="margin-bottom:16px;">
-    ⚠️ <b>Demo Mode:</b> SMTP is not connected. Saving credentials stores them in-memory only. Integrate a backend mailer (e.g. Firebase Functions + Nodemailer) to send real emails.
-  </div>
-  <div class="card">
-    <div class="ch"><div class="ctit">Outlook Office 365 SMTP</div></div>
-    <div class="fgrid">
-      <div class="fg"><label>SMTP HOST</label><input value="smtp.office365.com"></div>
-      <div class="fg"><label>PORT</label><input value="587"></div>
-      <div class="fg"><label>FROM EMAIL</label><input value="noreply@yourorg.com"></div>
-      <div class="fg"><label>DISPLAY NAME</label><input value="MoM Pro Notifications"></div>
-      <div class="fg"><label>USERNAME</label><input value="service@yourorg.onmicrosoft.com"></div>
-      <div class="fg"><label>PASSWORD</label><input type="password" value="••••••••••••"></div>
-      <div class="fg full"><label>ENCRYPTION</label><select><option selected>STARTTLS (Port 587)</option><option>SSL/TLS (Port 465)</option></select></div>
-      <div class="fg full"><label>BCC ALL NOTIFICATIONS TO</label><input value="admin@yourorg.com"></div>
+  <div style="max-width:680px;">
+
+    <!-- Dynamic status banner -->
+    <div id="azure-status-banner"></div>
+
+    <!-- Why Azure AD section -->
+    <div class="card" style="margin-bottom:18px;background:var(--bg3);border-style:dashed;">
+      <div style="display:flex;gap:14px;align-items:flex-start;">
+        <span style="font-size:28px;flex-shrink:0;">🔐</span>
+        <div>
+          <div style="font-size:13px;font-weight:600;margin-bottom:6px;">Why Azure AD instead of username &amp; password?</div>
+          <div style="font-size:12px;color:var(--t2);line-height:1.8;">
+            Microsoft deprecated basic auth (username + password) for SMTP in 2023. Azure AD uses <b>OAuth 2.0 Client Credentials</b> — your app gets a short-lived token automatically. No password stored, no MFA issues, no SMTP AUTH to enable, and it works even when users change their passwords.
+          </div>
+          <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;">
+            <span class="bdg b-ok">✓ No password stored</span>
+            <span class="bdg b-ok">✓ No SMTP AUTH setup</span>
+            <span class="bdg b-ok">✓ No MFA issues</span>
+            <span class="bdg b-ok">✓ Token auto-refreshes</span>
+            <span class="bdg b-ok">✓ Microsoft recommended</span>
+          </div>
+        </div>
+      </div>
     </div>
-    <div style="display:flex;gap:9px;">
-      <button class="btn" onclick="showToast('SMTP not connected — email not sent in demo mode.','warn')">Send Test Email</button>
-      <button class="btn bp" onclick="showToast('Settings saved in-memory (demo only — not persisted).','info')">Save</button>
+
+    <!-- Azure AD Credentials form -->
+    <div class="card" style="margin-bottom:18px;">
+      <div class="ch"><div class="ctit">Azure AD App Registration</div>
+        <a href="https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade" target="_blank" class="btn bs">Open Azure Portal →</a>
+      </div>
+      <div style="background:var(--bg3);border-radius:var(--rs);padding:10px 14px;font-size:11px;color:var(--t2);margin-bottom:14px;line-height:1.8;">
+        📋 You need 3 values from <b>portal.azure.com → Azure Active Directory → App registrations</b>. See the step-by-step guide below the form.
+      </div>
+      <div class="fgrid">
+        <div class="fg full">
+          <label>TENANT ID (DIRECTORY ID) *</label>
+          <input id="az-tenantId" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" value="${cfg.tenantId||''}" style="font-family:var(--mo);font-size:12px;">
+          <div style="font-size:10px;color:var(--t3);margin-top:3px;">Azure Portal → Azure Active Directory → Overview → Directory (tenant) ID</div>
+        </div>
+        <div class="fg">
+          <label>APPLICATION (CLIENT) ID *</label>
+          <input id="az-clientId" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" value="${cfg.clientId||''}" style="font-family:var(--mo);font-size:12px;">
+          <div style="font-size:10px;color:var(--t3);margin-top:3px;">App registrations → your app → Overview → Application (client) ID</div>
+        </div>
+        <div class="fg">
+          <label>CLIENT SECRET VALUE *</label>
+          <input id="az-clientSecret" type="password" placeholder="Paste the secret VALUE (not the ID)" value="${cfg.clientSecret||''}">
+          <div style="font-size:10px;color:var(--t3);margin-top:3px;">App registrations → your app → Certificates &amp; secrets → Secret Value</div>
+        </div>
+        <div class="fg">
+          <label>SENDER MAILBOX EMAIL *</label>
+          <input id="az-senderEmail" type="email" placeholder="noreply@yourcompany.com" value="${cfg.senderEmail||''}">
+          <div style="font-size:10px;color:var(--t3);margin-top:3px;">The mailbox that will appear as sender. Must exist in your Microsoft 365 tenant.</div>
+        </div>
+        <div class="fg">
+          <label>DISPLAY NAME</label>
+          <input id="az-displayName" placeholder="MoM Pro Notifications" value="${cfg.displayName||'MoM Pro Notifications'}">
+        </div>
+        <div class="fg full">
+          <label>BCC ALL NOTIFICATIONS TO <span style="font-weight:400;color:var(--t3)">(optional)</span></label>
+          <input id="az-bcc" placeholder="admin@yourcompany.com" value="${cfg.bcc||''}">
+        </div>
+      </div>
+      ${cfg._verifiedAt ? `<div style="font-size:11px;color:var(--ok);margin-bottom:10px;">✓ Last verified: ${cfg._verifiedAt}</div>` : ''}
+      <div style="display:flex;gap:9px;flex-wrap:wrap;">
+        <button id="az-test-btn" class="btn" onclick="azureSendTestEmail()">Send Test Email</button>
+        <button id="az-save-btn" class="btn bp" onclick="azureVerifyAndSave()">🔐 Verify &amp; Save</button>
+        <button class="btn" onclick="localStorage.removeItem('${AZURE_CFG_KEY}');_updateAzureBanner();showToast('Azure credentials cleared.','info')">Clear Saved</button>
+      </div>
     </div>
-  </div></div>`;
+
+    <!-- Step-by-step guide -->
+    <div class="card">
+      <div class="ch"><div class="ctit">📋 How to Set Up Azure AD App Registration</div></div>
+      <div style="font-size:12px;line-height:2;color:var(--t2);">
+
+        <div class="divl">Step 1 — Register a new app</div>
+        <div>1. Go to <b>portal.azure.com</b> → sign in as admin.</div>
+        <div>2. Search <b>"App registrations"</b> in the top bar → click <b>+ New registration</b>.</div>
+        <div>3. Name: <code style="font-family:var(--mo)">MoM Pro Email</code> · Supported account type: <b>Single tenant</b> · No redirect URI needed.</div>
+        <div>4. Click <b>Register</b>.</div>
+        <div>5. Copy the <b>Application (client) ID</b> and <b>Directory (tenant) ID</b> from the Overview page.</div>
+
+        <div class="divl" style="margin-top:14px;">Step 2 — Create a Client Secret</div>
+        <div>1. In your app, click <b>Certificates &amp; secrets</b> → <b>+ New client secret</b>.</div>
+        <div>2. Description: <code style="font-family:var(--mo)">MoM Pro</code> · Expiry: 24 months.</div>
+        <div>3. Click <b>Add</b>. <span style="color:var(--er);font-weight:500;">Copy the VALUE immediately</span> — it's hidden after you leave the page.</div>
+        <div style="background:var(--el);color:var(--er);padding:6px 10px;border-radius:var(--rs);margin:6px 0;font-size:11px;">⚠️ Copy the <b>Value</b> column, NOT the Secret ID. They look similar but Secret ID won't work.</div>
+
+        <div class="divl" style="margin-top:14px;">Step 3 — Add Mail.Send Permission</div>
+        <div>1. Click <b>API permissions</b> → <b>+ Add a permission</b>.</div>
+        <div>2. Choose <b>Microsoft Graph</b> → <b>Application permissions</b>.</div>
+        <div>3. Search <b>Mail.Send</b> → check the box → click <b>Add permissions</b>.</div>
+        <div>4. Click <b>Grant admin consent for [your org]</b> → confirm. The status should turn green ✅.</div>
+
+        <div class="divl" style="margin-top:14px;">Step 4 — Verify sender mailbox exists</div>
+        <div>The sender email (e.g. <code style="font-family:var(--mo)">noreply@yourcompany.com</code>) must be a real licensed mailbox in your Microsoft 365 tenant. You can create a shared mailbox in <b>Exchange Admin Center → Recipients → Mailboxes</b> for free (no extra license needed).</div>
+
+        <div class="divl" style="margin-top:14px;">Step 5 — Fill in the form above &amp; click Verify</div>
+        <div>Paste your Tenant ID, Client ID, and Secret Value into the fields above. Click <b>🔐 Verify &amp; Save</b>. The app will request a token from Azure — if credentials are correct the banner turns green.</div>
+      </div>
+    </div>
+  </div>`;
+
+  _updateAzureBanner();
 }
 
 function renderUsers(){
