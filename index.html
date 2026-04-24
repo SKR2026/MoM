@@ -1118,91 +1118,322 @@ function renderEmailLog(){
 /* ═══════════════════════════════════════════
    SETTINGS
 ═══════════════════════════════════════════ */
-/* Firebase simulated live presence state */
-const FB_STATUS={
-  1:{online:true,  lastSeen:'Active now',    authProvider:'email',sessions:1,lastLogin:'2024-02-12 09:10'},
-  2:{online:true,  lastSeen:'Active now',    authProvider:'email',sessions:1,lastLogin:'2024-02-12 08:45'},
-  3:{online:false, lastSeen:'2 hours ago',   authProvider:'email',sessions:0,lastLogin:'2024-02-12 07:30'},
-  4:{online:false, lastSeen:'Yesterday',     authProvider:'email',sessions:0,lastLogin:'2024-02-11 14:22'},
-  5:{online:true,  lastSeen:'Active now',    authProvider:'google',sessions:2,lastLogin:'2024-02-12 09:00'},
-};
-function fbDot(online){return`<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${online?'var(--ok)':'var(--br2)'};margin-right:5px;${online?'box-shadow:0 0 0 3px rgba(22,163,74,.2)':''}"></span>`;}
-function fbStatusBadge(online){return online?'<span class="bdg b-ok">● Online</span>':'<span class="bdg b-df">○ Offline</span>';}
+/* ═══════════════════════════════════════════
+   FIREBASE REAL INTEGRATION
+═══════════════════════════════════════════ */
 
-function renderFirebase(){
-  const connOk=true; // simulated
-  document.getElementById('content').innerHTML=`
-  <div style="max-width:760px;">
-    <div class="alert aw" style="margin-bottom:14px;">Super Admin only — changes affect all users.</div>
+// Persisted config in localStorage so it survives page reload
+const FB_CONFIG_KEY = 'mompro_firebase_config';
+let _fbApp = null, _fbAuth = null, _fbDb = null;
+let FB_STATUS = {};  // uid(number) → {online, lastSeen, authProvider, sessions, lastLogin}
 
-    <!-- Demo mode notice -->
-    <div style="background:var(--wl);border:1px solid var(--wn);border-radius:var(--r);padding:12px 18px;margin-bottom:18px;display:flex;align-items:center;gap:12px;">
+function fbSavedConfig(){
+  try{ return JSON.parse(localStorage.getItem(FB_CONFIG_KEY)||'null'); }catch(e){ return null; }
+}
+
+function fbDot(online){
+  return `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${online?'var(--ok)':'var(--br2)'};margin-right:5px;${online?'box-shadow:0 0 0 3px rgba(22,163,74,.2)':''}"></span>`;
+}
+function fbStatusBadge(online){
+  return online ? '<span class="bdg b-ok">● Online</span>' : '<span class="bdg b-df">○ Offline</span>';
+}
+
+/* Load Firebase SDK scripts dynamically then call cb() */
+function loadFirebaseSDK(cb){
+  if(window.firebase && window.firebase.auth){ cb(); return; }
+  const scripts=[
+    'https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js',
+    'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js',
+    'https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js'
+  ];
+  let loaded=0;
+  scripts.forEach(src=>{
+    const s=document.createElement('script');
+    s.src=src;
+    s.onload=()=>{ if(++loaded===scripts.length) cb(); };
+    s.onerror=()=>{ showToast('Failed to load Firebase SDK — check internet connection.','warn'); };
+    document.head.appendChild(s);
+  });
+}
+
+/* Initialise (or re-initialise) Firebase with given config object */
+function initFirebase(cfg){
+  if(!window.firebase) return false;
+  try{
+    // Delete existing app if re-initialising
+    if(_fbApp){ try{ _fbApp.delete(); }catch(e){} }
+    _fbApp = firebase.initializeApp(cfg, 'mompro-'+Date.now());
+    _fbAuth = _fbApp.auth();
+    _fbDb   = _fbApp.database();
+    return true;
+  } catch(e){
+    console.error('Firebase init error:', e);
+    return false;
+  }
+}
+
+/* Write this user's presence to Realtime DB */
+function fbSetPresence(uid, email){
+  if(!_fbDb) return;
+  const ref = _fbDb.ref('presence/'+uid);
+  const ts  = new Date().toISOString().slice(0,16).replace('T',' ');
+  ref.set({ online:true, lastSeen:'Active now', lastLogin:ts, email });
+  ref.onDisconnect().update({ online:false, lastSeen:'Just now' });
+}
+
+/* Subscribe to all users' presence */
+function fbWatchPresence(){
+  if(!_fbDb) return;
+  _fbDb.ref('presence').on('value', snap=>{
+    const data = snap.val()||{};
+    // Merge into FB_STATUS keyed by app user id matched by email
+    USERS.forEach(u=>{
+      const match = Object.values(data).find(d=>d.email===u.email);
+      if(match){
+        FB_STATUS[u.id]={
+          online: match.online||false,
+          lastSeen: match.lastSeen||'—',
+          authProvider: match.authProvider||'email',
+          sessions: match.online?1:0,
+          lastLogin: match.lastLogin||'—'
+        };
+      }
+    });
+    // Re-render the status table if currently visible
+    const tbl = document.getElementById('fb-presence-tbody');
+    if(tbl) _renderPresenceRows(tbl);
+    _updateFbBanner();
+  });
+}
+
+function _renderPresenceRows(tbody){
+  tbody.innerHTML = USERS.map(u=>{
+    const s = FB_STATUS[u.id]||{online:false,lastSeen:'—',authProvider:'—',sessions:0,lastLogin:'—'};
+    return `<tr>
+      <td><div style="display:flex;align-items:center;gap:8px;">${av(u,26)}<div>
+        <div style="font-weight:500;font-size:12px;">${u.name}</div>
+        <div style="font-size:10px;color:var(--t3);">${u.email}</div>
+      </div></div></td>
+      <td>${fbStatusBadge(s.online)}</td>
+      <td style="font-size:12px;color:${s.online?'var(--ok)':'var(--t3)'};">${fbDot(s.online)}${s.lastSeen}</td>
+      <td style="text-align:center;"><span style="background:${s.sessions>0?'var(--al)':'var(--bg3)'};color:${s.sessions>0?'var(--ac)':'var(--t3)'};font-size:11px;font-weight:600;padding:2px 8px;border-radius:10px;">${s.sessions} active</span></td>
+      <td><span class="bdg b-in" style="font-size:10px;text-transform:uppercase;">${s.authProvider}</span></td>
+      <td style="font-size:11px;color:var(--t3);font-family:var(--mo);">${s.lastLogin}</td>
+      <td style="display:flex;gap:5px;">
+        <button class="btn bs" onclick="fbCopyToken('${u.email}')">Token</button>
+        <button class="btn bs ber" onclick="fbRevokeSession('${u.email}','${u.name}')">Revoke</button>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+function _updateFbBanner(){
+  const banner = document.getElementById('fb-status-banner');
+  if(!banner) return;
+  const connected = !!_fbApp;
+  const onlineCount = USERS.filter(u=>FB_STATUS[u.id]?.online).length;
+  if(connected){
+    const cfg = fbSavedConfig();
+    banner.style.background='var(--ol)'; banner.style.borderColor='var(--ok)';
+    banner.innerHTML=`
+      <span style="font-size:20px;">🔥</span>
+      <div style="flex:1;">
+        <div style="font-size:13px;font-weight:600;color:var(--ok);">Firebase Connected — ${cfg?.projectId||'unknown'}</div>
+        <div style="font-size:11px;color:var(--t3);margin-top:2px;">Auth + Realtime DB active · ${onlineCount} user(s) online · Region: auto</div>
+      </div>
+      <span class="bdg b-ok">● Live</span>`;
+  } else {
+    banner.style.background='var(--wl)'; banner.style.borderColor='var(--wn)';
+    banner.innerHTML=`
       <span style="font-size:20px;">⚠️</span>
       <div style="flex:1;">
-        <div style="font-size:13px;font-weight:600;color:var(--wn);">Demo Mode — Firebase not connected</div>
-        <div style="font-size:11px;color:var(--t3);margin-top:2px;">This is a prototype UI. Fill in your real Firebase project credentials and integrate the SDK to enable live Auth, Realtime DB, and presence features.</div>
+        <div style="font-size:13px;font-weight:600;color:var(--wn);">Firebase not connected</div>
+        <div style="font-size:11px;color:var(--t3);margin-top:2px;">Enter your project credentials below and click Save & Connect.</div>
       </div>
-      <span class="bdg b-wn">⚙ Not Connected</span>
-    </div>
+      <span class="bdg b-wn">⚙ Not Connected</span>`;
+  }
+}
+
+/* Save config, load SDK, init Firebase, start presence */
+function fbSaveAndConnect(){
+  const cfg={
+    apiKey:       document.getElementById('fb-apiKey')?.value.trim(),
+    authDomain:   document.getElementById('fb-authDomain')?.value.trim(),
+    projectId:    document.getElementById('fb-projectId')?.value.trim(),
+    storageBucket:document.getElementById('fb-storageBucket')?.value.trim(),
+    messagingSenderId: document.getElementById('fb-senderId')?.value.trim(),
+    appId:        document.getElementById('fb-appId')?.value.trim(),
+    measurementId:document.getElementById('fb-measureId')?.value.trim(),
+    databaseURL:  document.getElementById('fb-dbUrl')?.value.trim()
+  };
+  // Basic validation
+  if(!cfg.apiKey||cfg.apiKey.length<10){showToast('API Key looks invalid — paste it from Firebase Console.','warn');return;}
+  if(!cfg.projectId||cfg.projectId.includes('your-')){showToast('Enter your real Project ID.','warn');return;}
+  if(!cfg.databaseURL||!cfg.databaseURL.includes('firebaseio.com')){
+    showToast('Database URL is required for Realtime DB presence (e.g. https://your-project-default-rtdb.firebaseio.com).','warn');
+    return;
+  }
+
+  localStorage.setItem(FB_CONFIG_KEY, JSON.stringify(cfg));
+  const btn=document.getElementById('fb-connect-btn');
+  if(btn){btn.textContent='Connecting…';btn.disabled=true;}
+
+  loadFirebaseSDK(()=>{
+    const ok = initFirebase(cfg);
+    if(!ok){
+      showToast('Firebase init failed — check credentials.','warn');
+      if(btn){btn.textContent='Save & Connect';btn.disabled=false;}
+      return;
+    }
+    // Test Auth by checking current user (won't error if no user signed in)
+    _fbAuth.onAuthStateChanged(user=>{
+      console.log('Firebase Auth ready. Current user:', user?.email||'none');
+    });
+    fbWatchPresence();
+    AUDIT_LOG.unshift({time:new Date().toISOString().slice(0,16).replace('T',' '),user:'Super Admin',action:`Firebase connected: project "${cfg.projectId}"`,entity:'SYSTEM',type:'config'});
+    if(btn){btn.textContent='✓ Connected';btn.style.background='var(--ok)';}
+    _updateFbBanner();
+    showToast(`Firebase connected to "${cfg.projectId}". Realtime DB presence active.`,'ok');
+  });
+}
+
+function fbTestConnection(){
+  if(!_fbApp){showToast('Not connected — fill in credentials and click Save & Connect first.','warn');return;}
+  const btn=document.getElementById('fb-test-btn');
+  if(btn){btn.textContent='Testing…';btn.disabled=true;}
+  const start=Date.now();
+  _fbDb.ref('.info/connected').once('value').then(snap=>{
+    const ms=Date.now()-start;
+    const connected=snap.val();
+    if(btn){btn.textContent='Test Connection';btn.disabled=false;}
+    if(connected){
+      showToast(`Firebase reachable — latency ${ms} ms.`,'ok');
+    } else {
+      showToast('Firebase SDK loaded but database unreachable. Check Database Rules and network.','warn');
+    }
+  }).catch(e=>{
+    if(btn){btn.textContent='Test Connection';btn.disabled=false;}
+    showToast('Connection test failed: '+e.message,'warn');
+  });
+}
+
+function fbCopyToken(email){
+  if(!_fbAuth){showToast('Firebase not connected.','warn');return;}
+  const user=_fbAuth.currentUser;
+  if(!user||user.email!==email){showToast('User '+email+' is not the currently signed-in session.','info');return;}
+  user.getIdToken().then(tok=>{
+    navigator.clipboard?.writeText(tok).then(()=>showToast('ID token copied to clipboard.','ok'))
+      .catch(()=>showToast('Token: '+tok.slice(0,40)+'…','info'));
+  }).catch(e=>showToast('Could not get token: '+e.message,'warn'));
+}
+
+function fbRevokeSession(email, name){
+  if(!_fbApp){showToast('Firebase not connected.','warn');return;}
+  if(!confirm(`Revoke all sessions for ${name} (${email})?\nThis requires Firebase Admin SDK on the backend — this UI will update presence only.`)) return;
+  const uid = USERS.find(u=>u.email===email)?.id;
+  if(uid && _fbDb){
+    _fbDb.ref('presence/'+uid).update({online:false,lastSeen:'Session revoked'});
+    AUDIT_LOG.unshift({time:new Date().toISOString().slice(0,16).replace('T',' '),user:'Super Admin',action:`Presence cleared for ${name} (${email}). Full token revocation requires Firebase Admin SDK.`,entity:'SYSTEM',type:'update'});
+    showToast(`Presence cleared for ${name}. Token revocation needs Firebase Admin SDK on backend.`,'info');
+  }
+}
+
+function fbDisconnect(){
+  if(!_fbApp){showToast('Not connected.','warn');return;}
+  if(!confirm('Disconnect from Firebase?')) return;
+  try{ _fbDb?.ref('presence').off(); _fbApp.delete(); }catch(e){}
+  _fbApp=null; _fbAuth=null; _fbDb=null;
+  _updateFbBanner();
+  showToast('Firebase disconnected.','info');
+}
+
+/* Auto-connect on load if config was saved previously */
+(function fbAutoConnect(){
+  const cfg=fbSavedConfig();
+  if(!cfg||!cfg.apiKey||cfg.apiKey.includes('AIzaSy••')) return;
+  loadFirebaseSDK(()=>{
+    if(initFirebase(cfg)){
+      fbWatchPresence();
+      console.log('Firebase auto-connected to',cfg.projectId);
+    }
+  });
+})();
+
+function renderFirebase(){
+  const cfg=fbSavedConfig()||{};
+  document.getElementById('content').innerHTML=`
+  <div style="max-width:780px;">
+    <div class="alert aw" style="margin-bottom:14px;">Super Admin only — changes affect all users.</div>
+
+    <!-- Dynamic connection banner -->
+    <div id="fb-status-banner" style="border-radius:var(--r);padding:12px 18px;margin-bottom:18px;display:flex;align-items:center;gap:12px;border:1px solid;"></div>
 
     <!-- Live Account Status -->
     <div class="card" style="padding:0;margin-bottom:18px;">
       <div style="padding:13px 18px;border-bottom:1px solid var(--br);display:flex;align-items:center;justify-content:space-between;">
-        <div class="ctit" style="display:flex;align-items:center;gap:8px;">
-          🔥 Firebase Account Status <span class="bdg b-wn" style="font-size:10px;">Demo Data</span>
-        </div>
+        <div class="ctit">🔥 Firebase Account Presence</div>
         <div style="display:flex;gap:8px;align-items:center;">
-          <span style="font-size:11px;color:var(--t3);">${USERS.filter(u=>FB_STATUS[u.id].online).length} / ${USERS.length} online</span>
-          <button class="btn bs" onclick="showToast('Status refreshed from Firebase Realtime DB','ok')">↻ Refresh</button>
+          <span id="fb-online-count" style="font-size:11px;color:var(--t3);">— / ${USERS.length} online</span>
+          <button class="btn bs" onclick="fbWatchPresence();showToast('Presence listener refreshed.','info')">↻ Refresh</button>
         </div>
       </div>
       <div class="tw"><table>
-        <thead><tr><th>User</th><th>Firebase Status</th><th>Last Seen</th><th>Sessions</th><th>Auth Provider</th><th>Last Login</th><th>Actions</th></tr></thead>
-        <tbody>
-        ${USERS.map(u=>{const s=FB_STATUS[u.id];return`<tr>
-          <td>
-            <div style="display:flex;align-items:center;gap:8px;">
-              ${av(u,26)}
-              <div>
-                <div style="font-weight:500;font-size:12px;">${u.name}</div>
-                <div style="font-size:10px;color:var(--t3);">${u.email}</div>
-              </div>
-            </div>
-          </td>
-          <td>${fbStatusBadge(s.online)}</td>
-          <td style="font-size:12px;color:${s.online?'var(--ok)':'var(--t3)'};">${fbDot(s.online)}${s.lastSeen}</td>
-          <td style="text-align:center;">
-            <span style="background:${s.sessions>0?'var(--al)':'var(--bg3)'};color:${s.sessions>0?'var(--ac)':'var(--t3)'};font-size:11px;font-weight:600;padding:2px 8px;border-radius:10px;">${s.sessions} active</span>
-          </td>
-          <td><span class="bdg b-in" style="font-size:10px;text-transform:uppercase;letter-spacing:.4px;">${s.authProvider}</span></td>
-          <td style="font-size:11px;color:var(--t3);font-family:var(--mo);">${s.lastLogin}</td>
-          <td style="display:flex;gap:5px;">
-            <button class="btn bs" onclick="showToast('Viewing Firebase token for ${u.name}','info')">Token</button>
-            <button class="btn bs ber" onclick="showToast('Session revoked for ${u.name}','warn')">Revoke</button>
-          </td>
-        </tr>`}).join('')}
-        </tbody>
+        <thead><tr><th>User</th><th>Status</th><th>Last Seen</th><th>Sessions</th><th>Auth Provider</th><th>Last Login</th><th>Actions</th></tr></thead>
+        <tbody id="fb-presence-tbody"></tbody>
       </table></div>
     </div>
 
-    <!-- Firebase Config -->
+    <!-- Firebase SDK Config form -->
     <div class="card">
-      <div class="ch"><div class="ctit">Firebase SDK Configuration</div></div>
-      <div class="fgrid">
-        <div class="fg"><label>API KEY</label><input type="password" value="AIzaSy••••••••••••••"></div>
-        <div class="fg"><label>AUTH DOMAIN</label><input value="your-app.firebaseapp.com"></div>
-        <div class="fg"><label>PROJECT ID</label><input value="your-project-id"></div>
-        <div class="fg"><label>STORAGE BUCKET</label><input value="your-app.appspot.com"></div>
-        <div class="fg"><label>MESSAGING SENDER ID</label><input type="password" value="123456789012"></div>
-        <div class="fg"><label>APP ID</label><input type="password" value="1:123456:web:abcdef"></div>
-        <div class="fg full"><label>MEASUREMENT ID (Analytics)</label><input value="G-XXXXXXXXXX"></div>
+      <div class="ch">
+        <div class="ctit">Firebase SDK Configuration</div>
+        <button class="btn bs ber" onclick="fbDisconnect()">Disconnect</button>
       </div>
-      <div style="display:flex;gap:9px;margin-top:4px;">
-        <button class="btn" onclick="showToast('Cannot test — Firebase SDK not initialised. Add your config and include the Firebase SDK scripts.','warn')">Test Connection</button>
-        <button class="btn bp" onclick="showToast('Credentials saved in-memory (demo only). Integrate Firebase SDK to activate.','info')">Save Configuration</button>
+      <div style="background:var(--bg3);border-radius:var(--rs);padding:10px 14px;font-size:11px;color:var(--t2);margin-bottom:14px;line-height:1.7;">
+        📋 Get these values from <b>Firebase Console → Project Settings → Your apps → SDK setup</b>.
+        The <b>Database URL</b> is under <b>Realtime Database → Data tab</b> (e.g. <code style="font-family:var(--mo)">https://your-project-default-rtdb.firebaseio.com</code>).
+        Credentials are saved in <code style="font-family:var(--mo)">localStorage</code> — do not use in production without a secure backend proxy.
+      </div>
+      <div class="fgrid">
+        <div class="fg"><label>API KEY *</label>
+          <input id="fb-apiKey" placeholder="AIzaSyXXXXXXXXXXXXXXXXXXXXXXXXXXXXX" value="${cfg.apiKey||''}">
+        </div>
+        <div class="fg"><label>AUTH DOMAIN *</label>
+          <input id="fb-authDomain" placeholder="your-project.firebaseapp.com" value="${cfg.authDomain||''}">
+        </div>
+        <div class="fg"><label>PROJECT ID *</label>
+          <input id="fb-projectId" placeholder="your-project-id" value="${cfg.projectId||''}">
+        </div>
+        <div class="fg"><label>STORAGE BUCKET</label>
+          <input id="fb-storageBucket" placeholder="your-project.appspot.com" value="${cfg.storageBucket||''}">
+        </div>
+        <div class="fg"><label>MESSAGING SENDER ID</label>
+          <input id="fb-senderId" placeholder="123456789012" value="${cfg.messagingSenderId||''}">
+        </div>
+        <div class="fg"><label>APP ID *</label>
+          <input id="fb-appId" placeholder="1:123456:web:abcdef123456" value="${cfg.appId||''}">
+        </div>
+        <div class="fg full"><label>REALTIME DATABASE URL * <span style="font-weight:400;color:var(--t3)">(required for presence)</span></label>
+          <input id="fb-dbUrl" placeholder="https://your-project-default-rtdb.firebaseio.com" value="${cfg.databaseURL||''}">
+        </div>
+        <div class="fg full"><label>MEASUREMENT ID <span style="font-weight:400;color:var(--t3)">(optional — Analytics)</span></label>
+          <input id="fb-measureId" placeholder="G-XXXXXXXXXX" value="${cfg.measurementId||''}">
+        </div>
+      </div>
+      <div style="display:flex;gap:9px;margin-top:4px;flex-wrap:wrap;">
+        <button id="fb-test-btn" class="btn" onclick="fbTestConnection()">Test Connection</button>
+        <button id="fb-connect-btn" class="btn bp" onclick="fbSaveAndConnect()">💾 Save &amp; Connect</button>
+        <button class="btn" onclick="localStorage.removeItem('${FB_CONFIG_KEY}');showToast('Saved credentials cleared.','info')">Clear Saved Credentials</button>
       </div>
     </div>
   </div>`;
+
+  // Populate banner and presence table immediately
+  _updateFbBanner();
+  const tbody=document.getElementById('fb-presence-tbody');
+  if(tbody) _renderPresenceRows(tbody);
+  const cnt=document.getElementById('fb-online-count');
+  if(cnt) cnt.textContent=`${USERS.filter(u=>FB_STATUS[u.id]?.online).length} / ${USERS.length} online`;
 }
 
 function renderEmailCfg(){
@@ -1259,8 +1490,8 @@ function renderUsers(){
       </tr></thead>
       <tbody>
       ${USERS.map(u=>{
-        const s=typeof FB_STATUS!=='undefined'?FB_STATUS[u.id]:null;
-        const fbBadge=s?(s.online?`<span class="bdg b-ok">● Online</span>`:`<span class="bdg b-df">○ ${s.lastSeen}</span>`):'<span class="bdg b-df">—</span>';
+        const s=FB_STATUS[u.id]||null;
+        const fbBadge=s?(s.online?`<span class="bdg b-ok">● Online</span>`:`<span class="bdg b-df">○ ${s.lastSeen||'Offline'}</span>`):'<span class="bdg b-df">—</span>';
         const opts=roleOptions.map(r=>`<option value="${r.v}" ${u.role===r.v?'selected':''}>${r.l}</option>`).join('');
         return`<tr id="urow-${u.id}">
           <td>${av(u,28)}</td>
