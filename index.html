@@ -1138,28 +1138,108 @@ function renderEmailCfg(){
 
 function renderUsers(){
   if(currentRole!=='super-admin'){document.getElementById('content').innerHTML=`<div class="card" style="text-align:center;padding:48px;"><div style="font-size:30px;margin-bottom:12px;">🔒</div><div style="font-size:15px;font-weight:600;">Access Restricted</div><div style="font-size:13px;color:var(--t2);margin-top:6px;">User management is available to Super Admins only.</div></div>`;return;}
+  const roleOptions=[
+    {v:'super-admin', l:'Super Admin'},
+    {v:'admin',       l:'Admin'},
+    {v:'top-mgmt',    l:'Top Management'},
+    {v:'manager',     l:'Manager'},
+    {v:'assignee',    l:'Assignee'},
+  ];
+  const accessLabel={
+    'super-admin':'<span class="bdg b-er">Full System Access</span>',
+    'admin':       '<span class="bdg b-wn">Admin Access</span>',
+    'top-mgmt':    '<span class="bdg b-in">Full Dashboard</span>',
+    'manager':     '<span class="bdg b-ok">Team View</span>',
+    'assignee':    '<span class="bdg b-df">Own Tasks Only</span>',
+  };
   document.getElementById('content').innerHTML=`
   <div class="card" style="padding:0;">
     <div style="padding:13px 18px;border-bottom:1px solid var(--br);display:flex;justify-content:space-between;align-items:center;">
-      <div class="ctit">Users & Access Control</div>
+      <div class="ctit">Users &amp; Access Control</div>
       <button class="btn bp bs" onclick="openModal('add-user')">+ Add User</button>
     </div>
-    <div class="tw"><table><thead><tr><th>User</th><th>Email</th><th>Department</th><th>Firebase Status</th><th>Role</th><th>Access Level</th><th></th></tr></thead><tbody>
-    ${USERS.map(u=>{const s=typeof FB_STATUS!=='undefined'?FB_STATUS[u.id]:null;return`<tr>
-      <td><div style="display:flex;align-items:center;gap:7px;">${av(u,24)}<span style="font-weight:500;font-size:12px;">${u.name}</span></div></td>
-      <td style="font-size:11px;color:var(--t2);">${u.email}</td>
-      <td style="font-size:12px;">${u.dept}</td>
-      <td>${s?(s.online?`<span class="bdg b-ok">● Online</span>`:`<span class="bdg b-df" title="${s.lastSeen}">○ ${s.lastSeen}</span>`):'<span class="bdg b-df">—</span>'}</td>
-      <td><select style="font-size:11px;width:130px;">
-        <option ${u.role==='super-admin'?'selected':''}>super-admin</option>
-        <option ${u.role==='top-mgmt'?'selected':''}>top-mgmt</option>
-        <option ${u.role==='manager'?'selected':''}>manager</option>
-        <option ${u.role==='assignee'?'selected':''}>assignee</option>
-      </select></td>
-      <td>${u.role==='assignee'?'<span class="bdg b-df">Own tasks only</span>':u.role==='top-mgmt'?'<span class="bdg b-in">Full dashboard</span>':'<span class="bdg b-ok">Full access</span>'}</td>
-      <td><button class="btn bs" onclick="showToast('User saved','ok')">Save</button></td>
-    </tr>`}).join('')}</tbody></table></div>
+    <div class="tw"><table>
+      <thead><tr>
+        <th>Avatar</th><th>Full Name</th><th>Email</th><th>Department</th>
+        <th>Firebase Status</th><th>Role</th><th>Access Level</th><th>Actions</th>
+      </tr></thead>
+      <tbody>
+      ${USERS.map(u=>{
+        const s=typeof FB_STATUS!=='undefined'?FB_STATUS[u.id]:null;
+        const fbBadge=s?(s.online?`<span class="bdg b-ok">● Online</span>`:`<span class="bdg b-df">○ ${s.lastSeen}</span>`):'<span class="bdg b-df">—</span>';
+        const opts=roleOptions.map(r=>`<option value="${r.v}" ${u.role===r.v?'selected':''}>${r.l}</option>`).join('');
+        return`<tr id="urow-${u.id}">
+          <td>${av(u,28)}</td>
+          <td><input id="uname-${u.id}" value="${u.name}" style="width:140px;font-size:12px;font-weight:500;"></td>
+          <td><input id="uemail-${u.id}" value="${u.email}" type="email" style="width:180px;font-size:11px;"></td>
+          <td>
+            <select id="udept-${u.id}" style="font-size:11px;width:120px;">
+              ${['Operations','Finance','IT','HR','Executive','Marketing','Legal','Procurement'].map(d=>`<option ${u.dept===d?'selected':''}>${d}</option>`).join('')}
+            </select>
+          </td>
+          <td>${fbBadge}</td>
+          <td>
+            <select id="urole-${u.id}" style="font-size:11px;width:140px;" onchange="updateAccessBadge(${u.id},this.value)">
+              ${opts}
+            </select>
+          </td>
+          <td id="uaccess-${u.id}">${accessLabel[u.role]||'<span class="bdg b-df">—</span>'}</td>
+          <td style="display:flex;gap:5px;">
+            <button class="btn bs bok" onclick="saveUserRow(${u.id})">Save</button>
+            <button class="btn bs ber" onclick="deleteUserRow(${u.id})" title="Remove user">✕</button>
+          </td>
+        </tr>`;
+      }).join('')}
+      </tbody>
+    </table></div>
   </div>`;
+}
+
+function updateAccessBadge(uid, role){
+  const labels={
+    'super-admin':'<span class="bdg b-er">Full System Access</span>',
+    'admin':       '<span class="bdg b-wn">Admin Access</span>',
+    'top-mgmt':    '<span class="bdg b-in">Full Dashboard</span>',
+    'manager':     '<span class="bdg b-ok">Team View</span>',
+    'assignee':    '<span class="bdg b-df">Own Tasks Only</span>',
+  };
+  const cell=document.getElementById('uaccess-'+uid);
+  if(cell) cell.innerHTML=labels[role]||'<span class="bdg b-df">—</span>';
+}
+
+function saveUserRow(uid){
+  const u=USERS.find(x=>x.id===uid);
+  if(!u)return;
+  const newName=document.getElementById('uname-'+uid)?.value.trim();
+  const newEmail=document.getElementById('uemail-'+uid)?.value.trim();
+  const newDept=document.getElementById('udept-'+uid)?.value;
+  const newRole=document.getElementById('urole-'+uid)?.value;
+  if(!newName){showToast('Name cannot be empty','warn');return;}
+  if(!newEmail||!newEmail.includes('@')){showToast('Enter a valid email','warn');return;}
+  // Check duplicate email (excluding self)
+  if(USERS.find(x=>x.id!==uid&&x.email===newEmail)){showToast('Another user already has this email','warn');return;}
+  u.name=newName;
+  u.email=newEmail;
+  u.dept=newDept||u.dept;
+  u.role=newRole||u.role;
+  // Re-derive initials from new name
+  const parts=newName.split(' ').filter(Boolean);
+  u.ini=parts.length>=2?(parts[0][0]+parts[parts.length-1][0]).toUpperCase():newName.slice(0,2).toUpperCase();
+  AUDIT_LOG.unshift({time:new Date().toISOString().slice(0,16).replace('T',' '),user:'Super Admin',action:`Updated user ${uid}: name="${newName}", role="${newRole}"`,entity:'SYSTEM',type:'update'});
+  showToast(`${newName} saved successfully.`,'ok');
+  renderUsers();
+}
+
+function deleteUserRow(uid){
+  const u=USERS.find(x=>x.id===uid);
+  if(!u)return;
+  if(!confirm(`Remove ${u.name} from the system? This cannot be undone.`))return;
+  const idx=USERS.findIndex(x=>x.id===uid);
+  if(idx>-1)USERS.splice(idx,1);
+  AUDIT_LOG.unshift({time:new Date().toISOString().slice(0,16).replace('T',' '),user:'Super Admin',action:`Deleted user: ${u.name} (${u.email})`,entity:'SYSTEM',type:'delete'});
+  showToast(`${u.name} removed.`,'warn');
+  renderUsers();
+}
 }
 
 function renderAddUserModal(){
@@ -1212,9 +1292,11 @@ function renderAddUserModal(){
     </div>
     <div class="fg"><label>ROLE</label>
       <select id="nu-role">
-        <option value="assignee">Assignee</option>
-        <option value="manager">Manager</option>
+        <option value="super-admin">Super Admin</option>
+        <option value="admin">Admin</option>
         <option value="top-mgmt">Top Management</option>
+        <option value="manager">Manager</option>
+        <option value="assignee" selected>Assignee</option>
       </select>
     </div>
     <div class="fg"><label>AVATAR COLOUR</label>
