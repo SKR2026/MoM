@@ -1,0 +1,911 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MoM Pro — Minutes of Meeting Management</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#f4f3ef;--bg2:#ffffff;--bg3:#eceae4;--sf:#ffffff;--br:#e0ddd5;--br2:#ccc9be;--tx:#1a1916;--t2:#6b6860;--t3:#9b9890;--ac:#2563eb;--al:#dbeafe;--ok:#16a34a;--ol:#dcfce7;--wn:#d97706;--wl:#fef3c7;--er:#dc2626;--el:#fee2e2;--in:#7c3aed;--il:#ede9fe;--sh:0 1px 3px rgba(0,0,0,.08);--r:10px;--rs:6px;--sw:220px;--fn:'DM Sans',sans-serif;--mo:'DM Mono',monospace}
+[data-theme=dark]{--bg:#141210;--bg2:#1e1c1a;--bg3:#2a2825;--sf:#252320;--br:#3a3835;--br2:#4a4845;--tx:#f0ede6;--t2:#a09d96;--t3:#6b6860;--ac:#3b82f6;--al:#1e3a5f;--ok:#22c55e;--ol:#14291e;--wn:#f59e0b;--wl:#2a1f0a;--er:#f87171;--el:#2a1010;--in:#a78bfa;--il:#2a1f4a}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{font-family:var(--fn);background:var(--bg);color:var(--tx);font-size:14px;line-height:1.5;transition:background .2s,color .2s}
+.app{display:flex;height:100vh;overflow:hidden}
+/* ── Sidebar ── */
+.sidebar{width:var(--sw);background:var(--bg2);border-right:1px solid var(--br);display:flex;flex-direction:column;height:100vh;overflow-y:auto;flex-shrink:0;transition:width .2s}
+.sidebar.collapsed{width:0;overflow:hidden}
+.sb-logo{padding:18px 16px 14px;border-bottom:1px solid var(--br);white-space:nowrap}
+.sb-logo .lm{font-size:17px;font-weight:600;letter-spacing:-.5px}
+.sb-logo .ls{font-size:10px;color:var(--t3);text-transform:uppercase;letter-spacing:.5px;margin-top:2px}
+.sb-nav{flex:1;padding:10px 8px;min-width:204px}
+.nl{font-size:10px;font-weight:600;color:var(--t3);letter-spacing:.8px;text-transform:uppercase;padding:0 8px;margin:12px 0 5px}
+.ni{display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:var(--rs);cursor:pointer;color:var(--t2);font-size:13px;transition:all .15s;margin-bottom:2px;white-space:nowrap}
+.ni:hover{background:var(--bg3);color:var(--tx)}
+.ni.active{background:var(--al);color:var(--ac);font-weight:500}
+.ni svg{width:15px;height:15px;flex-shrink:0}
+.nb{margin-left:auto;background:var(--er);color:#fff;font-size:10px;font-weight:600;padding:1px 5px;border-radius:8px}
+.sb-footer{padding:12px 14px;border-top:1px solid var(--br);min-width:204px}
+.av{border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:600;flex-shrink:0}
+/* ── Main ── */
+.main{flex:1;display:flex;flex-direction:column;min-width:0;overflow:hidden}
+.topbar{background:var(--bg2);border-bottom:1px solid var(--br);padding:10px 22px;display:flex;align-items:center;gap:10px;flex-shrink:0}
+.topbar .tt{font-size:15px;font-weight:600;flex:1}
+.content{flex:1;padding:22px;overflow-y:auto}
+/* ── Buttons ── */
+.btn{display:inline-flex;align-items:center;gap:5px;padding:6px 13px;border-radius:var(--rs);font-size:13px;font-weight:500;cursor:pointer;border:1px solid var(--br2);background:var(--bg2);color:var(--tx);transition:all .15s;font-family:var(--fn);white-space:nowrap}
+.btn:hover{background:var(--bg3)}
+.btn:active{transform:scale(.98)}
+.bp{background:var(--ac);color:#fff;border-color:var(--ac)}.bp:hover{background:#1d4ed8}
+.bok{background:var(--ok);color:#fff;border-color:var(--ok)}.bok:hover{background:#15803d}
+.ber{background:var(--er);color:#fff;border-color:var(--er)}
+.bs{padding:4px 9px;font-size:12px}
+/* ── Cards ── */
+.card{background:var(--sf);border:1px solid var(--br);border-radius:var(--r);padding:18px 20px;box-shadow:var(--sh)}
+.ch{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
+.ctit{font-size:14px;font-weight:600}
+/* ── Grids ── */
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+.g3{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+.g4{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
+/* ── Stat cards ── */
+.sc{background:var(--sf);border:1px solid var(--br);border-radius:var(--r);padding:14px 18px}
+.sl-{font-size:11px;color:var(--t2);margin-bottom:5px;font-weight:500}
+.sv{font-size:26px;font-weight:600;letter-spacing:-1px}
+.sc2{font-size:11px;color:var(--t3);margin-top:3px}
+.sbar{height:3px;border-radius:2px;background:var(--bg3);margin-top:10px;overflow:hidden}
+.sbf{height:100%;border-radius:2px}
+/* ── Table ── */
+.tw{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:left;padding:9px 11px;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:var(--t3);border-bottom:1px solid var(--br)}
+td{padding:10px 11px;border-bottom:1px solid var(--br);vertical-align:middle}
+tr:last-child td{border-bottom:none}
+tr:hover td{background:var(--bg3)}
+/* ── Badges ── */
+.bdg{display:inline-flex;align-items:center;padding:2px 7px;border-radius:20px;font-size:11px;font-weight:600}
+.b-ok{background:var(--ol);color:var(--ok)}.b-wn{background:var(--wl);color:var(--wn)}.b-er{background:var(--el);color:var(--er)}.b-in{background:var(--il);color:var(--in)}.b-df{background:var(--bg3);color:var(--t2)}
+/* ── Progress ── */
+.prog{height:5px;background:var(--bg3);border-radius:3px;overflow:hidden}
+.pf{height:100%;border-radius:3px}
+/* ── Forms ── */
+.fg{display:flex;flex-direction:column;gap:4px;margin-bottom:13px}
+.fg label{font-size:11px;font-weight:600;color:var(--t2);letter-spacing:.2px}
+.fgrid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.full{grid-column:1/-1}
+input,select,textarea{width:100%;padding:7px 11px;border:1px solid var(--br2);border-radius:var(--rs);font-size:13px;background:var(--bg2);color:var(--tx);font-family:var(--fn);outline:none;transition:border-color .15s}
+input:focus,select:focus,textarea:focus{border-color:var(--ac);box-shadow:0 0 0 3px rgba(37,99,235,.1)}
+textarea{resize:vertical;min-height:72px}
+/* ── Tabs ── */
+.tabs{display:flex;gap:2px;border-bottom:1px solid var(--br);margin-bottom:18px}
+.tab{padding:8px 15px;font-size:13px;font-weight:500;color:var(--t2);cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;transition:all .15s}
+.tab:hover{color:var(--tx)}.tab.active{color:var(--ac);border-bottom-color:var(--ac)}
+/* ── Divider ── */
+.divl{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--t3);padding:0 0 7px;border-bottom:1px solid var(--br);margin-bottom:14px}
+/* ── Timeline ── */
+.tl{position:relative;padding-left:22px}.tl::before{content:'';position:absolute;left:6px;top:6px;bottom:0;width:1px;background:var(--br)}
+.tli{position:relative;margin-bottom:14px}.tld{position:absolute;left:-19px;top:3px;width:9px;height:9px;border-radius:50%;border:2px solid var(--bg2)}.tlt{font-size:11px;color:var(--t3)}.tlx{font-size:13px;margin-top:1px}
+/* ── Toggle ── */
+.tgl{width:34px;height:19px;background:var(--br2);border-radius:10px;position:relative;cursor:pointer;transition:background .2s;flex-shrink:0;display:inline-block}
+.tgl.on{background:var(--ac)}.tgl::after{content:'';position:absolute;top:2px;left:2px;width:15px;height:15px;background:#fff;border-radius:50%;transition:transform .2s}.tgl.on::after{transform:translateX(15px)}
+/* ── Tags ── */
+.tag{display:inline-flex;align-items:center;gap:3px;padding:2px 7px 2px 3px;background:var(--bg3);border:1px solid var(--br);border-radius:20px;font-size:11px;color:var(--t2)}
+/* ── Upload zone ── */
+.upzone{border:2px dashed var(--br2);border-radius:var(--r);padding:30px;text-align:center;cursor:pointer;transition:all .15s}
+.upzone:hover{border-color:var(--ac);background:var(--al)}
+/* ── Notif dot ── */
+.ndot{width:8px;height:8px;border-radius:50%;background:var(--er);flex-shrink:0}
+/* ── Chip ── */
+.chip{display:inline-flex;align-items:center;padding:3px 9px;border-radius:16px;font-size:11px;font-weight:500;border:1px solid var(--br2);background:var(--bg2);cursor:pointer;transition:all .15s;white-space:nowrap}
+.chip:hover,.chip.on{background:var(--al);border-color:var(--ac);color:var(--ac)}
+/* ── Alert ── */
+.alert{padding:9px 13px;border-radius:var(--rs);font-size:13px;display:flex;align-items:center;gap:8px;border:1px solid}
+.aw{background:var(--wl);color:var(--wn);border-color:var(--wn)}.ad{background:var(--el);color:var(--er);border-color:var(--er)}.ai{background:var(--al);color:var(--ac);border-color:var(--ac)}
+/* ── Toast ── */
+#toast{position:fixed;bottom:22px;right:22px;z-index:9999;display:none;pointer-events:none}
+/* ── Modal ── */
+.modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center;z-index:500;backdrop-filter:blur(2px)}
+.modal{background:var(--bg2);border:1px solid var(--br);border-radius:14px;width:660px;max-width:95vw;max-height:88vh;overflow-y:auto}
+.mh{padding:18px 22px 14px;border-bottom:1px solid var(--br);display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;background:var(--bg2);z-index:1}
+.mt{font-size:15px;font-weight:600}
+.mx{width:26px;height:26px;border-radius:6px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--t3);border:1px solid var(--br);background:none;font-size:15px;transition:all .15s}
+.mx:hover{background:var(--bg3);color:var(--tx)}
+.mb{padding:18px 22px}.mf{padding:14px 22px;border-top:1px solid var(--br);display:flex;gap:9px;justify-content:flex-end}
+/* ── Code block ── */
+.code{background:var(--bg3);border:1px solid var(--br2);border-radius:var(--rs);padding:12px 14px;font-family:var(--mo);font-size:11px;color:var(--t2);overflow-x:auto;line-height:1.6}
+/* ── Print preview ── */
+.pp{background:#fff;border:1px solid #e0ddd5;border-radius:var(--r);padding:28px 32px;font-family:'DM Sans',sans-serif;color:#1a1916;max-width:580px;margin:0 auto}
+.pph{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #1a1916;padding-bottom:12px;margin-bottom:16px}
+.pplogo{font-size:17px;font-weight:700}
+.ppmeta{font-size:11px;text-align:right;color:#6b6860;line-height:1.8}
+.pps{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#9b9890;border-bottom:1px solid #e0ddd5;padding-bottom:5px;margin:14px 0 9px}
+.pptable{width:100%;border-collapse:collapse;font-size:11px}
+.pptable th{background:#f4f3ef;padding:6px 9px;text-align:left;font-size:10px;font-weight:600;text-transform:uppercase;color:#9b9890}
+.pptable td{padding:7px 9px;border-bottom:1px solid #f4f3ef}
+/* ── Scrollbar ── */
+::-webkit-scrollbar{width:6px;height:6px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:var(--br2);border-radius:3px}
+/* ── Responsive ── */
+@media(max-width:900px){.g4{grid-template-columns:1fr 1fr}}
+@media(max-width:640px){.sidebar{display:none}.g2,.g3{grid-template-columns:1fr}.fgrid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="app" id="app">
+<!-- ════ SIDEBAR ════ -->
+<aside class="sidebar" id="sidebar">
+  <div class="sb-logo">
+    <div class="lm">MoM Pro</div>
+    <div class="ls">Meeting Management</div>
+  </div>
+  <nav class="sb-nav" id="sb-nav"></nav>
+  <div class="sb-footer">
+    <div style="display:flex;align-items:center;gap:9px;">
+      <div class="av" id="ua" style="width:30px;height:30px;font-size:11px;background:#dbeafe;color:#2563eb;">SA</div>
+      <div style="flex:1;min-width:0;">
+        <div id="un" style="font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">Super Admin</div>
+        <div id="ur" style="font-size:10px;color:var(--t3);">Administrator</div>
+      </div>
+      <div class="tgl on" id="thm" onclick="toggleTheme()" title="Toggle theme"></div>
+    </div>
+  </div>
+</aside>
+<!-- ════ MAIN ════ -->
+<div class="main">
+  <div class="topbar">
+    <button onclick="document.getElementById('sidebar').classList.toggle('collapsed')" class="btn bs" style="padding:5px 8px;">
+      <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M2 4h12M2 8h12M2 12h12"/></svg>
+    </button>
+    <div class="tt" id="pt">Dashboard Overview</div>
+    <select id="role-sw" style="width:160px;font-size:12px;" onchange="switchRole(this.value)">
+      <option value="super-admin">Super Admin</option>
+      <option value="assignee">Assignee View</option>
+      <option value="top-mgmt">Top Management</option>
+    </select>
+    <button class="btn bs bp" onclick="openModal('new-meeting')">+ New Meeting</button>
+    <button class="btn bs" onclick="showToast('2 pending escalations','warn')" style="position:relative;">
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 1a5 5 0 015 5v3l1 2H2l1-2V6a5 5 0 015-5zM6 13a2 2 0 004 0"/></svg>
+      <div class="ndot" style="position:absolute;top:2px;right:2px;"></div>
+    </button>
+  </div>
+  <div class="content" id="content"></div>
+</div>
+</div>
+<!-- ════ MODAL ════ -->
+<div class="modal-bg" id="modal" style="display:none;" onclick="if(event.target===this)closeModal()">
+  <div class="modal">
+    <div class="mh"><div class="mt" id="modal-title">Modal</div><button class="mx" onclick="closeModal()">✕</button></div>
+    <div class="mb" id="modal-body"></div>
+    <div class="mf" id="modal-footer"></div>
+  </div>
+</div>
+<!-- ════ TOAST ════ -->
+<div id="toast"></div>
+
+<script>
+/* ═══════════════════════════════════════════
+   DATA
+═══════════════════════════════════════════ */
+const USERS=[
+  {id:1,name:'Rajesh Kumar',role:'assignee',dept:'Operations',email:'r.kumar@corp.com',ini:'RK',col:'#dcfce7',tc:'#16a34a'},
+  {id:2,name:'Priya Sharma',role:'assignee',dept:'Finance',email:'p.sharma@corp.com',ini:'PS',col:'#fce7f3',tc:'#db2777'},
+  {id:3,name:'Amit Singh',role:'manager',dept:'IT',email:'a.singh@corp.com',ini:'AS',col:'#ede9fe',tc:'#7c3aed'},
+  {id:4,name:'Sunita Devi',role:'assignee',dept:'HR',email:'s.devi@corp.com',ini:'SD',col:'#fef3c7',tc:'#d97706'},
+  {id:5,name:'Vikram Patel',role:'top-mgmt',dept:'Executive',email:'v.patel@corp.com',ini:'VP',col:'#fee2e2',tc:'#dc2626'},
+];
+const MEETINGS=[
+  {id:'MOM-001',no:'MTG-2024-01',date:'2024-01-15',title:'Q1 Planning Review',attendees:[1,2,3,5],status:'completed',venue:'Boardroom A'},
+  {id:'MOM-002',no:'MTG-2024-02',date:'2024-01-22',title:'IT Infrastructure Update',attendees:[3,4],status:'completed',venue:'Conference Room 2'},
+  {id:'MOM-003',no:'MTG-2024-03',date:'2024-02-05',title:'HR Policy Alignment',attendees:[2,4,5],status:'active',venue:'Virtual (Teams)'},
+  {id:'MOM-004',no:'MTG-2024-04',date:'2024-02-19',title:'Finance Audit Prep',attendees:[1,2,5],status:'active',venue:'Boardroom B'},
+];
+let TASKS=[
+  {id:'T001',mid:'MOM-001',mno:'MTG-2024-01',title:'Prepare Q1 budget report',uid:1,due:'2024-02-01',status:'overdue',priority:'high',pct:60,esc:2,notes:'Escalated to dept head. Finance team to provide consolidated data.'},
+  {id:'T002',mid:'MOM-001',mno:'MTG-2024-01',title:'Server upgrade procurement',uid:3,due:'2024-02-15',status:'in-progress',priority:'high',pct:40,esc:0,notes:''},
+  {id:'T003',mid:'MOM-002',mno:'MTG-2024-02',title:'Revise leave policy document',uid:4,due:'2024-02-10',status:'overdue',priority:'medium',pct:20,esc:1,notes:''},
+  {id:'T004',mid:'MOM-002',mno:'MTG-2024-02',title:'Network security audit',uid:3,due:'2024-03-01',status:'in-progress',priority:'high',pct:70,esc:0,notes:''},
+  {id:'T005',mid:'MOM-003',mno:'MTG-2024-03',title:'Draft employee handbook',uid:2,due:'2024-02-28',status:'completed',priority:'medium',pct:100,esc:0,notes:''},
+  {id:'T006',mid:'MOM-003',mno:'MTG-2024-03',title:'ROI analysis submission',uid:1,due:'2024-03-05',status:'pending',priority:'low',pct:10,esc:0,notes:''},
+  {id:'T007',mid:'MOM-004',mno:'MTG-2024-04',title:'Vendor shortlisting report',uid:2,due:'2024-02-25',status:'in-progress',priority:'medium',pct:55,esc:0,notes:''},
+];
+const COMMENTS={
+  'T001':[
+    {uid:1,time:'Feb 11 · 10:22 AM',text:'Working on this. Finance team needs to provide consolidated data by EOD.'},
+    {uid:3,time:'Feb 11 · 11:05 AM',text:'@Rajesh — please prioritise. This is blocking the board deck. Need by Friday.'},
+    {uid:5,time:'Feb 12 · 9:00 AM',text:'Escalated to L2. @Amit please ensure this gets resolved this week.'},
+  ],
+  'T005':[
+    {uid:2,time:'Feb 25 · 4:30 PM',text:'First draft complete. Shared with HR head for review.'},
+    {uid:4,time:'Feb 26 · 9:10 AM',text:'Reviewed. Minor changes needed in section 3 on leave encashment.'},
+    {uid:2,time:'Feb 28 · 2:00 PM',text:'Updated and finalised. Marking complete.'},
+  ],
+};
+const AUDIT_LOG=[
+  {time:'2024-02-12 09:14',user:'Super Admin',action:'Escalated T001 to L2',entity:'T001',type:'escalation'},
+  {time:'2024-02-11 15:32',user:'Rajesh Kumar',action:'Updated progress to 60%',entity:'T001',type:'update'},
+  {time:'2024-02-10 11:00',user:'Super Admin',action:'Sent reminder to Sunita Devi',entity:'T003',type:'notification'},
+  {time:'2024-02-09 09:00',user:'System',action:'Auto-escalated T003 to L1 (3 days overdue)',entity:'T003',type:'escalation'},
+  {time:'2024-02-08 14:20',user:'Priya Sharma',action:'Marked T005 as completed',entity:'T005',type:'update'},
+  {time:'2024-02-07 10:05',user:'Super Admin',action:'Bulk imported 12 tasks from tasks_jan_2024.xlsx',entity:'BULK',type:'import'},
+  {time:'2024-02-06 16:45',user:'Amit Singh',action:'Updated T004 progress to 70%',entity:'T004',type:'update'},
+  {time:'2024-02-05 09:30',user:'Super Admin',action:'Created meeting MTG-2024-03',entity:'MOM-003',type:'create'},
+  {time:'2024-02-04 11:00',user:'System',action:'Auto-escalated T001 to L1',entity:'T001',type:'escalation'},
+  {time:'2024-02-03 14:00',user:'Super Admin',action:'Firebase configuration updated',entity:'SYSTEM',type:'config'},
+];
+const EMAIL_LOG=[
+  {time:'2024-02-12 09:15',to:'r.kumar@corp.com',subject:'[MoM Pro] Escalation Notice — T001',status:'delivered',trigger:'Escalation L2'},
+  {time:'2024-02-11 08:00',to:'r.kumar@corp.com',subject:'[MoM Pro] Daily Reminder — T001 overdue',status:'delivered',trigger:'Daily reminder'},
+  {time:'2024-02-10 11:02',to:'s.devi@corp.com',subject:'[MoM Pro] Reminder — T003 due today',status:'delivered',trigger:'Due date reminder'},
+  {time:'2024-02-09 08:00',to:'s.devi@corp.com',subject:'[MoM Pro] Escalation Notice — T003',status:'delivered',trigger:'Escalation L1'},
+  {time:'2024-02-05 09:31',to:'p.sharma@corp.com, s.devi@corp.com',subject:'[MoM Pro] MoM Published — MTG-2024-03',status:'delivered',trigger:'MoM created'},
+  {time:'2024-02-01 08:00',to:'r.kumar@corp.com',subject:'[MoM Pro] Task Due Today — T001',status:'bounced',trigger:'Due date reminder'},
+];
+let currentRole='super-admin';
+let darkMode=false;
+let aiItemCount=2;
+
+/* ═══════════════════════════════════════════
+   NAVIGATION MAP
+═══════════════════════════════════════════ */
+const NAV=[
+  {section:'Main',items:[
+    {id:'dashboard',label:'Dashboard',icon:'<rect x="1" y="1" width="6" height="6" rx="1"/><rect x="9" y="1" width="6" height="6" rx="1"/><rect x="1" y="9" width="6" height="6" rx="1"/><rect x="9" y="9" width="6" height="6" rx="1"/>'},
+    {id:'meetings',label:'Meetings',icon:'<rect x="1" y="2" width="14" height="12" rx="2"/><path d="M1 6h14M5 1v2M11 1v2"/>'},
+    {id:'tasks',label:'My Tasks',icon:'<path d="M6 4h8M6 8h8M6 12h8M2 4h.5M2 8h.5M2 12h.5"/>',badge:3},
+    {id:'escalations',label:'Escalations',icon:'<path d="M8 1l2 5h5l-4 3 1.5 5L8 11l-4.5 3L5 9 1 6h5z"/>',badge:2},
+    {id:'calendar',label:'Calendar',icon:'<rect x="1" y="2" width="14" height="12" rx="2"/><path d="M1 6h14M5 1v2M11 1v2"/>'},
+  ]},
+  {section:'Actions',items:[
+    {id:'bulk-upload',label:'Bulk Upload',icon:'<path d="M8 2v8M5 5l3-3 3 3M2 11v2a1 1 0 001 1h10a1 1 0 001-1v-2"/>'},
+    {id:'reports',label:'Reports',icon:'<path d="M3 12V4M7 12V7M11 12V2"/>'},
+    {id:'audit',label:'Audit Trail',icon:'<path d="M1 4h14M1 8h14M1 12h8"/><circle cx="13" cy="12" r="2"/>'},
+    {id:'email-log',label:'Email Log',icon:'<rect x="1" y="3" width="14" height="10" rx="1"/><path d="M1 4l7 5 7-5"/>'},
+  ]},
+  {section:'Settings',items:[
+    {id:'settings-firebase',label:'Firebase Config',icon:'<path d="M2 14L8 2l6 12H2z"/><path d="M5 9l3-5 3 5"/>'},
+    {id:'settings-email',label:'Email (Office 365)',icon:'<rect x="1" y="3" width="14" height="10" rx="1"/><path d="M1 4l7 5 7-5"/>'},
+    {id:'settings-users',label:'Users & Roles',icon:'<circle cx="8" cy="5" r="3"/><path d="M2 14c0-3.3 2.7-6 6-6s6 2.7 6 6"/>'},
+    {id:'settings-escalation',label:'Escalation Rules',icon:'<path d="M8 1l2 5h5l-4 3 1.5 5L8 11l-4.5 3L5 9 1 6h5z"/>'},
+    {id:'settings-notifications',label:'Notifications',icon:'<path d="M8 1a5 5 0 015 5v3l1 2H2l1-2V6a5 5 0 015-5zM6 13a2 2 0 004 0"/>'},
+  ]},
+];
+
+function buildNav(){
+  const nav=document.getElementById('sb-nav');
+  nav.innerHTML=NAV.map(s=>`
+    <div class="nl">${s.section}</div>
+    ${s.items.map(i=>`
+      <div class="ni" id="ni-${i.id}" onclick="navigate('${i.id}')">
+        <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">${i.icon}</svg>
+        ${i.label}
+        ${i.badge?`<span class="nb">${i.badge}</span>`:''}
+      </div>`).join('')}
+  `).join('');
+}
+
+function navigate(page){
+  document.querySelectorAll('.ni').forEach(n=>n.classList.remove('active'));
+  const el=document.getElementById('ni-'+page);
+  if(el)el.classList.add('active');
+  const titles={dashboard:'Dashboard Overview',meetings:'All Meetings',tasks:'My Tasks',escalations:'Escalation Tracker',calendar:'Calendar View','bulk-upload':'Bulk Upload',reports:'Reports & Analytics',audit:'Audit Trail','email-log':'Email Log','settings-firebase':'Firebase Configuration','settings-email':'Email — Office 365','settings-users':'Users & Roles','settings-escalation':'Escalation Rules','settings-notifications':'Notification Settings'};
+  document.getElementById('pt').textContent=titles[page]||page;
+  const fns={dashboard:renderDashboard,meetings:renderMeetings,tasks:renderTasks,escalations:renderEscalations,calendar:renderCalendar,'bulk-upload':renderBulkUpload,reports:renderReports,audit:renderAudit,'email-log':renderEmailLog,'settings-firebase':renderFirebase,'settings-email':renderEmailCfg,'settings-users':renderUsers,'settings-escalation':renderEscCfg,'settings-notifications':renderNotifCfg};
+  if(fns[page])fns[page]();
+}
+
+/* ═══════════════════════════════════════════
+   HELPERS
+═══════════════════════════════════════════ */
+function gu(id){return USERS.find(u=>u.id===id)||{ini:'?',col:'#eee',tc:'#666',name:'Unknown',dept:'',email:''}}
+function av(u,sz=28){return`<div class="av" style="width:${sz}px;height:${sz}px;font-size:${Math.round(sz*.36)}px;background:${u.col};color:${u.tc};">${u.ini}</div>`}
+function sb(s){const m={completed:'b-ok','in-progress':'b-in',overdue:'b-er',pending:'b-df',active:'b-ok'};const l={completed:'Completed','in-progress':'In Progress',overdue:'Overdue',pending:'Pending',active:'Active'};return`<span class="bdg ${m[s]||'b-df'}">${l[s]||s}</span>`}
+function pb(p){return`<span class="bdg ${p==='high'?'b-er':p==='medium'?'b-wn':'b-df'}">${p.charAt(0).toUpperCase()+p.slice(1)}</span>`}
+function eb(l){if(!l)return'<span class="bdg b-df">None</span>';const c=['','b-wn','b-er','b-in'];const lb=['','L1 — Manager','L2 — Dept Head','L3 — Executive'];return`<span class="bdg ${c[l]||'b-er'}">${lb[l]||'L'+l}</span>`}
+function ma(u){return`<span style="display:inline-flex;align-items:center;gap:4px;font-size:12px;">${av(u,20)}&nbsp;${u.name}</span>`}
+function donut(vals,colors,cx,r){
+  const tot=vals.reduce((a,b)=>a+b,0);if(!tot)return'';
+  let ang=-Math.PI/2,parts=[];
+  vals.forEach((v,i)=>{if(!v)return;const a=(v/tot)*Math.PI*2;const x1=cx+r*Math.cos(ang),y1=cx+r*Math.sin(ang);ang+=a;const x2=cx+r*Math.cos(ang),y2=cx+r*Math.sin(ang);parts.push(`<path d="M${cx},${cx} L${x1},${y1} A${r},${r} 0 ${a>Math.PI?1:0},1 ${x2},${y2} Z" fill="${colors[i]}" opacity=".9"/>`)});
+  return parts.join('')+`<circle cx="${cx}" cy="${cx}" r="${r*.55}" fill="var(--sf)"/>`;
+}
+
+function showToast(msg,type='info'){
+  const t=document.getElementById('toast');
+  const bg={info:'var(--il)',ok:'var(--ol)',warn:'var(--wl)',err:'var(--el)'};
+  const tc={info:'var(--in)',ok:'var(--ok)',warn:'var(--wn)',err:'var(--er)'};
+  t.innerHTML=`<div style="background:${bg[type]};color:${tc[type]};border:1px solid ${tc[type]};border-radius:8px;padding:10px 16px;font-size:13px;font-weight:500;box-shadow:0 4px 12px rgba(0,0,0,.12);max-width:320px;">${msg}</div>`;
+  t.style.display='block';setTimeout(()=>t.style.display='none',3400);
+}
+
+function openModal(type,data){
+  const modal=document.getElementById('modal');
+  if(type==='new-meeting'){renderNewMeetingModal();}
+  else if(type==='task'&&data){renderTaskModal(data);}
+  else if(type==='meeting-detail'&&data){renderMeetingDetailModal(data);}
+  modal.style.display='flex';
+}
+function closeModal(){document.getElementById('modal').style.display='none';}
+
+function toggleTheme(){
+  darkMode=!darkMode;
+  document.documentElement.setAttribute('data-theme',darkMode?'dark':'');
+  document.getElementById('thm').classList.toggle('on',!darkMode);
+}
+
+function switchRole(r){
+  currentRole=r;
+  const roleLabels={'super-admin':'Super Admin','assignee':'Rajesh Kumar','top-mgmt':'Vikram Patel'};
+  const roleDesc={'super-admin':'Administrator','assignee':'Assignee','top-mgmt':'Top Management'};
+  document.getElementById('un').textContent=roleLabels[r];
+  document.getElementById('ur').textContent=roleDesc[r];
+  showToast(`Switched to ${roleLabels[r]} view`,'info');
+  navigate('dashboard');
+}
+
+/* ═══════════════════════════════════════════
+   DASHBOARD
+═══════════════════════════════════════════ */
+function renderDashboard(){
+  const myTasks=currentRole==='assignee'?TASKS.filter(t=>t.uid===1):TASKS;
+  const comp=myTasks.filter(t=>t.status==='completed').length;
+  const over=myTasks.filter(t=>t.status==='overdue').length;
+  const inp=myTasks.filter(t=>t.status==='in-progress').length;
+  const tot=myTasks.length;
+  const pct=tot?Math.round(comp/tot*100):0;
+  document.getElementById('content').innerHTML=`
+  ${currentRole==='assignee'?`<div class="alert ai" style="margin-bottom:16px;">Viewing as Rajesh Kumar (Assignee) — showing only your tasks.</div>`:''}
+  <div class="g4" style="margin-bottom:20px;">
+    <div class="sc"><div class="sl-">Total Tasks</div><div class="sv">${tot}</div><div class="sc2">Across ${MEETINGS.length} meetings</div><div class="sbar"><div class="sbf" style="width:100%;background:var(--ac)"></div></div></div>
+    <div class="sc"><div class="sl-">Completed</div><div class="sv" style="color:var(--ok)">${comp}</div><div class="sc2">${pct}% rate</div><div class="sbar"><div class="sbf" style="width:${pct}%;background:var(--ok)"></div></div></div>
+    <div class="sc"><div class="sl-">In Progress</div><div class="sv" style="color:var(--ac)">${inp}</div><div class="sc2">Actively tracked</div><div class="sbar"><div class="sbf" style="width:${tot?Math.round(inp/tot*100):0}%;background:var(--ac)"></div></div></div>
+    <div class="sc"><div class="sl-">Overdue</div><div class="sv" style="color:var(--er)">${over}</div><div class="sc2">${myTasks.filter(t=>t.esc>0).length} escalated</div><div class="sbar"><div class="sbf" style="width:${tot?Math.round(over/tot*100):0}%;background:var(--er)"></div></div></div>
+  </div>
+  ${over?`<div class="alert ad" style="margin-bottom:16px;">${over} overdue task${over>1?'s':''} require attention. ${myTasks.filter(t=>t.esc>=2).length} escalated to senior management.</div>`:''}
+  <div class="g2" style="margin-bottom:20px;">
+    <div class="card">
+      <div class="ch"><div class="ctit">Task Status</div></div>
+      <div style="display:flex;align-items:center;gap:20px;">
+        <svg width="110" height="110" viewBox="0 0 110 110">
+          ${donut([comp,inp,over,myTasks.filter(t=>t.status==='pending').length],['#16a34a','#2563eb','#dc2626','#9ca3af'],55,38)}
+          <text x="55" y="51" text-anchor="middle" font-size="18" font-weight="600" fill="currentColor">${pct}%</text>
+          <text x="55" y="64" text-anchor="middle" font-size="10" fill="var(--t3)">done</text>
+        </svg>
+        <div style="flex:1;">
+          ${[['Completed','#16a34a',comp],['In Progress','#2563eb',inp],['Overdue','#dc2626',over],['Pending','#9ca3af',myTasks.filter(t=>t.status==='pending').length]].map(([l,c,v])=>`
+          <div style="display:flex;align-items:center;gap:7px;margin-bottom:8px;font-size:12px;">
+            <div style="width:8px;height:8px;border-radius:50%;background:${c};flex-shrink:0;"></div>
+            <span style="flex:1;color:var(--t2);">${l}</span>
+            <span style="font-weight:600;">${v}</span>
+          </div>`).join('')}
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="ch"><div class="ctit">Assignee Workload</div></div>
+      ${USERS.filter(u=>u.role==='assignee'||u.role==='manager').map(u=>{
+        const ut=TASKS.filter(t=>t.uid===u.id);
+        const uc=ut.filter(t=>t.status==='completed').length;
+        const p=ut.length?Math.round(uc/ut.length*100):0;
+        return`<div style="margin-bottom:11px;"><div style="display:flex;align-items:center;gap:7px;margin-bottom:4px;">${av(u,20)}<span style="font-size:12px;flex:1;">${u.name}</span><span style="font-size:11px;color:var(--t3);">${uc}/${ut.length}</span></div><div class="prog"><div class="pf" style="width:${p}%;background:${p===100?'var(--ok)':p>50?'var(--ac)':'var(--wn)'}"></div></div></div>`;
+      }).join('')}
+    </div>
+  </div>
+  <div class="g2">
+    <div class="card">
+      <div class="ch"><div class="ctit">Recent Meetings</div><button class="btn bs" onclick="navigate('meetings')">View all</button></div>
+      ${MEETINGS.slice(0,3).map(m=>`<div style="display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--br);">
+        <div style="width:34px;height:34px;border-radius:7px;background:var(--al);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:var(--ac);flex-shrink:0;">${m.no.split('-').pop()}</div>
+        <div style="flex:1;min-width:0;"><div style="font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${m.title}</div><div style="font-size:10px;color:var(--t3);">${m.no} · ${m.date}</div></div>
+        ${sb(m.status)}</div>`).join('')}
+    </div>
+    <div class="card">
+      <div class="ch"><div class="ctit">Escalation Alerts</div></div>
+      ${TASKS.filter(t=>t.esc>0).map(t=>{const u=gu(t.uid);return`<div style="display:flex;align-items:center;gap:9px;padding:9px 0;border-bottom:1px solid var(--br);">
+        <div style="width:22px;height:22px;border-radius:50%;background:${t.esc>=2?'var(--el)':'var(--wl)'};color:${t.esc>=2?'var(--er)':'var(--wn)'};display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;flex-shrink:0;">L${t.esc}</div>
+        <div style="flex:1;min-width:0;"><div style="font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${t.title}</div><div style="font-size:10px;color:var(--t3);">${u.name} · Due ${t.due}</div></div>
+        <button class="btn bs" onclick="openModal('task','${t.id}')">View</button>
+      </div>`}).join('')||'<div style="color:var(--t3);font-size:13px;">No active escalations</div>'}
+    </div>
+  </div>`;
+}
+
+/* ═══════════════════════════════════════════
+   MEETINGS
+═══════════════════════════════════════════ */
+function renderMeetings(){
+  document.getElementById('content').innerHTML=`
+  <div class="card">
+    <div class="ch">
+      <div class="ctit">All Meetings</div>
+      <div style="display:flex;gap:8px;">
+        <input placeholder="Search…" style="width:200px;" oninput="filterMeetings(this.value)">
+        <button class="btn bp" onclick="openModal('new-meeting')">+ New Meeting</button>
+      </div>
+    </div>
+    <div class="tw" id="mtbl">${meetingRows(MEETINGS)}</div>
+  </div>`;
+}
+function meetingRows(data){
+  return`<table><thead><tr><th>No.</th><th>Title</th><th>Date</th><th>Venue</th><th>Attendees</th><th>Tasks</th><th>Status</th><th></th></tr></thead><tbody>
+  ${data.map(m=>{const att=m.attendees.map(id=>gu(id));const mt=TASKS.filter(t=>t.mid===m.id);return`<tr>
+    <td><span style="font-family:var(--mo);font-size:11px;color:var(--ac);">${m.no}</span></td>
+    <td style="font-weight:500;max-width:180px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${m.title}</td>
+    <td style="color:var(--t2);font-size:12px;">${m.date}</td>
+    <td style="font-size:12px;color:var(--t2);">${m.venue}</td>
+    <td><div style="display:flex;gap:2px;">${att.slice(0,4).map(u=>`<div class="av" style="width:22px;height:22px;font-size:8px;background:${u.col};color:${u.tc};border:2px solid var(--sf);">${u.ini}</div>`).join('')}${att.length>4?`<div class="av" style="width:22px;height:22px;font-size:8px;background:var(--bg3);color:var(--t3);">+${att.length-4}</div>`:''}</div></td>
+    <td style="font-size:12px;">${mt.length} tasks</td>
+    <td>${sb(m.status)}</td>
+    <td><button class="btn bs" onclick="openModal('meeting-detail','${m.id}')">View MoM</button></td>
+  </tr>`}).join('')}</tbody></table>`;
+}
+function filterMeetings(q){
+  const f=MEETINGS.filter(m=>m.title.toLowerCase().includes(q.toLowerCase())||m.no.toLowerCase().includes(q.toLowerCase()));
+  document.getElementById('mtbl').innerHTML=meetingRows(f);
+}
+
+/* ═══════════════════════════════════════════
+   TASKS
+═══════════════════════════════════════════ */
+function renderTasks(){
+  document.getElementById('content').innerHTML=`
+  <div class="tabs" id="task-tabs">
+    ${['All','In Progress','Overdue','Pending','Completed'].map((l,i)=>`<div class="tab${i===0?' active':''}" onclick="filterTasks('${l.toLowerCase().replace(' ','-')}',this)">${l}</div>`).join('')}
+  </div>
+  <div class="card" style="padding:0;"><div class="tw" id="ttbl">${taskRows(TASKS)}</div></div>`;
+}
+function filterTasks(s,el){
+  document.querySelectorAll('#task-tabs .tab').forEach(t=>t.classList.remove('active'));
+  el.classList.add('active');
+  const myT=currentRole==='assignee'?TASKS.filter(t=>t.uid===1):TASKS;
+  const f=s==='all'?myT:myT.filter(t=>t.status===s);
+  document.getElementById('ttbl').innerHTML=taskRows(f);
+}
+function taskRows(data){
+  return`<table><thead><tr><th>Task</th><th>Meeting</th><th>Assignee</th><th>Due</th><th>Priority</th><th>Progress</th><th>Status</th><th>Escalation</th><th></th></tr></thead><tbody>
+  ${data.map(t=>{const u=gu(t.uid);return`<tr>
+    <td style="font-weight:500;max-width:180px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${t.title}">${t.title}</td>
+    <td><span style="font-family:var(--mo);font-size:10px;color:var(--ac);">${t.mno}</span></td>
+    <td>${ma(u)}</td>
+    <td style="font-size:11px;color:${t.status==='overdue'?'var(--er)':'var(--t2)'};">${t.due}</td>
+    <td>${pb(t.priority)}</td>
+    <td style="min-width:90px;"><div class="prog"><div class="pf" style="width:${t.pct}%;background:${t.pct===100?'var(--ok)':t.status==='overdue'?'var(--er)':'var(--ac)'}"></div></div><div style="font-size:10px;color:var(--t3);margin-top:2px;">${t.pct}%</div></td>
+    <td>${sb(t.status)}</td>
+    <td>${eb(t.esc)}</td>
+    <td><button class="btn bs" onclick="openModal('task','${t.id}')">Update</button></td>
+  </tr>`}).join('')}</tbody></table>`;
+}
+
+/* ═══════════════════════════════════════════
+   ESCALATIONS
+═══════════════════════════════════════════ */
+function renderEscalations(){
+  const esc=TASKS.filter(t=>t.esc>0);
+  document.getElementById('content').innerHTML=`
+  <div class="card" style="margin-bottom:18px;">
+    <div class="ctit" style="margin-bottom:14px;">Escalation Policy</div>
+    <div class="g3">
+      ${[['L1','3 days overdue','Notify direct manager','var(--wl)','var(--wn)'],['L2','7 days overdue','Notify department head','var(--el)','var(--er)'],['L3','14 days overdue','Notify executive management','var(--il)','var(--in)']].map(([l,t,a,bg,tc])=>`
+      <div style="background:${bg};border-radius:8px;padding:14px;">
+        <div style="font-size:18px;font-weight:700;color:${tc};margin-bottom:4px;">${l}</div>
+        <div style="font-size:12px;font-weight:600;color:${tc};margin-bottom:4px;">${t}</div>
+        <div style="font-size:12px;color:var(--t2);">${a}</div>
+      </div>`).join('')}
+    </div>
+  </div>
+  <div class="card" style="padding:0;margin-bottom:18px;">
+    <div style="padding:14px 18px;border-bottom:1px solid var(--br);display:flex;align-items:center;justify-content:space-between;">
+      <div class="ctit">Active Escalations (${esc.length})</div>
+    </div>
+    <div class="tw"><table><thead><tr><th>Task</th><th>Assignee</th><th>Meeting</th><th>Due</th><th>Level</th><th>Actions</th></tr></thead><tbody>
+    ${esc.map(t=>{const u=gu(t.uid);return`<tr>
+      <td style="font-weight:500;max-width:180px;">${t.title}</td>
+      <td>${ma(u)}</td>
+      <td><span style="font-family:var(--mo);font-size:10px;color:var(--ac);">${t.mno}</span></td>
+      <td style="color:var(--er);font-size:12px;">${t.due}</td>
+      <td>${eb(t.esc)}</td>
+      <td style="display:flex;gap:5px;">
+        <button class="btn bs" onclick="openModal('task','${t.id}')">Update</button>
+        <button class="btn bs" onclick="showToast('Reminder sent to ${u.name} via Office 365','ok')">Notify</button>
+      </td>
+    </tr>`}).join('')}</tbody></table></div>
+  </div>
+  <div class="card">
+    <div class="ch"><div class="ctit">Escalation Timeline</div></div>
+    <div class="tl">
+      <div class="tli"><div class="tld" style="background:var(--er);"></div><div class="tlt">Feb 12, 2024 — 9:14 AM</div><div class="tlx">T001 escalated to L2. Dept head notified via email.</div></div>
+      <div class="tli"><div class="tld" style="background:var(--wn);"></div><div class="tlt">Feb 9, 2024 — 9:00 AM</div><div class="tlx">T003 auto-escalated to L1. Manager notified.</div></div>
+      <div class="tli"><div class="tld" style="background:var(--wn);"></div><div class="tlt">Feb 4, 2024 — 11:00 AM</div><div class="tlx">T001 escalated to L1 (3 days overdue).</div></div>
+      <div class="tli"><div class="tld" style="background:var(--ok);"></div><div class="tlt">Jan 30, 2024 — 3:00 PM</div><div class="tlx">T005 escalation resolved. Priya Sharma completed task.</div></div>
+    </div>
+  </div>`;
+}
+
+/* ═══════════════════════════════════════════
+   CALENDAR
+═══════════════════════════════════════════ */
+function renderCalendar(){
+  const days=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  const first=new Date(2024,1,1).getDay();
+  const last=new Date(2024,2,0).getDate();
+  let cells=[];
+  for(let i=0;i<first;i++)cells.push(null);
+  for(let d=1;d<=last;d++)cells.push(d);
+  document.getElementById('content').innerHTML=`
+  <div class="card" style="max-width:700px;">
+    <div class="ch"><div class="ctit">February 2024</div></div>
+    <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:1px;background:var(--br);border-radius:8px;overflow:hidden;">
+      ${days.map(d=>`<div style="background:var(--bg3);padding:7px;text-align:center;font-size:11px;font-weight:600;color:var(--t3);">${d}</div>`).join('')}
+      ${cells.map(d=>{
+        if(!d)return`<div style="background:var(--sf);min-height:60px;"></div>`;
+        const isToday=d===15;
+        const dt=TASKS.filter(t=>t.due===`2024-02-${String(d).padStart(2,'0')}`);
+        const dm=MEETINGS.filter(m=>m.date===`2024-02-${String(d).padStart(2,'0')}`);
+        return`<div style="background:var(--sf);min-height:60px;padding:5px;${isToday?'outline:2px solid var(--ac);outline-offset:-2px;':''}">
+          <div style="font-size:11px;font-weight:${isToday?'700':'400'};color:${isToday?'var(--ac)':'var(--tx)'};margin-bottom:2px;">${d}</div>
+          ${dm.map(m=>`<div style="background:var(--al);color:var(--ac);font-size:9px;padding:1px 3px;border-radius:3px;margin-bottom:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${m.no}</div>`).join('')}
+          ${dt.map(t=>`<div style="background:${t.status==='overdue'?'var(--el)':t.status==='completed'?'var(--ol)':'var(--wl)'};color:${t.status==='overdue'?'var(--er)':t.status==='completed'?'var(--ok)':'var(--wn)'};font-size:9px;padding:1px 3px;border-radius:3px;margin-bottom:2px;">${t.id}</div>`).join('')}
+        </div>`;
+      }).join('')}
+    </div>
+    <div style="display:flex;gap:12px;margin-top:12px;flex-wrap:wrap;">
+      ${[['Meeting','var(--al)','var(--ac)'],['Task due','var(--wl)','var(--wn)'],['Overdue','var(--el)','var(--er)'],['Completed','var(--ol)','var(--ok)']].map(([l,bg,tc])=>`<span style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--t3);"><span style="width:10px;height:10px;border-radius:2px;background:${bg};border:1px solid ${tc};display:inline-block;"></span>${l}</span>`).join('')}
+    </div>
+  </div>`;
+}
+
+/* ═══════════════════════════════════════════
+   BULK UPLOAD
+═══════════════════════════════════════════ */
+function renderBulkUpload(){
+  document.getElementById('content').innerHTML=`
+  <div style="max-width:680px;">
+    <div class="card" style="margin-bottom:18px;">
+      <div class="ch"><div class="ctit">Bulk Upload Action Items</div></div>
+      <div class="upzone" onclick="showToast('File picker opened. Select .xlsx or .csv','info')">
+        <div style="font-size:28px;margin-bottom:8px;">📄</div>
+        <div style="font-weight:500;margin-bottom:4px;">Drop file here or click to browse</div>
+        <div style="font-size:12px;color:var(--t3);">Supports .xlsx, .csv, .xls — Max 10 MB</div>
+      </div>
+      <div style="margin-top:16px;">
+        <div class="divl">Required columns</div>
+        <table style="font-size:12px;">
+          <thead><tr><th>Column</th><th>Type</th><th>Required</th><th>Example</th></tr></thead>
+          <tbody>
+            ${[['meeting_no','Text','Yes','MTG-2024-01'],['meeting_date','YYYY-MM-DD','Yes','2024-01-15'],['action_item','Text','Yes','Prepare Q1 report'],['assignee_email','Email','Yes','r.kumar@corp.com'],['due_date','YYYY-MM-DD','Yes','2024-02-15'],['priority','high/medium/low','No','high'],['attendees','Comma-separated emails','No','a@b.com, c@d.com']].map(([c,t,r,e])=>`<tr><td style="font-family:var(--mo);font-size:10px;color:var(--ac);">${c}</td><td>${t}</td><td><span class="bdg ${r==='Yes'?'b-er':'b-df'}">${r}</span></td><td style="color:var(--t3);">${e}</td></tr>`).join('')}
+          </tbody>
+        </table>
+      </div>
+      <div style="display:flex;gap:9px;margin-top:14px;">
+        <button class="btn" onclick="showToast('Template downloaded','ok')">Download Template</button>
+        <button class="btn bp" onclick="showToast('File processed. 12 tasks imported, 0 errors.','ok')">Process Upload</button>
+      </div>
+    </div>
+    <div class="card">
+      <div class="ch"><div class="ctit">Upload History</div></div>
+      <table><thead><tr><th>Filename</th><th>Uploaded</th><th>Records</th><th>Status</th></tr></thead><tbody>
+        <tr><td style="font-family:var(--mo);font-size:11px;">tasks_jan_2024.xlsx</td><td>2024-01-20</td><td>18</td><td><span class="bdg b-ok">Imported</span></td></tr>
+        <tr><td style="font-family:var(--mo);font-size:11px;">mom_q4_2023.csv</td><td>2023-12-15</td><td>34</td><td><span class="bdg b-ok">Imported</span></td></tr>
+        <tr><td style="font-family:var(--mo);font-size:11px;">bulk_tasks_nov.xlsx</td><td>2023-11-08</td><td>12</td><td><span class="bdg b-wn">Partial (2 errors)</span></td></tr>
+      </tbody></table>
+    </div>
+  </div>`;
+}
+
+/* ═══════════════════════════════════════════
+   REPORTS
+═══════════════════════════════════════════ */
+function renderReports(){
+  document.getElementById('content').innerHTML=`
+  <div class="g2" style="margin-bottom:18px;">
+    <div class="card">
+      <div class="ch"><div class="ctit">Completion by Department</div></div>
+      ${[['Operations',75,'#2563eb'],['Finance',90,'#16a34a'],['IT',55,'#d97706'],['HR',40,'#dc2626'],['Executive',100,'#7c3aed']].map(([d,p,c])=>`
+      <div style="margin-bottom:12px;">
+        <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px;"><span>${d}</span><span style="font-weight:600;">${p}%</span></div>
+        <div class="prog"><div class="pf" style="width:${p}%;background:${c}"></div></div>
+      </div>`).join('')}
+    </div>
+    <div class="card">
+      <div class="ch"><div class="ctit">Monthly Task Trend</div></div>
+      <svg width="100%" viewBox="0 0 280 140">
+        ${[0,30,60,90,120].map(y=>`<line x1="20" y1="${y+10}" x2="265" y2="${y+10}" stroke="var(--br)" stroke-width="0.5"/>`).join('')}
+        <polyline points="20,110 65,90 110,70 155,50 200,60 245,35" fill="none" stroke="var(--ac)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        ${[[20,'Nov'],[65,'Dec'],[110,'Jan'],[155,'Feb'],[200,'Mar'],[245,'Apr']].map(([x,l])=>`<text x="${x}" y="138" text-anchor="middle" font-size="10" fill="var(--t3)">${l}</text>`).join('')}
+      </svg>
+    </div>
+  </div>
+  <div class="g2">
+    <div class="card">
+      <div class="ch"><div class="ctit">Escalation Summary</div><button class="btn bs" onclick="showToast('Report exported','ok')">Export</button></div>
+      <table><thead><tr><th>Level</th><th>Count</th><th>Avg Resolution</th></tr></thead><tbody>
+        <tr><td>${eb(1)}</td><td>8</td><td>4.2 days</td></tr>
+        <tr><td>${eb(2)}</td><td>3</td><td>7.8 days</td></tr>
+        <tr><td>${eb(3)}</td><td>1</td><td>12 days</td></tr>
+      </tbody></table>
+    </div>
+    <div class="card">
+      <div class="ch"><div class="ctit">Top Performers</div></div>
+      ${USERS.filter(u=>u.role!=='top-mgmt').map((u,i)=>{
+        const ut=TASKS.filter(t=>t.uid===u.id);
+        const uc=ut.filter(t=>t.status==='completed').length;
+        return`<div style="display:flex;align-items:center;gap:9px;padding:7px 0;border-bottom:1px solid var(--br);">
+          <div style="font-size:14px;font-weight:700;color:var(--t3);width:18px;">${i+1}</div>
+          ${av(u,24)}<div style="flex:1;"><div style="font-size:12px;font-weight:500;">${u.name}</div><div style="font-size:10px;color:var(--t3);">${u.dept}</div></div>
+          <div style="text-align:right;"><div style="font-weight:600;font-size:12px;">${uc}/${ut.length}</div><div style="font-size:10px;color:var(--t3);">completed</div></div>
+        </div>`;
+      }).join('')}
+    </div>
+  </div>`;
+}
+
+/* ═══════════════════════════════════════════
+   AUDIT TRAIL
+═══════════════════════════════════════════ */
+function renderAudit(){
+  document.getElementById('content').innerHTML=`
+  <div class="card" style="padding:0;">
+    <div style="padding:13px 18px;border-bottom:1px solid var(--br);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+      <div class="ctit">Audit Trail</div>
+      <div style="display:flex;gap:5px;flex-wrap:wrap;" id="audit-chips">
+        ${['all','update','escalation','notification','import','create','config'].map((t,i)=>`<div class="chip${i===0?' on':''}" onclick="filterAudit('${t}',this)">${t.charAt(0).toUpperCase()+t.slice(1)}</div>`).join('')}
+      </div>
+    </div>
+    <div class="tw" id="audit-table">${auditTable(AUDIT_LOG)}</div>
+  </div>`;
+}
+function auditTable(data){
+  const cols={escalation:'var(--el)',update:'var(--al)',notification:'var(--wl)',import:'var(--ol)',create:'var(--il)',config:'var(--bg3)'};
+  const tcols={escalation:'var(--er)',update:'var(--ac)',notification:'var(--wn)',import:'var(--ok)',create:'var(--in)',config:'var(--t2)'};
+  return`<table><thead><tr><th>Time</th><th>User</th><th>Action</th><th>Entity</th><th>Type</th></tr></thead><tbody>
+  ${data.map(a=>`<tr><td style="font-family:var(--mo);font-size:11px;white-space:nowrap;">${a.time}</td><td style="font-size:12px;">${a.user}</td><td style="font-size:12px;">${a.action}</td><td><span style="font-family:var(--mo);font-size:10px;color:var(--ac);">${a.entity}</span></td><td><span class="bdg" style="background:${cols[a.type]||'var(--bg3)'};color:${tcols[a.type]||'var(--t2)'};">${a.type}</span></td></tr>`).join('')}</tbody></table>`;
+}
+function filterAudit(type,el){
+  document.querySelectorAll('#audit-chips .chip').forEach(c=>c.classList.remove('on'));el.classList.add('on');
+  document.getElementById('audit-table').innerHTML=auditTable(type==='all'?AUDIT_LOG:AUDIT_LOG.filter(a=>a.type===type));
+}
+
+/* ═══════════════════════════════════════════
+   EMAIL LOG
+═══════════════════════════════════════════ */
+function renderEmailLog(){
+  document.getElementById('content').innerHTML=`
+  <div class="card" style="padding:0;">
+    <div style="padding:13px 18px;border-bottom:1px solid var(--br);display:flex;align-items:center;justify-content:space-between;">
+      <div class="ctit">Email Delivery Log — Office 365 SMTP</div>
+      <button class="btn bs" onclick="showToast('CSV exported','ok')">Export CSV</button>
+    </div>
+    <div class="tw"><table><thead><tr><th>Time</th><th>Recipient</th><th>Subject</th><th>Trigger</th><th>Status</th></tr></thead><tbody>
+    ${EMAIL_LOG.map(e=>`<tr>
+      <td style="font-family:var(--mo);font-size:11px;white-space:nowrap;">${e.time}</td>
+      <td style="font-size:11px;color:var(--t2);max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${e.to}</td>
+      <td style="font-size:12px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${e.subject}</td>
+      <td><span class="bdg b-df">${e.trigger}</span></td>
+      <td><span class="bdg ${e.status==='delivered'?'b-ok':'b-er'}">${e.status}</span></td>
+    </tr>`).join('')}</tbody></table></div>
+    <div style="padding:11px 18px;border-top:1px solid var(--br);font-size:12px;color:var(--t3);">${EMAIL_LOG.filter(e=>e.status==='delivered').length} delivered · ${EMAIL_LOG.filter(e=>e.status==='bounced').length} bounced · smtp.office365.com:587</div>
+  </div>`;
+}
+
+/* ═══════════════════════════════════════════
+   SETTINGS
+═══════════════════════════════════════════ */
+function renderFirebase(){
+  document.getElementById('content').innerHTML=`
+  <div style="max-width:620px;">
+    <div class="alert aw" style="margin-bottom:14px;">Super Admin only — changes affect all users.</div>
+    <div class="card">
+      <div class="ch"><div class="ctit">Firebase Configuration</div></div>
+      <div class="fgrid">
+        <div class="fg"><label>API KEY</label><input type="password" value="AIzaSy••••••••••••••"></div>
+        <div class="fg"><label>AUTH DOMAIN</label><input value="your-app.firebaseapp.com"></div>
+        <div class="fg"><label>PROJECT ID</label><input value="your-project-id"></div>
+        <div class="fg"><label>STORAGE BUCKET</label><input value="your-app.appspot.com"></div>
+        <div class="fg"><label>MESSAGING SENDER ID</label><input type="password" value="123456789012"></div>
+        <div class="fg"><label>APP ID</label><input type="password" value="1:123456:web:abcdef"></div>
+        <div class="fg full"><label>MEASUREMENT ID (Analytics)</label><input value="G-XXXXXXXXXX"></div>
+      </div>
+      <div style="display:flex;gap:9px;margin-top:4px;">
+        <button class="btn" onclick="showToast('Connection test passed — Firebase reachable','ok')">Test Connection</button>
+        <button class="btn bp" onclick="showToast('Firebase configuration saved','ok')">Save Configuration</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+function renderEmailCfg(){
+  document.getElementById('content').innerHTML=`
+  <div style="max-width:620px;"><div class="card">
+    <div class="ch"><div class="ctit">Outlook Office 365 SMTP</div></div>
+    <div class="fgrid">
+      <div class="fg"><label>SMTP HOST</label><input value="smtp.office365.com"></div>
+      <div class="fg"><label>PORT</label><input value="587"></div>
+      <div class="fg"><label>FROM EMAIL</label><input value="noreply@yourorg.com"></div>
+      <div class="fg"><label>DISPLAY NAME</label><input value="MoM Pro Notifications"></div>
+      <div class="fg"><label>USERNAME</label><input value="service@yourorg.onmicrosoft.com"></div>
+      <div class="fg"><label>PASSWORD</label><input type="password" value="••••••••••••"></div>
+      <div class="fg full"><label>ENCRYPTION</label><select><option selected>STARTTLS (Port 587)</option><option>SSL/TLS (Port 465)</option></select></div>
+      <div class="fg full"><label>BCC ALL NOTIFICATIONS TO</label><input value="admin@yourorg.com"></div>
+    </div>
+    <div style="display:flex;gap:9px;">
+      <button class="btn" onclick="showToast('Test email sent via Office 365','ok')">Send Test Email</button>
+      <button class="btn bp" onclick="showToast('Email configuration saved','ok')">Save</button>
+    </div>
+  </div></div>`;
+}
+
+function renderUsers(){
+  if(currentRole!=='super-admin'){document.getElementById('content').innerHTML=`<div class="card" style="text-align:center;padding:48px;"><div style="font-size:30px;margin-bottom:12px;">🔒</div><div style="font-size:15px;font-weight:600;">Access Restricted</div><div style="font-size:13px;color:var(--t2);margin-top:6px;">User management is available to Super Admins only.</div></div>`;return;}
+  document.getElementById('content').innerHTML=`
+  <div class="card" style="padding:0;">
+    <div style="padding:13px 18px;border-bottom:1px solid var(--br);display:flex;justify-content:space-between;align-items:center;">
+      <div class="ctit">Users & Access Control</div>
+      <button class="btn bp bs" onclick="showToast('Add user dialog — connect Firebase Auth','info')">+ Add User</button>
+    </div>
+    <div class="tw"><table><thead><tr><th>User</th><th>Email</th><th>Department</th><th>Role</th><th>Access Level</th><th></th></tr></thead><tbody>
+    ${USERS.map(u=>`<tr>
+      <td><div style="display:flex;align-items:center;gap:7px;">${av(u,24)}<span style="font-weight:500;font-size:12px;">${u.name}</span></div></td>
+      <td style="font-size:11px;color:var(--t2);">${u.email}</td>
+      <td style="font-size:12px;">${u.dept}</td>
+      <td><select style="font-size:11px;width:130px;">
+        <option ${u.role==='super-admin'?'selected':''}>super-admin</option>
+        <option ${u.role==='top-mgmt'?'selected':''}>top-mgmt</option>
+        <option ${u.role==='manager'?'selected':''}>manager</option>
+        <option ${u.role==='assignee'?'selected':''}>assignee</option>
+      </select></td>
+      <td>${u.role==='assignee'?'<span class="bdg b-df">Own tasks only</span>':u.role==='top-mgmt'?'<span class="bdg b-in">Full dashboard</span>':'<span class="bdg b-ok">Full access</span>'}</td>
+      <td><button class="btn bs" onclick="showToast('User saved','ok')">Save</button></td>
+    </tr>`).join('')}</tbody></table></div>
+  </div>`;
+}
+
+function renderEscCfg(){
+  document.getElementById('content').innerHTML=`
+  <div style="max-width:620px;"><div class="card">
+    <div class="ch"><div class="ctit">Escalation Rules</div></div>
+    ${[1,2,3].map(l=>`
+    <div style="display:flex;align-items:center;gap:12px;padding:11px 0;border-bottom:1px solid var(--br);">
+      <div style="width:26px;height:26px;border-radius:50%;background:${l===1?'var(--wl)':l===2?'var(--el)':'var(--il)'};color:${l===1?'var(--wn)':l===2?'var(--er)':'var(--in)'};display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;flex-shrink:0;">L${l}</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:9px;flex:1;align-items:end;">
+        <div class="fg" style="margin:0;"><label>TRIGGER (DAYS)</label><input type="number" value="${l===1?3:l===2?7:14}" style="width:70px;"></div>
+        <div class="fg" style="margin:0;"><label>NOTIFY</label><select style="font-size:11px;">${USERS.map(u=>`<option>${u.name}</option>`).join('')}</select></div>
+        <div class="fg" style="margin:0;"><label>FREQUENCY</label><select style="font-size:11px;"><option>Once</option><option selected>Daily until resolved</option></select></div>
+      </div>
+    </div>`).join('')}
+    <button class="btn bp" style="margin-top:14px;" onclick="showToast('Escalation rules saved','ok')">Save Rules</button>
+  </div></div>`;
+}
+
+function renderNotifCfg(){
+  document.getElementById('content').innerHTML=`
+  <div style="max-width:620px;"><div class="card">
+    <div class="ch"><div class="ctit">Notification Schedule</div></div>
+    ${[['Task assigned','On assignment','Immediate'],['Upcoming reminder','3 days before due','Daily'],['Overdue alert','On due date','Daily'],['Escalation notice','Per escalation policy','Immediate'],['MoM published','After meeting saved','Immediate'],['Weekly summary','Every Monday','Weekly']].map(([n,t,f])=>`
+    <div style="display:flex;align-items:center;padding:11px 0;border-bottom:1px solid var(--br);gap:10px;">
+      <div style="flex:1;"><div style="font-size:13px;font-weight:500;">${n}</div><div style="font-size:11px;color:var(--t3);">${t}</div></div>
+      <select style="width:130px;font-size:11px;">${['Immediate','Daily','Every 2 days','Weekly'].map(o=>`<option ${o===f?'selected':''}>${o}</option>`).join('')}</select>
+      <div class="tgl on"></div>
+    </div>`).join('')}
+    <button class="btn bp" style="margin-top:14px;" onclick="showToast('Notification settings saved','ok')">Save Settings</button>
+  </div></div>`;
+}
+
+/* ═══════════════════════════════════════════
+   MODALS
+═══════════════════════════════════════════ */
+function renderNewMeetingModal(){
+  document.getElementById('modal-title').textContent='Create New Meeting';
+  document.getElementById('modal-body').innerHTML=`
+  <div class="divl">Meeting Details</div>
+  <div class="fgrid" style="margin-bottom:16px;">
+    <div class="fg"><label>MEETING NUMBER</label><input value="MTG-2024-05" id="nm-no"></div>
+    <div class="fg"><label>MEETING DATE</label><input type="date" value="2024-03-01"></div>
+    <div class="fg full"><label>MEETING TITLE / AGENDA</label><input placeholder="e.g. Q2 Strategy Review" id="nm-title"></div>
+    <div class="fg"><label>VENUE / PLATFORM</label><input placeholder="e.g. Boardroom A / MS Teams"></div>
+    <div class="fg"><label>MEETING TYPE</label><select><option>Management Review</option><option>Project Update</option><option>Audit & Compliance</option><option>Strategy Planning</option><option>Operations</option></select></div>
+  </div>
+  <div class="divl">Attendees</div>
+  <div style="margin-bottom:16px;">
+    ${USERS.map(u=>`<label style="display:flex;align-items:center;gap:8px;padding:5px 0;cursor:pointer;font-size:13px;">${av(u,22)}<input type="checkbox" checked style="width:13px;height:13px;"> ${u.name} <span style="color:var(--t3);font-size:11px;">— ${u.dept}</span></label>`).join('')}
+  </div>
+  <div class="divl">Action Items</div>
+  <div id="ai-items">
+    ${[1,2].map(i=>`<div style="background:var(--bg3);border-radius:8px;padding:12px;margin-bottom:9px;">
+      <div class="fgrid">
+        <div class="fg full"><label>ACTION ITEM ${i}</label><input placeholder="Describe the action required…"></div>
+        <div class="fg"><label>ASSIGNEE</label><select>${USERS.map(u=>`<option>${u.name}</option>`).join('')}</select></div>
+        <div class="fg"><label>DUE DATE</label><input type="date"></div>
+        <div class="fg"><label>PRIORITY</label><select><option>high</option><option selected>medium</option><option>low</option></select></div>
+      </div>
+    </div>`).join('')}
+  </div>
+  <button class="btn bs" onclick="addAIItem()">+ Add Action Item</button>
+  <div style="margin-top:16px;" class="divl">Notification & Escalation</div>
+  <div class="fgrid">
+    <div class="fg"><label>REMINDER FREQUENCY</label><select><option selected>Daily (from 2 days before due)</option><option>Every 2 days</option><option>Weekly</option></select></div>
+    <div class="fg"><label>ESCALATION POLICY</label><select><option selected>Standard (3d→L1, 7d→L2, 14d→L3)</option><option>Strict (1d→L1, 3d→L2, 7d→L3)</option></select></div>
+  </div>`;
+  document.getElementById('modal-footer').innerHTML=`
+    <button class="btn" onclick="closeModal()">Cancel</button>
+    <button class="btn" onclick="showToast('Draft saved','info')">Save Draft</button>
+    <button class="btn bp" onclick="saveMeeting()">Save & Notify Attendees</button>`;
+}
+
+function addAIItem(){
+  aiItemCount++;
+  const d=document.createElement('div');
+  d.style.cssText='background:var(--bg3);border-radius:8px;padding:12px;margin-bottom:9px;';
+  d.innerHTML=`<div class="fgrid"><div class="fg full"><label>ACTION ITEM ${aiItemCount}</label><input placeholder="Describe the action required…"></div><div class="fg"><label>ASSIGNEE</label><select>${USERS.map(u=>`<option>${u.name}</option>`).join('')}</select></div><div class="fg"><label>DUE DATE</label><input type="date"></div><div class="fg"><label>PRIORITY</label><select><option>high</option><option selected>medium</option><option>low</option></select></div></div>`;
+  document.getElementById('ai-items').appendChild(d);
+}
+
+function saveMeeting(){showToast('Meeting saved. All attendees notified via Outlook Office 365.','ok');closeModal();navigate('meetings');}
+
+function renderTaskModal(taskId){
+  const t=TASKS.find(x=>x.id===taskId);
+  if(!t)return;
+  const cmts=(COMMENTS[taskId]||[]);
+  document.getElementById('modal-title').textContent=`Task ${t.id}`;
+  document.getElementById('modal-body').innerHTML=`
+  <div class="fgrid" style="margin-bottom:16px;">
+    <div class="fg full"><label>TASK TITLE</label><input value="${t.title}" id="tm-title"></div>
+    <div class="fg"><label>ASSIGNEE</label><select id="tm-uid">${USERS.map(u=>`<option value="${u.id}" ${u.id===t.uid?'selected':''}>${u.name}</option>`).join('')}</select></div>
+    <div class="fg"><label>DUE DATE</label><input type="date" value="${t.due}" id="tm-due"></div>
+    <div class="fg"><label>PRIORITY</label><select id="tm-pri"><option ${t.priority==='high'?'selected':''}>high</option><option ${t.priority==='medium'?'selected':''}>medium</option><option ${t.priority==='low'?'selected':''}>low</option></select></div>
+    <div class="fg"><label>STATUS</label><select id="tm-status"><option ${t.status==='pending'?'selected':''} value="pending">pending</option><option ${t.status==='in-progress'?'selected':''} value="in-progress">in-progress</option><option ${t.status==='completed'?'selected':''} value="completed">completed</option><option ${t.status==='overdue'?'selected':''} value="overdue">overdue</option></select></div>
+    <div class="fg"><label>ESCALATION LEVEL</label><select id="tm-esc"><option value="0" ${!t.esc?'selected':''}>None</option><option value="1" ${t.esc===1?'selected':''}>L1 — Manager</option><option value="2" ${t.esc===2?'selected':''}>L2 — Dept Head</option><option value="3" ${t.esc===3?'selected':''}>L3 — Executive</option></select></div>
+    <div class="fg full"><label>PROGRESS (${t.pct}%)</label><input type="range" min="0" max="100" step="1" value="${t.pct}" id="tm-pct" oninput="this.previousElementSibling.textContent='PROGRESS ('+this.value+'%)'"><span style="font-size:11px;color:var(--t3);">${t.pct}%</span></div>
+    <div class="fg full"><label>NOTES</label><textarea id="tm-notes">${t.notes}</textarea></div>
+  </div>
+  <div class="divl">Comments (${cmts.length})</div>
+  ${cmts.map(c=>{const cu=gu(c.uid);return`<div style="background:var(--bg3);border-radius:7px;padding:9px 11px;margin-bottom:8px;"><div style="display:flex;align-items:center;gap:6px;margin-bottom:3px;">${av(cu,18)}<span style="font-size:12px;font-weight:500;">${cu.name}</span><span style="font-size:10px;color:var(--t3);margin-left:4px;">${c.time}</span></div><div style="font-size:12px;">${c.text.replace(/@(\w+)/g,'<span style="color:var(--ac);font-weight:500;">@$1</span>')}</div></div>`}).join('')||'<div style="color:var(--t3);font-size:12px;margin-bottom:12px;">No comments yet.</div>'}
+  <textarea id="new-cmt" placeholder="Add a comment…" style="margin-top:4px;"></textarea>`;
+  document.getElementById('modal-footer').innerHTML=`
+    <button class="btn" onclick="closeModal()">Cancel</button>
+    <button class="btn bp" onclick="saveTask('${taskId}')">Save & Notify</button>`;
+}
+
+function saveTask(id){
+  const t=TASKS.find(x=>x.id===id);
+  if(t){
+    t.title=document.getElementById('tm-title')?.value||t.title;
+    t.status=document.getElementById('tm-status')?.value||t.status;
+    t.esc=parseInt(document.getElementById('tm-esc')?.value||0);
+    t.pct=parseInt(document.getElementById('tm-pct')?.value||t.pct);
+    t.notes=document.getElementById('tm-notes')?.value||t.notes;
+    const cmt=document.getElementById('new-cmt')?.value?.trim();
+    if(cmt){if(!COMMENTS[id])COMMENTS[id]=[];COMMENTS[id].push({uid:1,time:'Just now',text:cmt});}
+  }
+  showToast('Task updated. Assignee notified via Office 365.','ok');
+  closeModal();
+}
+
+function renderMeetingDetailModal(meetingId){
+  const m=MEETINGS.find(x=>x.id===meetingId);
+  if(!m)return;
+  const mt=TASKS.filter(t=>t.mid===meetingId);
+  const att=m.attendees.map(id=>gu(id));
+  document.getElementById('modal-title').textContent=`MoM — ${m.no}`;
+  document.getElementById('modal-body').innerHTML=`
+  <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;margin-bottom:16px;">
+    <div><div style="font-size:10px;color:var(--t3);margin-bottom:3px;">MEETING NO</div><div style="font-family:var(--mo);font-weight:600;color:var(--ac);">${m.no}</div></div>
+    <div><div style="font-size:10px;color:var(--t3);margin-bottom:3px;">DATE</div><div style="font-weight:500;">${m.date}</div></div>
+    <div><div style="font-size:10px;color:var(--t3);margin-bottom:3px;">VENUE</div><div style="font-weight:500;">${m.venue}</div></div>
+  </div>
+  <div class="divl">Attendees</div>
+  <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:16px;">${att.map(u=>`<span class="tag">${av(u,18)}&nbsp;${u.name}</span>`).join('')}</div>
+  <div class="divl">Action Items</div>
+  <table style="font-size:12px;"><thead><tr><th>#</th><th>Task</th><th>Assignee</th><th>Due</th><th>Status</th><th>Escalation</th></tr></thead>
+  <tbody>${mt.map((t,i)=>{const u=gu(t.uid);return`<tr><td>${i+1}</td><td>${t.title}</td><td>${ma(u)}</td><td>${t.due}</td><td>${sb(t.status)}</td><td>${eb(t.esc)}</td></tr>`}).join('')}</tbody></table>`;
+  document.getElementById('modal-footer').innerHTML=`
+    <button class="btn" onclick="closeModal()">Close</button>
+    <button class="btn" onclick="closeModal();showToast('MoM emailed to all attendees','ok')">Email MoM</button>
+    <button class="btn bp" onclick="closeModal();showToast('PDF export started','ok')">Export PDF</button>`;
+}
+
+/* ═══════════════════════════════════════════
+   INIT
+═══════════════════════════════════════════ */
+buildNav();
+navigate('dashboard');
+</script>
+</body>
+</html>
