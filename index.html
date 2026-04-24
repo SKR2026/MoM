@@ -280,7 +280,7 @@ input[type=checkbox].task-cb{width:15px;height:15px;accent-color:var(--ac);curso
       <option value="top-mgmt">Top Management</option>
       <option value="developer" style="color:var(--wn);">Developer Mode</option>
     </select>
-    <button class="btn bs bp" onclick="openModal('new-meeting')">+ New Meeting</button>
+    <span id="btn-new-meeting"><button class="btn bs bp" onclick="openModal('new-meeting')">+ New Meeting</button></span>
     <button class="btn bs" onclick="showToast('2 pending escalations','warn')" style="position:relative;">
       <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 1a5 5 0 015 5v3l1 2H2l1-2V6a5 5 0 015-5zM6 13a2 2 0 004 0"/></svg>
       <div class="ndot" style="position:absolute;top:2px;right:2px;"></div>
@@ -425,6 +425,14 @@ function simulateLinkAccess(){
   showToast('Opened via shared link — logged in as Rajesh Kumar','info');
 }
 
+function applyRoleUI(){
+  const isSA=currentRole==='super-admin'||currentRole==='developer';
+  // Show/hide New Meeting button in topbar
+  const nmb=document.getElementById('btn-new-meeting');
+  if(nmb)nmb.style.display=isSA?'':'none';
+  buildNav();
+}
+
 function applySession(name,desc,ini,col,tc,showLogout){
   document.getElementById('un').textContent=name;
   document.getElementById('ur').textContent=desc;
@@ -441,6 +449,7 @@ function applySession(name,desc,ini,col,tc,showLogout){
   const isDev=currentRole==='developer';
   document.getElementById('dev-mode-banner').style.display=isDev?'block':'none';
   document.getElementById('dev-topbadge').style.display=isDev?'flex':'none';
+  applyRoleUI();
   navigate('dashboard');
 }
 
@@ -469,47 +478,73 @@ function hideLoginScreen(){
    NAVIGATION MAP
 ═══════════════════════════════════════════ */
 const NAV=[
-  {section:'Main',items:[
+  {section:'Main',roles:['super-admin','assignee','top-mgmt','developer'],items:[
     {id:'dashboard',label:'Dashboard',icon:'<rect x="1" y="1" width="6" height="6" rx="1"/><rect x="9" y="1" width="6" height="6" rx="1"/><rect x="1" y="9" width="6" height="6" rx="1"/><rect x="9" y="9" width="6" height="6" rx="1"/>'},
-    {id:'meetings',label:'Meetings',icon:'<rect x="1" y="2" width="14" height="12" rx="2"/><path d="M1 6h14M5 1v2M11 1v2"/>'},
+    {id:'meetings',label:'Meetings',icon:'<rect x="1" y="2" width="14" height="12" rx="2"/><path d="M1 6h14M5 1v2M11 1v2"/>',roles:['super-admin','top-mgmt','developer']},
     {id:'tasks',label:'My Tasks',icon:'<path d="M6 4h8M6 8h8M6 12h8M2 4h.5M2 8h.5M2 12h.5"/>',badge:3},
-    {id:'escalations',label:'Escalations',icon:'<path d="M8 1l2 5h5l-4 3 1.5 5L8 11l-4.5 3L5 9 1 6h5z"/>',badge:2},
-    {id:'calendar',label:'Calendar',icon:'<rect x="1" y="2" width="14" height="12" rx="2"/><path d="M1 6h14M5 1v2M11 1v2"/>'},
+    {id:'escalations',label:'Escalations',icon:'<path d="M8 1l2 5h5l-4 3 1.5 5L8 11l-4.5 3L5 9 1 6h5z"/>',badge:2,roles:['super-admin','top-mgmt','developer']},
+    {id:'calendar',label:'Calendar',icon:'<rect x="1" y="2" width="14" height="12" rx="2"/><path d="M1 6h14M5 1v2M11 1v2"/>',roles:['super-admin','top-mgmt','developer']},
   ]},
-  {section:'Actions',items:[
+  {section:'Actions',roles:['super-admin','developer'],items:[
     {id:'bulk-upload',label:'Bulk Upload',icon:'<path d="M8 2v8M5 5l3-3 3 3M2 11v2a1 1 0 001 1h10a1 1 0 001-1v-2"/>'},
     {id:'reports',label:'Reports',icon:'<path d="M3 12V4M7 12V7M11 12V2"/>'},
     {id:'audit',label:'Audit Trail',icon:'<path d="M1 4h14M1 8h14M1 12h8"/><circle cx="13" cy="12" r="2"/>'},
     {id:'email-log',label:'Email Log',icon:'<rect x="1" y="3" width="14" height="10" rx="1"/><path d="M1 4l7 5 7-5"/>'},
   ]},
-  {section:'Settings',items:[
+  {section:'Settings',roles:['super-admin'],items:[
     {id:'settings-firebase',label:'Firebase Config',icon:'<path d="M2 14L8 2l6 12H2z"/><path d="M5 9l3-5 3 5"/>'},
     {id:'settings-email',label:'Email (Office 365)',icon:'<rect x="1" y="3" width="14" height="10" rx="1"/><path d="M1 4l7 5 7-5"/>'},
     {id:'settings-users',label:'Users & Roles',icon:'<circle cx="8" cy="5" r="3"/><path d="M2 14c0-3.3 2.7-6 6-6s6 2.7 6 6"/>'},
     {id:'settings-escalation',label:'Escalation Rules',icon:'<path d="M8 1l2 5h5l-4 3 1.5 5L8 11l-4.5 3L5 9 1 6h5z"/>'},
     {id:'settings-notifications',label:'Notifications',icon:'<path d="M8 1a5 5 0 015 5v3l1 2H2l1-2V6a5 5 0 015-5zM6 13a2 2 0 004 0"/>'},
   ]},
-  {section:'Developer',devOnly:true,items:[
+  {section:'Developer',devOnly:true,roles:['developer'],items:[
     {id:'dev-console',label:'Dev Console',icon:'<path d="M5 3l-4 5 4 5M11 3l4 5-4 5M9 2l-2 12"/>'},
     {id:'dev-api',label:'API Config',icon:'<rect x="1" y="3" width="14" height="10" rx="2"/><path d="M5 7h6M5 10h4"/>'},
     {id:'dev-system',label:'System Info',icon:'<rect x="1" y="1" width="14" height="14" rx="2"/><path d="M4 5h8M4 8h5"/>'},
   ]},
 ];
 
-function buildNav(){
-  const nav=document.getElementById('sb-nav');
-  nav.innerHTML=NAV.filter(s=>!s.devOnly||currentRole==='developer').map(s=>`
-    <div class="nl" style="${s.devOnly?'color:var(--wn);':''}">${s.devOnly?'⚡ ':''} ${s.section}</div>
-    ${s.items.map(i=>`
-      <div class="ni" id="ni-${i.id}" onclick="navigate('${i.id}')">
-        <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">${i.icon}</svg>
-        ${i.label}
-        ${i.badge?`<span class="nb">${i.badge}</span>`:''}
-      </div>`).join('')}
-  `).join('');
+function canAccess(item){
+  const allowed=item.roles||['super-admin','assignee','top-mgmt','developer'];
+  return allowed.includes(currentRole);
 }
 
+function buildNav(){
+  const nav=document.getElementById('sb-nav');
+  nav.innerHTML=NAV
+    .filter(s=>(s.roles||[]).includes(currentRole))
+    .map(s=>`
+      <div class="nl" style="${s.devOnly?'color:var(--wn);':''}">${s.devOnly?'⚡ ':''} ${s.section}</div>
+      ${s.items.filter(i=>canAccess(i)).map(i=>`
+        <div class="ni" id="ni-${i.id}" onclick="navigate('${i.id}')">
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">${i.icon}</svg>
+          ${i.label}
+          ${i.badge?`<span class="nb">${i.badge}</span>`:''}
+        </div>`).join('')}
+    `).join('');
+}
+
+function accessDenied(){
+  document.getElementById('content').innerHTML=`
+  <div class="card" style="text-align:center;padding:56px 32px;max-width:420px;margin:60px auto;">
+    <div style="font-size:38px;margin-bottom:14px;">🔒</div>
+    <div style="font-size:15px;font-weight:600;margin-bottom:6px;">Access Restricted</div>
+    <div style="font-size:13px;color:var(--t2);">This section is not available for your role.<br>Contact your Super Admin if you need access.</div>
+  </div>`;
+}
+
+/* pages restricted to super-admin only */
+const SA_ONLY=['bulk-upload','reports','audit','email-log',
+  'settings-firebase','settings-email','settings-users',
+  'settings-escalation','settings-notifications'];
+/* pages hidden from assignee */
+const NO_ASSIGNEE=['meetings','escalations','calendar'];
+
 function navigate(page){
+  // Role guard — silently block if not allowed
+  if(SA_ONLY.includes(page)&&currentRole!=='super-admin'&&currentRole!=='developer'){accessDenied();return;}
+  if(NO_ASSIGNEE.includes(page)&&currentRole==='assignee'){accessDenied();return;}
   document.querySelectorAll('.ni').forEach(n=>n.classList.remove('active'));
   const el=document.getElementById('ni-'+page);
   if(el)el.classList.add('active');
@@ -548,6 +583,7 @@ function openModal(type,data){
   if(type==='new-meeting'){renderNewMeetingModal();}
   else if(type==='task'&&data){renderTaskModal(data);}
   else if(type==='meeting-detail'&&data){renderMeetingDetailModal(data);}
+  else if(type==='add-user'){renderAddUserModal();}
   modal.style.display='flex';
 }
 function closeModal(){document.getElementById('modal').style.display='none';}
@@ -581,7 +617,7 @@ function switchRole(r){
   const isDev=r==='developer';
   document.getElementById('dev-mode-banner').style.display=isDev?'block':'none';
   document.getElementById('dev-topbadge').style.display=isDev?'flex':'none';
-  buildNav();
+  applyRoleUI();
   showToast(`Switched to ${roleLabels[r]} view`,'info');
   navigate('dashboard');
 }
@@ -730,10 +766,11 @@ function taskRows(data){
     <td>${pb(t.priority)}</td>
     <td style="min-width:90px;"><div class="prog"><div class="pf" style="width:${t.pct}%;background:${t.pct===100?'var(--ok)':t.status==='overdue'?'var(--er)':'var(--ac)'}"></div></div><div style="font-size:10px;color:var(--t3);margin-top:2px;">${t.pct}%</div></td>
     <td>${sb(t.status)}</td>
-    <td>${eb(t.esc)}</td>
-    <td><button class="btn bs" onclick="openModal('task','${t.id}')">Update</button></td>
+    ${isSA?`<td>${eb(t.esc)}</td>`:''}
+    <td><button class="btn bs" onclick="openModal('task','${t.id}')">${isSA?'Update':'Update Status'}</button></td>
   </tr>`}).join('');
-  return`<table><thead><tr>${cbHeader}<th>Task</th><th>Meeting</th><th>Assignee</th><th>Due</th><th>Priority</th><th>Progress</th><th>Status</th><th>Escalation</th><th></th></tr></thead><tbody>${rows}</tbody></table>`;
+  const escCol=isSA?'<th>Escalation</th>':'';
+  return`<table><thead><tr>${cbHeader}<th>Task</th><th>Meeting</th><th>Assignee</th><th>Due</th><th>Priority</th><th>Progress</th><th>Status</th>${escCol}<th></th></tr></thead><tbody>${rows}</tbody></table>`;
 }
 function toggleTaskSelect(id,cb){
   if(cb.checked)selectedTasks.add(id);else selectedTasks.delete(id);
@@ -1105,7 +1142,7 @@ function renderUsers(){
   <div class="card" style="padding:0;">
     <div style="padding:13px 18px;border-bottom:1px solid var(--br);display:flex;justify-content:space-between;align-items:center;">
       <div class="ctit">Users & Access Control</div>
-      <button class="btn bp bs" onclick="showToast('Add user dialog — connect Firebase Auth','info')">+ Add User</button>
+      <button class="btn bp bs" onclick="openModal('add-user')">+ Add User</button>
     </div>
     <div class="tw"><table><thead><tr><th>User</th><th>Email</th><th>Department</th><th>Firebase Status</th><th>Role</th><th>Access Level</th><th></th></tr></thead><tbody>
     ${USERS.map(u=>{const s=typeof FB_STATUS!=='undefined'?FB_STATUS[u.id]:null;return`<tr>
@@ -1123,6 +1160,167 @@ function renderUsers(){
       <td><button class="btn bs" onclick="showToast('User saved','ok')">Save</button></td>
     </tr>`}).join('')}</tbody></table></div>
   </div>`;
+}
+
+function renderAddUserModal(){
+  document.getElementById('modal-title').textContent='Add New User';
+  document.getElementById('modal-body').innerHTML=`
+  <!-- Firebase Auth notice -->
+  <div style="display:flex;align-items:center;gap:10px;background:var(--ol);border:1px solid var(--ok);border-radius:var(--rs);padding:10px 14px;margin-bottom:18px;">
+    <span style="font-size:18px;">🔥</span>
+    <div style="flex:1;">
+      <div style="font-size:12px;font-weight:600;color:var(--ok);">Connected to Firebase Auth — mom-pro-dev</div>
+      <div style="font-size:11px;color:var(--t3);margin-top:2px;">This account will be created in Firebase Authentication and synced to the app database.</div>
+    </div>
+    <span class="bdg b-ok">● Live</span>
+  </div>
+
+  <!-- Auth method toggle -->
+  <div style="margin-bottom:16px;">
+    <div style="font-size:11px;font-weight:600;color:var(--t2);margin-bottom:7px;letter-spacing:.2px;">FIREBASE AUTH METHOD</div>
+    <div style="display:flex;gap:8px;">
+      <div class="chip on" id="auth-email-chip" onclick="selectAuthMethod('email')">✉ Email / Password</div>
+      <div class="chip" id="auth-google-chip" onclick="selectAuthMethod('google')">G Google Sign-In</div>
+      <div class="chip" id="auth-link-chip" onclick="selectAuthMethod('link')">🔗 Email Link (Passwordless)</div>
+    </div>
+  </div>
+
+  <div class="fgrid">
+    <div class="fg"><label>FULL NAME *</label><input id="nu-name" placeholder="e.g. Arjun Mehta" oninput="autoFillIni()"></div>
+    <div class="fg"><label>DISPLAY INITIALS</label><input id="nu-ini" placeholder="AM" maxlength="2" style="text-transform:uppercase;"></div>
+    <div class="fg full"><label>EMAIL ADDRESS *</label><input id="nu-email" type="email" placeholder="arjun.mehta@corp.com"></div>
+
+    <!-- Password row — shown only for email method -->
+    <div class="fg full" id="pw-row">
+      <label>TEMPORARY PASSWORD *</label>
+      <div style="display:flex;gap:8px;">
+        <input id="nu-pass" type="password" placeholder="Min 8 characters" style="flex:1;">
+        <button class="btn bs" type="button" onclick="genPassword()" title="Auto-generate">⚙ Generate</button>
+      </div>
+      <div style="font-size:10px;color:var(--t3);margin-top:3px;">User will be prompted to change password on first login.</div>
+    </div>
+
+    <!-- Passwordless hint -->
+    <div class="fg full" id="link-row" style="display:none;">
+      <div class="alert ai">Firebase will send a sign-in link to the user's email. No password required.</div>
+    </div>
+
+    <div class="fg"><label>DEPARTMENT</label>
+      <select id="nu-dept">
+        ${['Operations','Finance','IT','HR','Executive','Marketing','Legal','Procurement'].map(d=>`<option>${d}</option>`).join('')}
+      </select>
+    </div>
+    <div class="fg"><label>ROLE</label>
+      <select id="nu-role">
+        <option value="assignee">Assignee</option>
+        <option value="manager">Manager</option>
+        <option value="top-mgmt">Top Management</option>
+      </select>
+    </div>
+    <div class="fg"><label>AVATAR COLOUR</label>
+      <div style="display:flex;gap:7px;margin-top:4px;flex-wrap:wrap;" id="col-picker">
+        ${[['#dcfce7','#16a34a'],['#fce7f3','#db2777'],['#ede9fe','#7c3aed'],['#fef3c7','#d97706'],['#fee2e2','#dc2626'],['#e0f2fe','#0284c7'],['#f3e8ff','#9333ea'],['#ffedd5','#ea580c']].map(([bg,tc],i)=>`
+          <div data-bg="${bg}" data-tc="${tc}" onclick="pickColour(this)"
+            style="width:22px;height:22px;border-radius:50%;background:${bg};border:2px solid ${tc};cursor:pointer;transition:transform .15s;${i===0?'outline:3px solid var(--tx);outline-offset:2px;':''}"></div>`).join('')}
+      </div>
+    </div>
+    <div class="fg">
+      <label>SEND WELCOME EMAIL</label>
+      <div style="display:flex;align-items:center;gap:10px;margin-top:8px;">
+        <div class="tgl on" id="welcome-tgl" onclick="this.classList.toggle('on')" title="Toggle welcome email"></div>
+        <span style="font-size:12px;color:var(--t3);">Via Office 365 SMTP</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Firebase UID preview -->
+  <div style="margin-top:4px;padding:10px 13px;background:var(--bg3);border-radius:var(--rs);font-family:var(--mo);font-size:11px;color:var(--t3);">
+    <span style="color:var(--t2);font-weight:600;">Firebase UID (assigned on create):</span> <span id="uid-preview" style="color:var(--ac);">will be auto-generated</span>
+  </div>
+  `;
+
+  document.getElementById('modal-footer').innerHTML=`
+    <button class="btn" onclick="closeModal()">Cancel</button>
+    <button class="btn bp" onclick="doAddUser()">🔥 Create in Firebase &amp; Add User</button>
+  `;
+
+  // init colour selection state
+  window._nuCol={bg:'#dcfce7',tc:'#16a34a'};
+  window._nuAuthMethod='email';
+}
+
+function selectAuthMethod(m){
+  window._nuAuthMethod=m;
+  ['email','google','link'].forEach(k=>{
+    document.getElementById('auth-'+k+'-chip').classList.toggle('on',k===m);
+  });
+  document.getElementById('pw-row').style.display=m==='email'?'':'none';
+  document.getElementById('link-row').style.display=m==='link'?'':'none';
+}
+
+function autoFillIni(){
+  const name=document.getElementById('nu-name').value.trim();
+  const parts=name.split(' ').filter(Boolean);
+  if(parts.length>=2) document.getElementById('nu-ini').value=(parts[0][0]+parts[parts.length-1][0]).toUpperCase();
+  else if(parts.length===1) document.getElementById('nu-ini').value=parts[0].slice(0,2).toUpperCase();
+}
+
+function pickColour(el){
+  document.querySelectorAll('#col-picker div').forEach(d=>d.style.outline='none');
+  el.style.outline='3px solid var(--tx)';
+  el.style.outlineOffset='2px';
+  window._nuCol={bg:el.dataset.bg,tc:el.dataset.tc};
+}
+
+function genPassword(){
+  const chars='ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789!@#$';
+  let p='';for(let i=0;i<12;i++)p+=chars[Math.floor(Math.random()*chars.length)];
+  const inp=document.getElementById('nu-pass');
+  inp.type='text';
+  inp.value=p;
+  setTimeout(()=>{inp.type='password';},3000);
+  showToast('Password generated — visible for 3 s','info');
+}
+
+function doAddUser(){
+  const name=document.getElementById('nu-name').value.trim();
+  const email=document.getElementById('nu-email').value.trim();
+  const ini=(document.getElementById('nu-ini').value.trim()||name.split(' ').map(w=>w[0]).join('')).toUpperCase().slice(0,2);
+  const dept=document.getElementById('nu-dept').value;
+  const role=document.getElementById('nu-role').value;
+  const method=window._nuAuthMethod||'email';
+  const pass=method==='email'?(document.getElementById('nu-pass')||{}).value||'':'';
+  const welcome=document.getElementById('welcome-tgl').classList.contains('on');
+
+  if(!name){showToast('Full name is required','warn');return;}
+  if(!email||!email.includes('@')){showToast('Valid email is required','warn');return;}
+  if(method==='email'&&pass.length<8){showToast('Password must be at least 8 characters','warn');return;}
+  if(USERS.find(u=>u.email===email)){showToast('A user with this email already exists','warn');return;}
+
+  // Simulate Firebase UID
+  const uid='firebase_'+Math.random().toString(36).slice(2,10);
+  document.getElementById('uid-preview').textContent=uid;
+
+  // Add to USERS array
+  const newId=Math.max(...USERS.map(u=>u.id))+1;
+  const col=window._nuCol||{bg:'#e0f2fe',tc:'#0284c7'};
+  USERS.push({id:newId,name,role,dept,email,ini,col:col.bg,tc:col.tc});
+
+  // Add to FB_STATUS
+  FB_STATUS[newId]={online:false,lastSeen:'Never',authProvider:method==='google'?'google':'email',sessions:0,lastLogin:'—'};
+
+  // Audit
+  AUDIT_LOG.unshift({time:new Date().toISOString().slice(0,16).replace('T',' '),user:'Super Admin',action:`Created Firebase Auth account for ${name} (${email}) via ${method}`,entity:'SYSTEM',type:'create'});
+
+  closeModal();
+  renderUsers();
+
+  const msgs={
+    email:`Firebase account created for ${name}. ${welcome?'Welcome email sent via Office 365.':''}`,
+    google:`Google Sign-In enabled for ${name}. Invite link sent.`,
+    link:`Passwordless sign-in link sent to ${email}.`,
+  };
+  showToast(msgs[method]||'User added','ok');
 }
 
 function renderEscCfg(){
@@ -1292,7 +1490,46 @@ function renderTaskModal(taskId){
   const t=TASKS.find(x=>x.id===taskId);
   if(!t)return;
   const cmts=(COMMENTS[taskId]||[]);
-  document.getElementById('modal-title').textContent=`Task ${t.id}`;
+  const isSA=currentRole==='super-admin'||currentRole==='developer';
+  // assignee & top-mgmt: read-only view + status update only
+  const ro=!isSA;
+  document.getElementById('modal-title').textContent=`Task ${t.id}${ro?' — Update Status':''}`;
+
+  if(ro){
+    // Restricted view: show task info as read-only, only expose the status dropdown
+    document.getElementById('modal-body').innerHTML=`
+    <div class="alert ai" style="margin-bottom:16px;">
+      You can update the status of this task. All other fields are managed by the Super Admin.
+    </div>
+    <div style="background:var(--bg3);border-radius:var(--r);padding:16px 18px;margin-bottom:16px;">
+      <div style="font-size:13px;font-weight:600;margin-bottom:10px;">${t.title}</div>
+      <div style="display:flex;flex-wrap:wrap;gap:10px;font-size:12px;color:var(--t2);">
+        <span>👤 ${gu(t.uid).name}</span>
+        <span>📅 Due: ${t.due}</span>
+        <span>${pb(t.priority)}</span>
+        <span>${sb(t.status)}</span>
+        ${t.esc?`<span>${eb(t.esc)}</span>`:''}
+      </div>
+      ${t.notes?`<div style="margin-top:10px;font-size:12px;color:var(--t3);border-top:1px solid var(--br);padding-top:8px;">${t.notes}</div>`:''}
+    </div>
+    <div style="background:var(--sf);border:1px solid var(--br);border-radius:var(--r);padding:16px 18px;">
+      <div class="fg" style="margin-bottom:0;">
+        <label>UPDATE STATUS</label>
+        <select id="tm-status" style="font-size:14px;font-weight:500;">
+          <option ${t.status==='pending'?'selected':''} value="pending">⏳ Pending</option>
+          <option ${t.status==='in-progress'?'selected':''} value="in-progress">🔄 In Progress</option>
+          <option ${t.status==='completed'?'selected':''} value="completed">✅ Completed</option>
+          <option ${t.status==='overdue'?'selected':''} value="overdue">🔴 Overdue</option>
+        </select>
+      </div>
+    </div>`;
+    document.getElementById('modal-footer').innerHTML=`
+      <button class="btn" onclick="closeModal()">Close</button>
+      <button class="btn bp" onclick="saveTaskStatus('${taskId}')">Update Status</button>`;
+    return;
+  }
+
+  // Super Admin full edit view
   document.getElementById('modal-body').innerHTML=`
   <div class="fgrid" style="margin-bottom:16px;">
     <div class="fg full"><label>TASK TITLE</label><input value="${t.title}" id="tm-title"></div>
@@ -1310,6 +1547,21 @@ function renderTaskModal(taskId){
   document.getElementById('modal-footer').innerHTML=`
     <button class="btn" onclick="closeModal()">Cancel</button>
     <button class="btn bp" onclick="saveTask('${taskId}')">Save & Notify</button>`;
+}
+
+function saveTaskStatus(id){
+  // Restricted save — status only
+  const t=TASKS.find(x=>x.id===id);
+  if(!t)return;
+  const newStatus=document.getElementById('tm-status')?.value||t.status;
+  const old=t.status;
+  t.status=newStatus;
+  if(newStatus==='completed')t.pct=100;
+  else if(newStatus==='in-progress'&&t.pct===0)t.pct=10;
+  AUDIT_LOG.unshift({time:new Date().toISOString().slice(0,16).replace('T',' '),user:document.getElementById('un').textContent,action:`Updated status of ${id}: ${old} → ${newStatus}`,entity:id,type:'update'});
+  showToast(`Status updated to "${newStatus}".`,'ok');
+  closeModal();
+  renderTasks();
 }
 
 function saveTask(id){
