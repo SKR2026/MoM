@@ -207,14 +207,19 @@ input[type=checkbox].task-cb{width:15px;height:15px;accent-color:var(--ac);curso
         <div class="login-err" id="login-err">Invalid username or password.</div>
         <div class="fg" style="margin-bottom:12px;">
           <label>USERNAME</label>
-          <input id="l-user" placeholder="e.g. superadmin or developer" autocomplete="username" onkeydown="if(event.key==='Enter')doLogin()">
+          <input id="l-user" placeholder="superadmin · admin · developer" autocomplete="username" onkeydown="if(event.key==='Enter')doLogin()">
         </div>
         <div class="fg" style="margin-bottom:16px;">
           <label>PASSWORD</label>
           <input type="password" id="l-pass" placeholder="Enter password" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()">
         </div>
         <button class="btn bp" style="width:100%;justify-content:center;" onclick="doLogin()">Sign In</button>
-
+        <div style="margin-top:14px;padding:10px 12px;background:var(--bg3);border-radius:var(--rs);font-size:11px;color:var(--t3);line-height:1.9;">
+          <div style="font-weight:600;color:var(--t2);margin-bottom:4px;">Demo credentials</div>
+          <div>🔑 <b>superadmin</b> / admin@123 — Super Admin</div>
+          <div>🔑 <b>admin</b> / admin@456 — Admin</div>
+          <div>🔑 <b>developer</b> / dev@123 — Developer</div>
+        </div>
       </div>
       <!-- User access pane -->
       <div id="lpane-user" style="display:none;">
@@ -367,15 +372,16 @@ let aiItemCount=2;
 ═══════════════════════════════════════════ */
 const AUTH_CREDENTIALS={
   superadmin:{password:'admin@123',role:'super-admin',display:'Super Admin',desc:'Administrator',ini:'SA',col:'#bae6fd',tc:'#0284c7'},
-  developer:{password:'dev@123',role:'developer',display:'Developer',desc:'Developer Mode',ini:'DV',col:'#fef3c7',tc:'#d97706'},
+  admin:     {password:'admin@456',role:'admin',      display:'Admin',       desc:'Admin',          ini:'AD',col:'#bbf7d0',tc:'#15803d'},
+  developer: {password:'dev@123',  role:'developer',  display:'Developer',   desc:'Developer Mode', ini:'DV',col:'#fef3c7',tc:'#d97706'},
 };
-let loggedInAs=null; // 'superadmin' | 'developer' | 'user'
+let loggedInAs=null;
 let currentLoginTab='staff';
 let selectedTasks=new Set();
 
 function initLogin(){
-  // Build user list in user pane
   const ul=document.getElementById('user-list');
+  if(!ul)return;
   ul.innerHTML=USERS.map(u=>`
     <button class="login-user-btn" onclick="loginAsUser(${u.id})">
       ${av(u,32)}
@@ -391,42 +397,73 @@ function switchLoginTab(tab){
   currentLoginTab=tab;
   document.getElementById('ltab-staff').classList.toggle('active',tab==='staff');
   document.getElementById('ltab-user').classList.toggle('active',tab==='user');
-  document.getElementById('lpane-staff').style.display=tab==='staff'?'':'none';
-  document.getElementById('lpane-user').style.display=tab==='user'?'':'none';
+  document.getElementById('lpane-staff').style.display=tab==='staff'?'block':'none';
+  document.getElementById('lpane-user').style.display=tab==='user'?'block':'none';
   document.getElementById('login-err').style.display='none';
 }
 
 function doLogin(){
-  const u=document.getElementById('l-user').value.trim().toLowerCase();
-  const p=document.getElementById('l-pass').value;
-  const cred=AUTH_CREDENTIALS[u];
-  if(!cred||cred.password!==p){
-    document.getElementById('login-err').style.display='block';
+  const uVal=document.getElementById('l-user').value.trim().toLowerCase();
+  const pVal=document.getElementById('l-pass').value;
+  const errEl=document.getElementById('login-err');
+
+  // Match against AUTH_CREDENTIALS (superadmin, admin, developer)
+  const cred=AUTH_CREDENTIALS[uVal];
+  if(cred && cred.password===pVal){
+    errEl.style.display='none';
+    loggedInAs=uVal;
+    currentRole=cred.role;
+    hideLoginScreen();
+    applySession(cred.display,cred.desc,cred.ini,cred.col,cred.tc,true);
     return;
   }
-  loggedInAs=u;
-  currentRole=cred.role;
-  applySession(cred.display,cred.desc,cred.ini,cred.col,cred.tc,true);
-  hideLoginScreen();
+
+  // Also allow logging in via email match in USERS array (for super-admin / admin users in USERS)
+  const matchUser=USERS.find(u=>u.email.toLowerCase()===uVal || u.name.toLowerCase()===uVal);
+  if(matchUser && (matchUser.role==='super-admin'||matchUser.role==='admin')){
+    // For USERS with elevated roles, accept any non-empty password in demo mode
+    if(pVal.length>=4){
+      errEl.style.display='none';
+      loggedInAs='user-elevated';
+      currentRole=matchUser.role;
+      hideLoginScreen();
+      applySession(matchUser.name,matchUser.dept,matchUser.ini,matchUser.col,matchUser.tc,true);
+      return;
+    }
+  }
+
+  errEl.textContent='Invalid username or password. Try: superadmin / admin@123';
+  errEl.style.display='block';
 }
 
 function loginAsUser(uid){
   const u=USERS.find(x=>x.id===uid);
   if(!u)return;
   loggedInAs='user';
-  currentRole=u.role==='manager'?'assignee':u.role==='top-mgmt'?'top-mgmt':'assignee';
-  applySession(u.name,u.dept,u.ini,u.col,u.tc,false);
+  // Map role to app role — preserve super-admin and admin roles
+  const roleMap={'super-admin':'super-admin','admin':'admin','top-mgmt':'top-mgmt','manager':'assignee','assignee':'assignee'};
+  currentRole=roleMap[u.role]||'assignee';
   hideLoginScreen();
+  applySession(u.name,u.dept,u.ini,u.col,u.tc,true);
 }
 
 function simulateLinkAccess(){
-  // Simulate opening via a shared link — auto-login as first assignee
   loginAsUser(1);
   showToast('Opened via shared link — logged in as Rajesh Kumar','info');
 }
 
+function showLoginScreen(){
+  const el=document.getElementById('login-overlay');
+  if(el){el.style.display='flex';}
+}
+
+function hideLoginScreen(){
+  const el=document.getElementById('login-overlay');
+  if(el){el.style.display='none';}
+}
+
 function applyRoleUI(){
-  const isSA=currentRole==='super-admin'||currentRole==='developer';
+  const isSA=currentRole==='super-admin'||currentRole==='admin'||currentRole==='developer';
   // Show/hide New Meeting button in topbar
   const nmb=document.getElementById('btn-new-meeting');
   if(nmb)nmb.style.display=isSA?'':'none';
@@ -467,25 +504,18 @@ function doLogout(){
   showToast('Logged out successfully','info');
 }
 
-function showLoginScreen(){
-  document.getElementById('login-overlay').style.display='flex';
-}
-function hideLoginScreen(){
-  document.getElementById('login-overlay').style.display='none';
-}
-
 /* ═══════════════════════════════════════════
    NAVIGATION MAP
 ═══════════════════════════════════════════ */
 const NAV=[
-  {section:'Main',roles:['super-admin','assignee','top-mgmt','developer'],items:[
+  {section:'Main',roles:['super-admin','admin','assignee','top-mgmt','developer'],items:[
     {id:'dashboard',label:'Dashboard',icon:'<rect x="1" y="1" width="6" height="6" rx="1"/><rect x="9" y="1" width="6" height="6" rx="1"/><rect x="1" y="9" width="6" height="6" rx="1"/><rect x="9" y="9" width="6" height="6" rx="1"/>'},
-    {id:'meetings',label:'Meetings',icon:'<rect x="1" y="2" width="14" height="12" rx="2"/><path d="M1 6h14M5 1v2M11 1v2"/>',roles:['super-admin','top-mgmt','developer']},
+    {id:'meetings',label:'Meetings',icon:'<rect x="1" y="2" width="14" height="12" rx="2"/><path d="M1 6h14M5 1v2M11 1v2"/>',roles:['super-admin','admin','top-mgmt','developer']},
     {id:'tasks',label:'My Tasks',icon:'<path d="M6 4h8M6 8h8M6 12h8M2 4h.5M2 8h.5M2 12h.5"/>',badge:3},
-    {id:'escalations',label:'Escalations',icon:'<path d="M8 1l2 5h5l-4 3 1.5 5L8 11l-4.5 3L5 9 1 6h5z"/>',badge:2,roles:['super-admin','top-mgmt','developer']},
-    {id:'calendar',label:'Calendar',icon:'<rect x="1" y="2" width="14" height="12" rx="2"/><path d="M1 6h14M5 1v2M11 1v2"/>',roles:['super-admin','top-mgmt','developer']},
+    {id:'escalations',label:'Escalations',icon:'<path d="M8 1l2 5h5l-4 3 1.5 5L8 11l-4.5 3L5 9 1 6h5z"/>',badge:2,roles:['super-admin','admin','top-mgmt','developer']},
+    {id:'calendar',label:'Calendar',icon:'<rect x="1" y="2" width="14" height="12" rx="2"/><path d="M1 6h14M5 1v2M11 1v2"/>',roles:['super-admin','admin','top-mgmt','developer']},
   ]},
-  {section:'Actions',roles:['super-admin','developer'],items:[
+  {section:'Actions',roles:['super-admin','admin','developer'],items:[
     {id:'bulk-upload',label:'Bulk Upload',icon:'<path d="M8 2v8M5 5l3-3 3 3M2 11v2a1 1 0 001 1h10a1 1 0 001-1v-2"/>'},
     {id:'reports',label:'Reports',icon:'<path d="M3 12V4M7 12V7M11 12V2"/>'},
     {id:'audit',label:'Audit Trail',icon:'<path d="M1 4h14M1 8h14M1 12h8"/><circle cx="13" cy="12" r="2"/>'},
@@ -534,7 +564,7 @@ function accessDenied(){
   </div>`;
 }
 
-/* pages restricted to super-admin only */
+/* pages restricted to super-admin / admin only */
 const SA_ONLY=['bulk-upload','reports','audit','email-log',
   'settings-firebase','settings-email','settings-users',
   'settings-escalation','settings-notifications'];
@@ -542,8 +572,9 @@ const SA_ONLY=['bulk-upload','reports','audit','email-log',
 const NO_ASSIGNEE=['meetings','escalations','calendar'];
 
 function navigate(page){
-  // Role guard — silently block if not allowed
-  if(SA_ONLY.includes(page)&&currentRole!=='super-admin'&&currentRole!=='developer'){accessDenied();return;}
+  // Role guard
+  const isAdmin=currentRole==='super-admin'||currentRole==='admin'||currentRole==='developer';
+  if(SA_ONLY.includes(page)&&!isAdmin){accessDenied();return;}
   if(NO_ASSIGNEE.includes(page)&&currentRole==='assignee'){accessDenied();return;}
   document.querySelectorAll('.ni').forEach(n=>n.classList.remove('active'));
   const el=document.getElementById('ni-'+page);
@@ -1137,7 +1168,7 @@ function renderEmailCfg(){
 }
 
 function renderUsers(){
-  if(currentRole!=='super-admin'){document.getElementById('content').innerHTML=`<div class="card" style="text-align:center;padding:48px;"><div style="font-size:30px;margin-bottom:12px;">🔒</div><div style="font-size:15px;font-weight:600;">Access Restricted</div><div style="font-size:13px;color:var(--t2);margin-top:6px;">User management is available to Super Admins only.</div></div>`;return;}
+  if(currentRole!=='super-admin'&&currentRole!=='admin'){document.getElementById('content').innerHTML=`<div class="card" style="text-align:center;padding:48px;"><div style="font-size:30px;margin-bottom:12px;">🔒</div><div style="font-size:15px;font-weight:600;">Access Restricted</div><div style="font-size:13px;color:var(--t2);margin-top:6px;">User management is available to Admins only.</div></div>`;return;}
   const roleOptions=[
     {v:'super-admin', l:'Super Admin'},
     {v:'admin',       l:'Admin'},
@@ -1572,7 +1603,7 @@ function renderTaskModal(taskId){
   const t=TASKS.find(x=>x.id===taskId);
   if(!t)return;
   const cmts=(COMMENTS[taskId]||[]);
-  const isSA=currentRole==='super-admin'||currentRole==='developer';
+  const isSA=currentRole==='super-admin'||currentRole==='admin'||currentRole==='developer';
   // assignee & top-mgmt: read-only view + status update only
   const ro=!isSA;
   document.getElementById('modal-title').textContent=`Task ${t.id}${ro?' — Update Status':''}`;
