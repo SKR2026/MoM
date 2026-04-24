@@ -1138,36 +1138,52 @@ function fbStatusBadge(online){
   return online ? '<span class="bdg b-ok">● Online</span>' : '<span class="bdg b-df">○ Offline</span>';
 }
 
-/* Load Firebase SDK scripts dynamically then call cb() */
+/* Load Firebase SDK scripts sequentially (database depends on app), then call cb() */
 function loadFirebaseSDK(cb){
-  if(window.firebase && window.firebase.auth){ cb(); return; }
+  if(window.firebase && window.firebase.auth && window.firebase.database){ cb(); return; }
   const scripts=[
     'https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js',
     'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js',
     'https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js'
   ];
-  let loaded=0;
-  scripts.forEach(src=>{
+  function loadNext(i){
+    if(i>=scripts.length){ cb(); return; }
+    // Skip if already loaded
+    if(document.querySelector(`script[src="${scripts[i]}"]`)){
+      loadNext(i+1); return;
+    }
     const s=document.createElement('script');
-    s.src=src;
-    s.onload=()=>{ if(++loaded===scripts.length) cb(); };
-    s.onerror=()=>{ showToast('Failed to load Firebase SDK — check internet connection.','warn'); };
+    s.src=scripts[i];
+    s.onload=()=>loadNext(i+1);
+    s.onerror=()=>{
+      showToast('Failed to load Firebase SDK script '+(i+1)+'. Check internet connection.','warn');
+    };
     document.head.appendChild(s);
-  });
+  }
+  loadNext(0);
 }
 
 /* Initialise (or re-initialise) Firebase with given config object */
 function initFirebase(cfg){
-  if(!window.firebase) return false;
+  if(!window.firebase){
+    console.error('Firebase SDK not loaded yet.');
+    return false;
+  }
+  if(!firebase.database){
+    console.error('Firebase Database SDK not loaded — check script URLs.');
+    showToast('Firebase Database SDK failed to load. Check internet connection.','warn');
+    return false;
+  }
   try{
-    // Delete existing app if re-initialising
-    if(_fbApp){ try{ _fbApp.delete(); }catch(e){} }
+    // Delete existing named app if re-initialising
+    if(_fbApp){ try{ _fbApp.delete(); }catch(e){ console.warn('App delete warning:',e.message); } }
     _fbApp = firebase.initializeApp(cfg, 'mompro-'+Date.now());
     _fbAuth = _fbApp.auth();
     _fbDb   = _fbApp.database();
     return true;
   } catch(e){
     console.error('Firebase init error:', e);
+    showToast('Firebase init failed: '+e.message,'warn');
     return false;
   }
 }
@@ -1269,8 +1285,10 @@ function fbSaveAndConnect(){
   // Basic validation
   if(!cfg.apiKey||cfg.apiKey.length<10){showToast('API Key looks invalid — paste it from Firebase Console.','warn');return;}
   if(!cfg.projectId||cfg.projectId.includes('your-')){showToast('Enter your real Project ID.','warn');return;}
-  if(!cfg.databaseURL||!cfg.databaseURL.includes('firebaseio.com')){
-    showToast('Database URL is required for Realtime DB presence (e.g. https://your-project-default-rtdb.firebaseio.com).','warn');
+  const validDb = cfg.databaseURL &&
+    (cfg.databaseURL.includes('firebaseio.com') || cfg.databaseURL.includes('firebasedatabase.app'));
+  if(!validDb){
+    showToast('Database URL is required. It ends in .firebaseio.com (US) or .firebasedatabase.app (other regions). Copy it from Realtime Database → Data tab.','warn');
     return;
   }
 
@@ -1350,11 +1368,16 @@ function fbDisconnect(){
 /* Auto-connect on load if config was saved previously */
 (function fbAutoConnect(){
   const cfg=fbSavedConfig();
-  if(!cfg||!cfg.apiKey||cfg.apiKey.includes('AIzaSy••')) return;
+  // Only skip if no config, or clearly placeholder values
+  if(!cfg || !cfg.apiKey || cfg.apiKey==='AIzaSy••••••••••••••' || cfg.apiKey.includes('••')) return;
+  if(!cfg.projectId || cfg.projectId.includes('your-')) return;
+  const validDb = cfg.databaseURL &&
+    (cfg.databaseURL.includes('firebaseio.com') || cfg.databaseURL.includes('firebasedatabase.app'));
+  if(!validDb) return;
   loadFirebaseSDK(()=>{
     if(initFirebase(cfg)){
       fbWatchPresence();
-      console.log('Firebase auto-connected to',cfg.projectId);
+      console.log('Firebase auto-connected to', cfg.projectId);
     }
   });
 })();
@@ -1391,7 +1414,7 @@ function renderFirebase(){
       </div>
       <div style="background:var(--bg3);border-radius:var(--rs);padding:10px 14px;font-size:11px;color:var(--t2);margin-bottom:14px;line-height:1.7;">
         📋 Get these values from <b>Firebase Console → Project Settings → Your apps → SDK setup</b>.
-        The <b>Database URL</b> is under <b>Realtime Database → Data tab</b> (e.g. <code style="font-family:var(--mo)">https://your-project-default-rtdb.firebaseio.com</code>).
+        The <b>Database URL</b> is under <b>Realtime Database → Data tab</b>. For US it ends in <code style="font-family:var(--mo)">.firebaseio.com</code>, for all other regions it ends in <code style="font-family:var(--mo)">.firebasedatabase.app</code>. Copy the full URL exactly as shown.
         Credentials are saved in <code style="font-family:var(--mo)">localStorage</code> — do not use in production without a secure backend proxy.
       </div>
       <div class="fgrid">
@@ -1414,7 +1437,7 @@ function renderFirebase(){
           <input id="fb-appId" placeholder="1:123456:web:abcdef123456" value="${cfg.appId||''}">
         </div>
         <div class="fg full"><label>REALTIME DATABASE URL * <span style="font-weight:400;color:var(--t3)">(required for presence)</span></label>
-          <input id="fb-dbUrl" placeholder="https://your-project-default-rtdb.firebaseio.com" value="${cfg.databaseURL||''}">
+          <input id="fb-dbUrl" placeholder="https://your-project-default-rtdb.firebaseio.com  or  …firebasedatabase.app" value="${cfg.databaseURL||''}">
         </div>
         <div class="fg full"><label>MEASUREMENT ID <span style="font-weight:400;color:var(--t3)">(optional — Analytics)</span></label>
           <input id="fb-measureId" placeholder="G-XXXXXXXXXX" value="${cfg.measurementId||''}">
@@ -1423,7 +1446,7 @@ function renderFirebase(){
       <div style="display:flex;gap:9px;margin-top:4px;flex-wrap:wrap;">
         <button id="fb-test-btn" class="btn" onclick="fbTestConnection()">Test Connection</button>
         <button id="fb-connect-btn" class="btn bp" onclick="fbSaveAndConnect()">💾 Save &amp; Connect</button>
-        <button class="btn" onclick="localStorage.removeItem('${FB_CONFIG_KEY}');showToast('Saved credentials cleared.','info')">Clear Saved Credentials</button>
+        <button class="btn" onclick="localStorage.removeItem('mompro_firebase_config');showToast('Saved credentials cleared.','info')">Clear Saved Credentials</button>
       </div>
     </div>
   </div>`;
