@@ -6,8 +6,35 @@
 <title>MoM Pro — Minutes of Meeting Management</title>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
-:root{--bg:#e8f4fd;--bg2:#ffffff;--bg3:#d0e8f8;--sf:#ffffff;--br:#b3d4ee;--br2:#7ab8e0;--tx:#0a2540;--t2:#2d6a9f;--t3:#5a9dc5;--ac:#0284c7;--al:#bae6fd;--ok:#16a34a;--ol:#dcfce7;--wn:#d97706;--wl:#fef3c7;--er:#dc2626;--el:#fee2e2;--in:#0369a1;--il:#e0f2fe;--sh:0 1px 3px rgba(2,100,180,.12);--r:10px;--rs:6px;--sw:220px;--fn:'DM Sans',sans-serif;--mo:'DM Mono',monospace}
-[data-theme=dark]{--bg:#020f1e;--bg2:#061a30;--bg3:#0a2540;--sf:#0c2d4a;--br:#0e3d6a;--br2:#1a5a8a;--tx:#e0f2fe;--t2:#7ab8e0;--t3:#3a7eaa;--ac:#38bdf8;--al:#082f49;--ok:#22c55e;--ol:#14291e;--wn:#f59e0b;--wl:#2a1f0a;--er:#f87171;--el:#2a1010;--in:#7dd3fc;--il:#0c3055}
+/* ── OCEAN (default) ── */
+:root,[data-color=ocean]{--bg:#e8f4fd;--bg2:#ffffff;--bg3:#d0e8f8;--sf:#ffffff;--br:#b3d4ee;--br2:#7ab8e0;--tx:#0a2540;--t2:#2d6a9f;--t3:#5a9dc5;--ac:#0284c7;--al:#bae6fd;--ok:#16a34a;--ol:#dcfce7;--wn:#d97706;--wl:#fef3c7;--er:#dc2626;--el:#fee2e2;--in:#0369a1;--il:#e0f2fe;--sh:0 1px 3px rgba(2,100,180,.12);--r:10px;--rs:6px;--sw:220px;--fn:'DM Sans',sans-serif;--mo:'DM Mono',monospace}
+[data-theme=dark][data-color=ocean],[data-theme=dark]:not([data-color]){--bg:#020f1e;--bg2:#061a30;--bg3:#0a2540;--sf:#0c2d4a;--br:#0e3d6a;--br2:#1a5a8a;--tx:#e0f2fe;--t2:#7ab8e0;--t3:#3a7eaa;--ac:#38bdf8;--al:#082f49;--ok:#22c55e;--ol:#14291e;--wn:#f59e0b;--wl:#2a1f0a;--er:#f87171;--el:#2a1010;--in:#7dd3fc;--il:#0c3055}
+
+/* ── FOREST ── */
+[data-color=forest]{--bg:#edf7ee;--bg2:#ffffff;--bg3:#d3edcf;--sf:#ffffff;--br:#a8d5a2;--br2:#5aaa5a;--tx:#0c2612;--t2:#256325;--t3:#4a9c4a;--ac:#16a34a;--al:#bbf7d0;--ok:#15803d;--ol:#dcfce7;--wn:#d97706;--wl:#fef3c7;--er:#dc2626;--el:#fee2e2;--in:#0369a1;--il:#e0f2fe;--sh:0 1px 3px rgba(22,163,74,.12)}
+[data-theme=dark][data-color=forest]{--bg:#021a05;--bg2:#062e0c;--bg3:#0a3d0f;--sf:#0b4412;--br:#0f5a18;--br2:#1a7a26;--tx:#dcfce7;--t2:#6fd97c;--t3:#3a8a48;--ac:#4ade80;--al:#052e0f;--ok:#22c55e;--ol:#0a2e12;--wn:#f59e0b;--wl:#2a1f0a;--er:#f87171;--el:#2a1010;--in:#7dd3fc;--il:#0c3055}
+
+/* ── VIOLET ── */
+[data-color=violet]{--bg:#f3f0ff;--bg2:#ffffff;--bg3:#e5deff;--sf:#ffffff;--br:#c4b5fd;--br2:#8b5cf6;--tx:#1e0a40;--t2:#5b21b6;--t3:#7c3aed;--ac:#7c3aed;--al:#ede9fe;--ok:#16a34a;--ol:#dcfce7;--wn:#d97706;--wl:#fef3c7;--er:#dc2626;--el:#fee2e2;--in:#4338ca;--il:#e0e7ff;--sh:0 1px 3px rgba(124,58,237,.12)}
+[data-theme=dark][data-color=violet]{--bg:#0d0420;--bg2:#160930;--bg3:#1f0f42;--sf:#250f50;--br:#2e1470;--br2:#4c1d95;--tx:#ede9fe;--t2:#a78bfa;--t3:#6d28d9;--ac:#c084fc;--al:#1a0840;--ok:#22c55e;--ol:#14291e;--wn:#f59e0b;--wl:#2a1f0a;--er:#f87171;--el:#2a1010;--in:#818cf8;--il:#1e1b4b}
+
+/* ── ROSE ── */
+[data-color=rose]{--bg:#fff0f3;--bg2:#ffffff;--bg3:#ffdde5;--sf:#ffffff;--br:#fbb6c4;--br2:#f472b6;--tx:#3d0a1e;--t2:#be185d;--t3:#db2777;--ac:#e11d74;--al:#fce7f3;--ok:#16a34a;--ol:#dcfce7;--wn:#d97706;--wl:#fef3c7;--er:#dc2626;--el:#fee2e2;--in:#db2777;--il:#fce7f3;--sh:0 1px 3px rgba(225,29,116,.12)}
+[data-theme=dark][data-color=rose]{--bg:#200511;--bg2:#33091c;--bg3:#450d26;--sf:#4f0d2a;--br:#6b1438;--br2:#9d1b55;--tx:#fce7f3;--t2:#f9a8d4;--t3:#be185d;--ac:#f472b6;--al:#2d0a1b;--ok:#22c55e;--ol:#14291e;--wn:#f59e0b;--wl:#2a1f0a;--er:#f87171;--el:#2a1010;--in:#f0abfc;--il:#2d0436}
+
+/* ── AMBER ── */
+[data-color=amber]{--bg:#fffbeb;--bg2:#ffffff;--bg3:#fef3c7;--sf:#ffffff;--br:#fde68a;--br2:#f59e0b;--tx:#3d1a00;--t2:#b45309;--t3:#d97706;--ac:#d97706;--al:#fef9c3;--ok:#16a34a;--ol:#dcfce7;--wn:#b45309;--wl:#fef3c7;--er:#dc2626;--el:#fee2e2;--in:#0369a1;--il:#e0f2fe;--sh:0 1px 3px rgba(217,119,6,.12)}
+[data-theme=dark][data-color=amber]{--bg:#1a0e00;--bg2:#2a1800;--bg3:#3d2200;--sf:#472800;--br:#5c3500;--br2:#854d0e;--tx:#fef3c7;--t2:#fbbf24;--t3:#92400e;--ac:#fbbf24;--al:#2a1900;--ok:#22c55e;--ol:#14291e;--wn:#f59e0b;--wl:#2a1f0a;--er:#f87171;--el:#2a1010;--in:#7dd3fc;--il:#0c3055}
+
+/* ── SLATE ── */
+[data-color=slate]{--bg:#f1f5f9;--bg2:#ffffff;--bg3:#e2e8f0;--sf:#ffffff;--br:#cbd5e1;--br2:#94a3b8;--tx:#0f172a;--t2:#334155;--t3:#64748b;--ac:#475569;--al:#e2e8f0;--ok:#16a34a;--ol:#dcfce7;--wn:#d97706;--wl:#fef3c7;--er:#dc2626;--el:#fee2e2;--in:#0369a1;--il:#e0f2fe;--sh:0 1px 3px rgba(71,85,105,.12)}
+[data-theme=dark][data-color=slate]{--bg:#020617;--bg2:#0f172a;--bg3:#1e293b;--sf:#1e293b;--br:#334155;--br2:#475569;--tx:#f1f5f9;--t2:#94a3b8;--t3:#475569;--ac:#94a3b8;--al:#1e293b;--ok:#22c55e;--ol:#14291e;--wn:#f59e0b;--wl:#2a1f0a;--er:#f87171;--el:#2a1010;--in:#7dd3fc;--il:#0c3055}
+
+/* ── Theme Switcher UI ── */
+.theme-sw{display:flex;align-items:center;gap:5px;padding:8px 14px;border-top:1px solid var(--br)}
+.tc-btn{width:18px;height:18px;border-radius:50%;cursor:pointer;border:2px solid transparent;transition:all .15s;flex-shrink:0}
+.tc-btn:hover,.tc-btn.active{border-color:var(--tx);transform:scale(1.2)}
+.tc-ocean{background:#0284c7}.tc-forest{background:#16a34a}.tc-violet{background:#7c3aed}.tc-rose{background:#e11d74}.tc-amber{background:#d97706}.tc-slate{background:#475569}
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{height:100%}
 body{font-family:var(--fn);background:var(--bg);color:var(--tx);font-size:14px;line-height:1.5;transition:background .2s,color .2s}
@@ -147,7 +174,15 @@ textarea{resize:vertical;min-height:72px}
         <div id="un" style="font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">Super Admin</div>
         <div id="ur" style="font-size:10px;color:var(--t3);">Administrator</div>
       </div>
-      <div class="tgl on" id="thm" onclick="toggleTheme()" title="Toggle theme"></div>
+      <div class="tgl on" id="thm" onclick="toggleTheme()" title="Toggle dark/light"></div>
+    </div>
+    <div class="theme-sw" title="Color theme">
+      <div class="tc-btn tc-ocean active" id="tc-ocean" onclick="setColor('ocean')" title="Ocean"></div>
+      <div class="tc-btn tc-forest" id="tc-forest" onclick="setColor('forest')" title="Forest"></div>
+      <div class="tc-btn tc-violet" id="tc-violet" onclick="setColor('violet')" title="Violet"></div>
+      <div class="tc-btn tc-rose" id="tc-rose" onclick="setColor('rose')" title="Rose"></div>
+      <div class="tc-btn tc-amber" id="tc-amber" onclick="setColor('amber')" title="Amber"></div>
+      <div class="tc-btn tc-slate" id="tc-slate" onclick="setColor('slate')" title="Slate"></div>
     </div>
   </div>
 </aside>
@@ -331,6 +366,15 @@ function toggleTheme(){
   darkMode=!darkMode;
   document.documentElement.setAttribute('data-theme',darkMode?'dark':'');
   document.getElementById('thm').classList.toggle('on',!darkMode);
+}
+
+let currentColor='ocean';
+function setColor(color){
+  currentColor=color;
+  document.documentElement.setAttribute('data-color',color);
+  document.querySelectorAll('.tc-btn').forEach(b=>b.classList.remove('active'));
+  const el=document.getElementById('tc-'+color);
+  if(el)el.classList.add('active');
 }
 
 function switchRole(r){
