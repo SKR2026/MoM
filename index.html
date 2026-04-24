@@ -991,12 +991,76 @@ function renderEmailLog(){
 /* ═══════════════════════════════════════════
    SETTINGS
 ═══════════════════════════════════════════ */
+/* Firebase simulated live presence state */
+const FB_STATUS={
+  1:{online:true,  lastSeen:'Active now',    authProvider:'email',sessions:1,lastLogin:'2024-02-12 09:10'},
+  2:{online:true,  lastSeen:'Active now',    authProvider:'email',sessions:1,lastLogin:'2024-02-12 08:45'},
+  3:{online:false, lastSeen:'2 hours ago',   authProvider:'email',sessions:0,lastLogin:'2024-02-12 07:30'},
+  4:{online:false, lastSeen:'Yesterday',     authProvider:'email',sessions:0,lastLogin:'2024-02-11 14:22'},
+  5:{online:true,  lastSeen:'Active now',    authProvider:'google',sessions:2,lastLogin:'2024-02-12 09:00'},
+};
+function fbDot(online){return`<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${online?'var(--ok)':'var(--br2)'};margin-right:5px;${online?'box-shadow:0 0 0 3px rgba(22,163,74,.2)':''}"></span>`;}
+function fbStatusBadge(online){return online?'<span class="bdg b-ok">● Online</span>':'<span class="bdg b-df">○ Offline</span>';}
+
 function renderFirebase(){
+  const connOk=true; // simulated
   document.getElementById('content').innerHTML=`
-  <div style="max-width:620px;">
+  <div style="max-width:760px;">
     <div class="alert aw" style="margin-bottom:14px;">Super Admin only — changes affect all users.</div>
+
+    <!-- Live connection banner -->
+    <div style="background:var(--ol);border:1px solid var(--ok);border-radius:var(--r);padding:12px 18px;margin-bottom:18px;display:flex;align-items:center;gap:12px;">
+      <span style="font-size:20px;">🔥</span>
+      <div style="flex:1;">
+        <div style="font-size:13px;font-weight:600;color:var(--ok);">Firebase Connected — mom-pro-dev</div>
+        <div style="font-size:11px;color:var(--t3);margin-top:2px;">Realtime Database + Authentication active · Last ping 42 ms · Region: asia-south1</div>
+      </div>
+      <span class="bdg b-ok" style="font-size:11px;">● Live</span>
+    </div>
+
+    <!-- Live Account Status -->
+    <div class="card" style="padding:0;margin-bottom:18px;">
+      <div style="padding:13px 18px;border-bottom:1px solid var(--br);display:flex;align-items:center;justify-content:space-between;">
+        <div class="ctit" style="display:flex;align-items:center;gap:8px;">
+          <span style="color:var(--ok);">●</span> Firebase Live Account Status
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <span style="font-size:11px;color:var(--t3);">${USERS.filter(u=>FB_STATUS[u.id].online).length} / ${USERS.length} online</span>
+          <button class="btn bs" onclick="showToast('Status refreshed from Firebase Realtime DB','ok')">↻ Refresh</button>
+        </div>
+      </div>
+      <div class="tw"><table>
+        <thead><tr><th>User</th><th>Firebase Status</th><th>Last Seen</th><th>Sessions</th><th>Auth Provider</th><th>Last Login</th><th>Actions</th></tr></thead>
+        <tbody>
+        ${USERS.map(u=>{const s=FB_STATUS[u.id];return`<tr>
+          <td>
+            <div style="display:flex;align-items:center;gap:8px;">
+              ${av(u,26)}
+              <div>
+                <div style="font-weight:500;font-size:12px;">${u.name}</div>
+                <div style="font-size:10px;color:var(--t3);">${u.email}</div>
+              </div>
+            </div>
+          </td>
+          <td>${fbStatusBadge(s.online)}</td>
+          <td style="font-size:12px;color:${s.online?'var(--ok)':'var(--t3)'};">${fbDot(s.online)}${s.lastSeen}</td>
+          <td style="text-align:center;">
+            <span style="background:${s.sessions>0?'var(--al)':'var(--bg3)'};color:${s.sessions>0?'var(--ac)':'var(--t3)'};font-size:11px;font-weight:600;padding:2px 8px;border-radius:10px;">${s.sessions} active</span>
+          </td>
+          <td><span class="bdg b-in" style="font-size:10px;text-transform:uppercase;letter-spacing:.4px;">${s.authProvider}</span></td>
+          <td style="font-size:11px;color:var(--t3);font-family:var(--mo);">${s.lastLogin}</td>
+          <td style="display:flex;gap:5px;">
+            <button class="btn bs" onclick="showToast('Viewing Firebase token for ${u.name}','info')">Token</button>
+            <button class="btn bs ber" onclick="showToast('Session revoked for ${u.name}','warn')">Revoke</button>
+          </td>
+        </tr>`}).join('')}
+        </tbody>
+      </table></div>
+    </div>
+
+    <!-- Firebase Config -->
     <div class="card">
-      <div class="ch"><div class="ctit">Firebase Configuration</div></div>
+      <div class="ch"><div class="ctit">Firebase SDK Configuration</div></div>
       <div class="fgrid">
         <div class="fg"><label>API KEY</label><input type="password" value="AIzaSy••••••••••••••"></div>
         <div class="fg"><label>AUTH DOMAIN</label><input value="your-app.firebaseapp.com"></div>
@@ -1007,7 +1071,7 @@ function renderFirebase(){
         <div class="fg full"><label>MEASUREMENT ID (Analytics)</label><input value="G-XXXXXXXXXX"></div>
       </div>
       <div style="display:flex;gap:9px;margin-top:4px;">
-        <button class="btn" onclick="showToast('Connection test passed — Firebase reachable','ok')">Test Connection</button>
+        <button class="btn" onclick="showToast('Connection test passed — Firebase reachable (42 ms)','ok')">Test Connection</button>
         <button class="btn bp" onclick="showToast('Firebase configuration saved','ok')">Save Configuration</button>
       </div>
     </div>
@@ -1043,11 +1107,12 @@ function renderUsers(){
       <div class="ctit">Users & Access Control</div>
       <button class="btn bp bs" onclick="showToast('Add user dialog — connect Firebase Auth','info')">+ Add User</button>
     </div>
-    <div class="tw"><table><thead><tr><th>User</th><th>Email</th><th>Department</th><th>Role</th><th>Access Level</th><th></th></tr></thead><tbody>
-    ${USERS.map(u=>`<tr>
+    <div class="tw"><table><thead><tr><th>User</th><th>Email</th><th>Department</th><th>Firebase Status</th><th>Role</th><th>Access Level</th><th></th></tr></thead><tbody>
+    ${USERS.map(u=>{const s=typeof FB_STATUS!=='undefined'?FB_STATUS[u.id]:null;return`<tr>
       <td><div style="display:flex;align-items:center;gap:7px;">${av(u,24)}<span style="font-weight:500;font-size:12px;">${u.name}</span></div></td>
       <td style="font-size:11px;color:var(--t2);">${u.email}</td>
       <td style="font-size:12px;">${u.dept}</td>
+      <td>${s?(s.online?`<span class="bdg b-ok">● Online</span>`:`<span class="bdg b-df" title="${s.lastSeen}">○ ${s.lastSeen}</span>`):'<span class="bdg b-df">—</span>'}</td>
       <td><select style="font-size:11px;width:130px;">
         <option ${u.role==='super-admin'?'selected':''}>super-admin</option>
         <option ${u.role==='top-mgmt'?'selected':''}>top-mgmt</option>
@@ -1056,7 +1121,7 @@ function renderUsers(){
       </select></td>
       <td>${u.role==='assignee'?'<span class="bdg b-df">Own tasks only</span>':u.role==='top-mgmt'?'<span class="bdg b-in">Full dashboard</span>':'<span class="bdg b-ok">Full access</span>'}</td>
       <td><button class="btn bs" onclick="showToast('User saved','ok')">Save</button></td>
-    </tr>`).join('')}</tbody></table></div>
+    </tr>`}).join('')}</tbody></table></div>
   </div>`;
 }
 
