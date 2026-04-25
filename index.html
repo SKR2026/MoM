@@ -421,6 +421,43 @@ function loadPersistedUsers(){
   }catch(e){ console.warn('Could not load persisted users:', e); }
 }
 
+/* ─────────────────────────────────────────────────────────────────────────
+   MEETINGS and TASKS are persisted in localStorage so that meetings and
+   action items created through the UI survive page reloads.
+─────────────────────────────────────────────────────────────────────────── */
+const MEETINGS_STORE_KEY = 'mompro_meetings_v1';
+const TASKS_STORE_KEY    = 'mompro_tasks_v1';
+
+function persistMeetings(){
+  try{ localStorage.setItem(MEETINGS_STORE_KEY, JSON.stringify(MEETINGS)); }
+  catch(e){ console.warn('Could not persist meetings:', e); }
+}
+
+function loadPersistedMeetings(){
+  try{
+    const saved = JSON.parse(localStorage.getItem(MEETINGS_STORE_KEY) || 'null');
+    if(saved && Array.isArray(saved) && saved.length > 0){
+      MEETINGS.length = 0;
+      saved.forEach(m => MEETINGS.push(m));
+    }
+  }catch(e){ console.warn('Could not load persisted meetings:', e); }
+}
+
+function persistTasks(){
+  try{ localStorage.setItem(TASKS_STORE_KEY, JSON.stringify(TASKS)); }
+  catch(e){ console.warn('Could not persist tasks:', e); }
+}
+
+function loadPersistedTasks(){
+  try{
+    const saved = JSON.parse(localStorage.getItem(TASKS_STORE_KEY) || 'null');
+    if(saved && Array.isArray(saved) && saved.length > 0){
+      TASKS.length = 0;
+      saved.forEach(t => TASKS.push(t));
+    }
+  }catch(e){ console.warn('Could not load persisted tasks:', e); }
+}
+
 let loggedInAs=null;
 let currentLoginTab='staff';
 let selectedTasks=new Set();
@@ -995,6 +1032,7 @@ function deleteSelectedTasks(){
   TASKS=TASKS.filter(t=>!ids.includes(t.id));
   AUDIT_LOG.unshift({time:new Date().toISOString().slice(0,16).replace('T',' '),user:'Super Admin',action:`Bulk deleted ${ids.length} task${ids.length!==1?'s':''}: ${ids.join(', ')}`,entity:'BULK',type:'delete'});
   selectedTasks=new Set();
+  persistTasks();   // save after bulk delete
   showToast(`${ids.length} task${ids.length!==1?'s':''} deleted successfully.`,'ok');
   renderTasks();
 }
@@ -1258,6 +1296,9 @@ function processBulkUpload(){
     }
 
     AUDIT_LOG.unshift({time:new Date().toISOString().slice(0,16).replace('T',' '),user:'Super Admin',action:`Bulk imported ${importedTasks} task(s) and ${importedMeetings} new meeting(s) from ${file.name}${errors?` (${errors} skipped)`:''}`,entity:'BULK',type:'import'});
+
+    persistMeetings();  // save imported meetings to localStorage
+    persistTasks();     // save imported tasks to localStorage
 
     if(importedTasks===0){
       showToast('No tasks imported. Check columns match the template and required fields are filled.','warn');
@@ -2639,6 +2680,8 @@ function saveMeeting(){
     tasksSaved++;
   });
 
+  persistMeetings();  // save to localStorage so meetings survive reload
+  persistTasks();     // save action items to localStorage too
   closeModal();
   navigate('meetings');
   showToast('Meeting "'+title+'" saved'+(tasksSaved?' with '+tasksSaved+' action item'+(tasksSaved>1?'s':''):'')+'.'  ,'ok');
@@ -2758,6 +2801,7 @@ function saveTaskStatus(id){
   _logAndNotify(t, oldStatus, newStatus, cmt, userName);
   const azConfigured = typeof azureSavedConfig==='function' && azureSavedConfig()?.msClientId;
   if(!azConfigured) showToast(`Status updated to "${newStatus}".`,'ok');
+  persistTasks();   // save updated status to localStorage
   closeModal();
   renderTasks();
 }
@@ -2781,6 +2825,7 @@ function saveTask(id){
     _logAndNotify(t, oldStatus, t.status, cmt, userName);
     const azConfigured = typeof azureSavedConfig==='function' && azureSavedConfig()?.msClientId;
     if(!azConfigured) showToast('Task saved.','ok');
+    persistTasks();   // save updated task to localStorage
   }
   closeModal();
 }
@@ -3033,6 +3078,8 @@ function renderDevSystem(){
    INIT
 ═══════════════════════════════════════════ */
 loadPersistedUsers();   // restore saved users before anything else renders
+loadPersistedMeetings(); // restore saved meetings before rendering
+loadPersistedTasks();    // restore saved tasks before rendering
 buildNav();
 navigate('dashboard');
 // Show login screen on load
