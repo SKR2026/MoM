@@ -8,6 +8,8 @@
 <!-- Microsoft MSAL – Azure AD / Microsoft Graph token acquisition -->
 <script src="https://unpkg.com/@azure/msal-browser@2.38.3/lib/msal-browser.min.js"
   onerror="console.error('MSAL failed on unpkg, trying jsDelivr…');var s=document.createElement('script');s.src='https://cdn.jsdelivr.net/npm/@azure/msal-browser@2.38.3/lib/msal-browser.min.js';document.head.appendChild(s);"></script>
+<!-- SheetJS – for reading .xlsx files in bulk upload -->
+<script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
 <style>
 /* ── OCEAN (default) ── */
 :root,[data-color=ocean]{--bg:#e8f4fd;--bg2:#ffffff;--bg3:#d0e8f8;--sf:#ffffff;--br:#b3d4ee;--br2:#7ab8e0;--tx:#0a2540;--t2:#2d6a9f;--t3:#5a9dc5;--ac:#0284c7;--al:#bae6fd;--ok:#16a34a;--ol:#dcfce7;--wn:#d97706;--wl:#fef3c7;--er:#dc2626;--el:#fee2e2;--in:#0369a1;--il:#e0f2fe;--sh:0 1px 3px rgba(2,100,180,.12);--r:10px;--rs:6px;--sw:220px;--fn:'DM Sans',sans-serif;--mo:'DM Mono',monospace}
@@ -963,32 +965,90 @@ function processBulkUpload(){
   const input=document.getElementById('bulk-file-input');
   const file=input?.files[0];
   if(!file){showToast('Please select a file first.','warn');return;}
-  // Demo: parse CSV and show row count
+
   const reader=new FileReader();
-  reader.onload=function(e){
-    const text=e.target.result;
-    const rows=text.trim().split('\n').filter(r=>r.trim()).length-1; // minus header
+
+  function handleCSVText(text){
+    const lines=text.trim().split('\n').filter(r=>r.trim());
+    if(lines.length<2){showToast('File is empty or has only a header row.','warn');return;}
+
+    const headers=lines[0].split(',').map(h=>h.trim().toLowerCase().replace(/"/g,''));
+    let imported=0,errors=0;
+
+    for(let i=1;i<lines.length;i++){
+      // handle quoted CSV values
+      const cols=lines[i].match(/(".*?"|[^",\n]+|(?<=,)(?=,)|(?<=,)$|^(?=,))/g)||[];
+      const cleanCols=cols.map(c=>c.replace(/^"|"$/g,'').trim());
+      const row={};
+      headers.forEach((h,idx)=>row[h]=cleanCols[idx]||'');
+
+      if(!row.action_item||!row.assignee_email||!row.due_date){errors++;continue;}
+
+      const assignee=USERS.find(u=>u.email&&u.email.toLowerCase()===row.assignee_email.toLowerCase());
+
+      const newTask={
+        id:'T'+( Date.now()+i),
+        title:row.action_item,
+        uid:assignee?assignee.id:USERS[0]?.id||null,
+        due:row.due_date,
+        priority:row.priority||'medium',
+        status:'pending',
+        esc:'none',
+        mid:row.meeting_no||null,
+        tags:[],
+        comments:0
+      };
+
+      TASKS.push(newTask);
+      imported++;
+    }
+
     const ts=new Date().toISOString().slice(0,10);
-    // Add to upload history
     const tbody=document.getElementById('upload-history');
     if(tbody){
       const tr=document.createElement('tr');
-      tr.innerHTML=`<td style="font-family:var(--mo);font-size:11px;">${file.name}</td><td>${ts}</td><td>${Math.max(0,rows)}</td><td><span class="bdg b-ok">Imported</span></td>`;
+      const badge=errors>0?`<span class="bdg b-wn">Partial (${errors} errors)</span>`:`<span class="bdg b-ok">Imported</span>`;
+      tr.innerHTML=`<td style="font-family:var(--mo);font-size:11px;">${file.name}</td><td>${ts}</td><td>${imported}</td><td>${badge}</td>`;
       tbody.insertBefore(tr,tbody.firstChild);
     }
-    AUDIT_LOG.unshift({time:new Date().toISOString().slice(0,16).replace('T',' '),user:'Super Admin',action:`Bulk imported ${rows} row(s) from ${file.name}`,entity:'BULK',type:'import'});
-    showToast(`${Math.max(0,rows)} row(s) parsed from ${file.name}. Note: live DB write requires backend integration.`,'ok');
+
+    AUDIT_LOG.unshift({time:new Date().toISOString().slice(0,16).replace('T',' '),user:'Super Admin',action:`Bulk imported ${imported} task(s) from ${file.name}${errors?` (${errors} skipped)`:''}`,entity:'BULK',type:'import'});
+
+    if(imported===0){
+      showToast(`No tasks imported. Check that columns match the template and required fields are filled.`,'warn');
+    } else {
+      showToast(`✅ ${imported} task(s) imported${errors?`, ${errors} row(s) skipped (missing required fields)`:''}.  Go to Tasks to view them.`,'ok');
+    }
+
     input.value='';
     document.getElementById('upzone-label').textContent='Drop file here or click to browse';
-  };
-  reader.readAsText(file);
+    document.getElementById('btn-process').disabled=true;
+    document.getElementById('btn-process').classList.remove('bp');
+  }
+
+  if(file.name.match(/\.xlsx$/i)){
+    reader.onload=function(e){
+      try{
+        const wb=XLSX.read(e.target.result,{type:'binary'});
+        const ws=wb.Sheets[wb.SheetNames[0]];
+        const csv=XLSX.utils.sheet_to_csv(ws);
+        handleCSVText(csv);
+      }catch(err){
+        showToast('Could not parse .xlsx — try saving as .csv and re-uploading.','warn');
+      }
+    };
+    reader.readAsBinaryString(file);
+  } else {
+    reader.onload=e=>handleCSVText(e.target.result);
+    reader.readAsText(file);
+  }
 }
 
 function renderBulkUpload(){
   document.getElementById('content').innerHTML=`
   <div style="max-width:680px;">
-    <div class="alert aw" style="margin-bottom:16px;">
-      ⚠️ <b>Demo Mode:</b> File parsing works in-browser. Actual DB write requires backend API integration (Firebase Functions / REST endpoint).
+    <div class="alert ao" style="margin-bottom:16px;">
+      ℹ️ <b>Live Import:</b> Tasks are imported directly into the app. Use the template below to ensure correct column names. Assignee email must match a registered user.
     </div>
     <div class="card" style="margin-bottom:18px;">
       <div class="ch"><div class="ctit">Bulk Upload Action Items</div></div>
