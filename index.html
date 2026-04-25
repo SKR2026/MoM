@@ -1367,7 +1367,7 @@ function renderEmailLog(){
       <td style="font-size:11px;color:var(--t2);max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${e.to}</td>
       <td style="font-size:12px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${e.subject}</td>
       <td><span class="bdg b-df">${e.trigger}</span></td>
-      <td><span class="bdg ${e.status==='delivered'||e.status==='sent'?'b-ok':e.status==='simulated'?'b-wn':'b-er'}">${e.status==='simulated'?'📋 logged':e.status}</span></td>
+      <td><span class="bdg ${e.status==='delivered'||e.status==='sent'?'b-ok':e.status==='simulated'?'b-wn':e.status==='failed'?'b-er':'b-er'}">${e.status==='simulated'?'📋 logged':e.status==='failed'?'❌ failed':e.status}</span></td>
     </tr>`).join('')}</tbody></table></div>
     <div style="padding:11px 18px;border-top:1px solid var(--br);font-size:12px;color:var(--t3);">${EMAIL_LOG.filter(e=>e.status==='delivered'||e.status==='sent').length} sent &middot; ${EMAIL_LOG.filter(e=>e.status==='simulated').length} logged (connect Office 365 to send live) &middot; ${EMAIL_LOG.filter(e=>e.status==='bounced').length} bounced</div>
   </div>`;
@@ -1448,10 +1448,12 @@ function initFirebase(cfg){
 
 /* Write this user's presence to Realtime DB */
 function fbSetPresence(uid, email){
-  if(!_fbDb) return;
-  const ref = _fbDb.ref('presence/'+uid);
-  const ts  = new Date().toISOString().slice(0,16).replace('T',' ');
-  ref.set({ online:true, lastSeen:'Active now', lastLogin:ts, email });
+  if(!_fbDb || !email) return;
+  // Key by sanitised email so read and write always match
+  const key = email.replace(/[.#$\[\]]/g,'_');
+  const ref  = _fbDb.ref('presence/' + key);
+  const ts   = new Date().toISOString().slice(0,16).replace('T',' ');
+  ref.set({ online:true, lastSeen:'Active now', lastLogin:ts, email, uid });
   ref.onDisconnect().update({ online:false, lastSeen:'Just now' });
 }
 
@@ -1460,20 +1462,20 @@ function fbWatchPresence(){
   if(!_fbDb) return;
   _fbDb.ref('presence').on('value', snap=>{
     const data = snap.val()||{};
-    // Merge into FB_STATUS keyed by app user id matched by email
+    // Keyed by sanitised email — match each app user
     USERS.forEach(u=>{
-      const match = Object.values(data).find(d=>d.email===u.email);
+      const key   = u.email.replace(/[.#$\[\]]/g,'_');
+      const match = data[key] || Object.values(data).find(d=>d.email===u.email);
       if(match){
         FB_STATUS[u.id]={
-          online: match.online||false,
-          lastSeen: match.lastSeen||'—',
-          authProvider: match.authProvider||'email',
-          sessions: match.online?1:0,
-          lastLogin: match.lastLogin||'—'
+          online:      match.online||false,
+          lastSeen:    match.lastSeen||'—',
+          authProvider:match.authProvider||'email',
+          sessions:    match.online?1:0,
+          lastLogin:   match.lastLogin||'—'
         };
       }
     });
-    // Re-render the status table if currently visible
     const tbl = document.getElementById('fb-presence-tbody');
     if(tbl) _renderPresenceRows(tbl);
     _updateFbBanner();
@@ -1623,6 +1625,38 @@ function fbDisconnect(){
   showToast('Firebase disconnected.','info');
 }
 
+/* Sign a specific user into Firebase Auth and write their presence */
+async function fbSignInUser(email, password){
+  if(!_fbAuth){ showToast('Firebase not connected. Save & Connect first.','warn'); return; }
+  try{
+    const cred = await _fbAuth.signInWithEmailAndPassword(email, password);
+    fbSetPresence(cred.user.uid, email);
+    showToast('Signed in to Firebase as '+email,'ok');
+  }catch(e){
+    showToast('Firebase sign-in failed: '+e.message,'warn');
+  }
+}
+
+/* Create a Firebase Auth account for a new user */
+async function fbCreateUser(email, password, displayName){
+  if(!_fbAuth){ showToast('Firebase not connected. Save & Connect first.','warn'); return false; }
+  try{
+    const cred = await _fbAuth.createUserWithEmailAndPassword(email, password);
+    await cred.user.updateProfile({ displayName });
+    fbSetPresence(cred.user.uid, email);
+    showToast('Firebase Auth account created for '+email,'ok');
+    return true;
+  }catch(e){
+    // If account already exists that's fine — just sign in
+    if(e.code==='auth/email-already-in-use'){
+      showToast(email+' already has a Firebase account.','info');
+      return true;
+    }
+    showToast('Firebase create user failed: '+e.message,'warn');
+    return false;
+  }
+}
+
 /* Auto-connect on load if config was saved previously */
 (function fbAutoConnect(){
   const cfg=fbSavedConfig();
@@ -1705,6 +1739,15 @@ function renderFirebase(){
         <button id="fb-test-btn" class="btn" onclick="fbTestConnection()">Test Connection</button>
         <button id="fb-connect-btn" class="btn bp" onclick="fbSaveAndConnect()">💾 Save &amp; Connect</button>
         <button class="btn" onclick="localStorage.removeItem('mompro_firebase_config');showToast('Saved credentials cleared.','info')">Clear Saved Credentials</button>
+      </div>
+      <div style="margin-top:14px;padding:12px 14px;background:var(--bg3);border-radius:var(--rs);">
+        <div style="font-size:11px;font-weight:600;color:var(--t2);margin-bottom:8px;">TEST USER SIGN-IN (verify Firebase Auth credentials work)</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <input id="fb-test-email" type="email" placeholder="user@yourcompany.com" style="flex:1;min-width:180px;font-size:12px;">
+          <input id="fb-test-pass" type="password" placeholder="password" style="width:140px;font-size:12px;">
+          <button class="btn bs bp" onclick="fbSignInUser(document.getElementById('fb-test-email').value.trim(),document.getElementById('fb-test-pass').value)">Sign In</button>
+        </div>
+        <div style="font-size:10px;color:var(--t3);margin-top:5px;">Signs into Firebase Auth and writes presence. User must already exist in Firebase Authentication console.</div>
       </div>
     </div>
   </div>`;
@@ -1817,13 +1860,29 @@ async function sendGraphMail(accessToken, { toEmail, subject, htmlBody }) {
 async function sendNotificationEmail(to, subject, html) {
   const az = azureSavedConfig();
   if (!az || !az.msClientId || !az.msTenantId) return;
+  if (location.protocol === 'file:') {
+    showToast('Email not sent: app must be served over http/https for Microsoft sign-in.', 'warn');
+    return;
+  }
+  if (typeof msal === 'undefined') {
+    showToast('Email not sent: MSAL library failed to load. Refresh the page.', 'warn');
+    return;
+  }
   try {
     const token = await getMSGraphToken({ msClientId: az.msClientId, msTenantId: az.msTenantId });
-    await sendGraphMail(token, { toEmail: to, subject, htmlBody: html });
-    showToast('📧 Email sent to ' + to + ' via Microsoft Graph.', 'ok');
+    // Send to the assignee
+    if(to && to.includes('@')) await sendGraphMail(token, { toEmail: to, subject, htmlBody: html });
+    // Also notify the configured admin recipient if different
+    if(az.msToEmail && az.msToEmail !== to && az.msToEmail.includes('@')){
+      await sendGraphMail(token, { toEmail: az.msToEmail, subject: '[CC] '+subject, htmlBody: html });
+    }
+    const recipients = [to, az.msToEmail!==to?az.msToEmail:null].filter(Boolean).join(', ');
+    showToast('📧 Email sent to ' + recipients, 'ok');
+    EMAIL_LOG.unshift({time:new Date().toISOString().slice(0,16).replace('T',' '),to:recipients,subject,status:'sent',trigger:'Notification'});
   } catch(e) {
     console.warn('Email notification failed:', e.message);
-    showToast('Email not sent: ' + e.message, 'warn');
+    showToast('Email failed: ' + e.message, 'warn');
+    EMAIL_LOG.unshift({time:new Date().toISOString().slice(0,16).replace('T',' '),to:to||'?',subject,status:'failed',trigger:'Notification'});
   }
 }
 
@@ -1850,6 +1909,20 @@ function renderEmailCfg() {
       </div>
       <span class="bdg ${configured?'b-ok':'b-wn'}">${configured?'● Live':'⚙ Not Set'}</span>
     </div>
+
+    ${(()=>{
+      const msalOk = typeof msal !== 'undefined';
+      const isFile = location.protocol === 'file:';
+      if(isFile) return `<div style="background:var(--el);border:1px solid var(--er);border-radius:var(--rs);padding:10px 14px;margin-bottom:14px;display:flex;align-items:center;gap:10px;">
+        <span style="font-size:18px;">⛔</span>
+        <div><div style="font-size:12px;font-weight:600;color:var(--er);">Cannot use Microsoft sign-in from file://</div>
+        <div style="font-size:11px;color:var(--t3);margin-top:2px;">Host this file on a web server (Firebase Hosting, GitHub Pages, or any http/https URL). Microsoft blocks OAuth popups on file:// protocol.</div></div></div>`;
+      if(!msalOk) return `<div style="background:var(--el);border:1px solid var(--er);border-radius:var(--rs);padding:10px 14px;margin-bottom:14px;display:flex;align-items:center;gap:10px;">
+        <span style="font-size:18px;">⚠️</span>
+        <div><div style="font-size:12px;font-weight:600;color:var(--er);">MSAL library failed to load</div>
+        <div style="font-size:11px;color:var(--t3);margin-top:2px;">Check your internet connection and refresh the page. Microsoft email will not work until MSAL loads.</div></div></div>`;
+      return `<div style="background:var(--ol);border:1px solid var(--ok);border-radius:var(--rs);padding:8px 14px;margin-bottom:14px;font-size:12px;color:var(--ok);">✓ MSAL library loaded successfully — Microsoft sign-in ready.</div>`;
+    })()}
 
     <!-- Why MSAL (no proxy needed) -->
     <div class="card" style="margin-bottom:18px;background:var(--bg3);border-style:dashed;">
@@ -1881,8 +1954,12 @@ function renderEmailCfg() {
       <div style="font-size:12px;color:var(--t2);line-height:2;">
         <div style="margin-bottom:6px;font-weight:600;">Do this once in Azure Portal:</div>
         <div>1. <b>App registrations → New registration</b> — type: <b>Single-page application (SPA)</b></div>
-        <div>2. Set Redirect URI to exactly:
-          <code style="font-family:var(--mo);font-size:11px;background:var(--bg3);padding:2px 7px;border-radius:4px;display:inline-block;margin-top:3px;word-break:break-all;">${redirectUri}</code>
+        <div>2. Set Redirect URI to exactly:<br>
+          <div style="display:flex;align-items:center;gap:8px;margin-top:4px;">
+            <code id="redirect-uri-display" style="font-family:var(--mo);font-size:11px;background:var(--bg3);padding:5px 10px;border-radius:4px;word-break:break-all;flex:1;border:1px solid var(--br);">${redirectUri}</code>
+            <button class="btn bs" onclick="navigator.clipboard?.writeText('${redirectUri}').then(()=>showToast('Redirect URI copied','ok'))">Copy</button>
+          </div>
+          <div style="font-size:10px;color:var(--er);margin-top:3px;">⚠ This must match EXACTLY in Azure — including http/https and any trailing path. If the URL changes, update Azure too.</div>
         </div>
         <div>3. <b>API permissions → Add → Microsoft Graph → Delegated</b></div>
         <div style="margin-left:16px;">→ Add <b>Mail.Send</b> and <b>User.Read</b> → click <b>Grant admin consent</b></div>
