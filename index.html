@@ -293,9 +293,9 @@ input[type=checkbox].task-cb{width:15px;height:15px;accent-color:var(--ac);curso
     <select id="role-sw" style="width:160px;font-size:12px;" onchange="switchRole(this.value)">
     </select>
     <span id="btn-new-meeting"><button class="btn bs bp" onclick="openModal('new-meeting')">+ New Meeting</button></span>
-    <button class="btn bs" onclick="showToast('2 pending escalations','warn')" style="position:relative;">
+    <button class="btn bs" id="notif-bell-btn" onclick="showNotifBell()" style="position:relative;">
       <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 1a5 5 0 015 5v3l1 2H2l1-2V6a5 5 0 015-5zM6 13a2 2 0 004 0"/></svg>
-      <div class="ndot" style="position:absolute;top:2px;right:2px;"></div>
+      <div class="ndot" id="notif-dot" style="position:absolute;top:2px;right:2px;display:none;"></div>
     </button>
   </div>
   <div class="content" id="content"></div>
@@ -398,8 +398,9 @@ function loadPersistedMeetings(){
 function persistTasks(){
   try{ localStorage.setItem(TASKS_STORE_KEY, JSON.stringify(TASKS)); }
   catch(e){ console.warn('Could not persist tasks:', e); }
-  // Refresh nav badges to reflect live task/escalation counts
+  // Refresh nav badges and bell to reflect live task/escalation counts
   if(typeof buildNav==='function') buildNav();
+  if(typeof refreshNotifBell==='function') refreshNotifBell();
 }
 
 function loadPersistedTasks(){
@@ -556,6 +557,7 @@ function applyRoleUI(){
   const nmb=document.getElementById('btn-new-meeting');
   if(nmb)nmb.style.display=isSA?'':'none';
   buildNav();
+  refreshNotifBell();
 }
 
 function applySession(name,desc,ini,col,tc,showLogout){
@@ -683,6 +685,24 @@ function getLiveBadge(id){
     return esc>0?esc:0;
   }
   return 0;
+}
+
+function refreshNotifBell(){
+  const esc = TASKS.filter(t=>t.esc>0).length;
+  const dot = document.getElementById('notif-dot');
+  if(dot) dot.style.display = esc > 0 ? 'block' : 'none';
+}
+
+function showNotifBell(){
+  const esc = TASKS.filter(t=>t.esc>0).length;
+  const pending = TASKS.filter(t=>t.status!=='done'&&t.status!=='completed').length;
+  if(esc > 0){
+    showToast(esc+' pending escalation'+(esc>1?'s':''),'warn');
+  } else if(pending > 0){
+    showToast(pending+' pending task'+(pending>1?'s':''),'info');
+  } else {
+    showToast('No pending notifications','ok');
+  }
 }
 
 function buildNav(){
@@ -3151,6 +3171,7 @@ loadPersistedUsers();   // restore saved users before anything else renders
 loadPersistedMeetings(); // restore saved meetings before rendering
 loadPersistedTasks();    // restore saved tasks before rendering
 buildNav();
+refreshNotifBell();
 navigate('dashboard');
 // Show login screen on load
 initLogin();
