@@ -1245,8 +1245,19 @@ function processBulkUpload(){
           date:row.meeting_date||new Date().toISOString().slice(0,10),
           title:row.meeting_title||row['meeting title']||('Meeting '+mno),
           chairperson:(row.chairperson_name||'').trim()||'—',
-          attendees:USERS.slice(0,1).map(u=>u.id),
-          externalAttendees:[],
+          attendees:(()=>{
+            const raw=(row.attendees||'').trim();
+            if(!raw) return USERS.slice(0,1).map(u=>u.id);
+            const emails=raw.split(',').map(e=>e.trim().toLowerCase()).filter(Boolean);
+            const matched=emails.map(em=>USERS.find(u=>u.email&&u.email.toLowerCase()===em)).filter(Boolean).map(u=>u.id);
+            return matched.length?matched:USERS.slice(0,1).map(u=>u.id);
+          })(),
+          externalAttendees:(()=>{
+            const raw=(row.attendees||'').trim();
+            if(!raw) return [];
+            const emails=raw.split(',').map(e=>e.trim().toLowerCase()).filter(Boolean);
+            return emails.filter(em=>!USERS.find(u=>u.email&&u.email.toLowerCase()===em)).map(em=>({name:em,org:'',email:em}));
+          })(),
           status:'active',
           venue:row.location||'TBD'
         };
