@@ -1323,9 +1323,9 @@ function renderEmailLog(){
       <td style="font-size:11px;color:var(--t2);max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${e.to}</td>
       <td style="font-size:12px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${e.subject}</td>
       <td><span class="bdg b-df">${e.trigger}</span></td>
-      <td><span class="bdg ${e.status==='delivered'?'b-ok':'b-er'}">${e.status}</span></td>
+      <td><span class="bdg ${e.status==='delivered'||e.status==='sent'?'b-ok':e.status==='simulated'?'b-wn':'b-er'}">${e.status==='simulated'?'📋 logged':e.status}</span></td>
     </tr>`).join('')}</tbody></table></div>
-    <div style="padding:11px 18px;border-top:1px solid var(--br);font-size:12px;color:var(--t3);">${EMAIL_LOG.filter(e=>e.status==='delivered').length} delivered · ${EMAIL_LOG.filter(e=>e.status==='bounced').length} bounced · smtp.office365.com:587</div>
+    <div style="padding:11px 18px;border-top:1px solid var(--br);font-size:12px;color:var(--t3);">${EMAIL_LOG.filter(e=>e.status==='delivered'||e.status==='sent').length} sent &middot; ${EMAIL_LOG.filter(e=>e.status==='simulated').length} logged (connect Office 365 to send live) &middot; ${EMAIL_LOG.filter(e=>e.status==='bounced').length} bounced</div>
   </div>`;
 }
 
@@ -2394,36 +2394,45 @@ function renderTaskModal(taskId){
   document.getElementById('modal-title').textContent=`Task ${t.id}${ro?' — Update Status':''}`;
 
   if(ro){
-    // Restricted view: show task info as read-only, only expose the status dropdown
+    // Restricted view: status update + progress slider + comment box
+    const existingCmts=(COMMENTS[taskId]||[]);
     document.getElementById('modal-body').innerHTML=`
-    <div class="alert ai" style="margin-bottom:16px;">
-      You can update the status of this task. All other fields are managed by the Super Admin.
-    </div>
-    <div style="background:var(--bg3);border-radius:var(--r);padding:16px 18px;margin-bottom:16px;">
-      <div style="font-size:13px;font-weight:600;margin-bottom:10px;">${t.title}</div>
+    <div style="background:var(--bg3);border-radius:var(--r);padding:14px 16px;margin-bottom:14px;">
+      <div style="font-size:13px;font-weight:600;margin-bottom:8px;">${t.title}</div>
       <div style="display:flex;flex-wrap:wrap;gap:10px;font-size:12px;color:var(--t2);">
-        <span>👤 ${gu(t.uid).name}</span>
-        <span>📅 Due: ${t.due}</span>
+        <span>\u{1F464} ${gu(t.uid).name}</span>
+        <span>\u{1F4C5} Due: ${t.due}</span>
         <span>${pb(t.priority)}</span>
         <span>${sb(t.status)}</span>
         ${t.esc?`<span>${eb(t.esc)}</span>`:''}
       </div>
-      ${t.notes?`<div style="margin-top:10px;font-size:12px;color:var(--t3);border-top:1px solid var(--br);padding-top:8px;">${t.notes}</div>`:''}
+      ${t.notes?`<div style="margin-top:8px;font-size:12px;color:var(--t3);border-top:1px solid var(--br);padding-top:8px;">${t.notes}</div>`:''}
     </div>
-    <div style="background:var(--sf);border:1px solid var(--br);border-radius:var(--r);padding:16px 18px;">
-      <div class="fg" style="margin-bottom:0;">
+    <div style="background:var(--sf);border:1px solid var(--br);border-radius:var(--r);padding:16px 18px;margin-bottom:14px;">
+      <div class="fg">
         <label>UPDATE STATUS</label>
         <select id="tm-status" style="font-size:14px;font-weight:500;">
-          <option ${t.status==='pending'?'selected':''} value="pending">⏳ Pending</option>
-          <option ${t.status==='in-progress'?'selected':''} value="in-progress">🔄 In Progress</option>
-          <option ${t.status==='completed'?'selected':''} value="completed">✅ Completed</option>
-          <option ${t.status==='overdue'?'selected':''} value="overdue">🔴 Overdue</option>
+          <option ${t.status==='pending'?'selected':''} value="pending">\u23F3 Pending</option>
+          <option ${t.status==='in-progress'?'selected':''} value="in-progress">\u{1F504} In Progress</option>
+          <option ${t.status==='completed'?'selected':''} value="completed">\u2705 Completed</option>
+          <option ${t.status==='overdue'?'selected':''} value="overdue">\u{1F534} Overdue</option>
         </select>
       </div>
+      <div class="fg" style="margin-bottom:0;">
+        <label>PROGRESS &mdash; <span id="ro-pct-lbl">${t.pct}%</span></label>
+        <input type="range" min="0" max="100" step="5" value="${t.pct}" id="tm-pct"
+          oninput="document.getElementById('ro-pct-lbl').textContent=this.value+'%'">
+      </div>
+    </div>
+    <div class="divl">Comments (${existingCmts.length})</div>
+    ${existingCmts.map(c=>{const cu=gu(c.uid);return`<div style="background:var(--bg3);border-radius:7px;padding:9px 11px;margin-bottom:8px;"><div style="display:flex;align-items:center;gap:6px;margin-bottom:3px;">${av(cu,18)}<span style="font-size:12px;font-weight:500;">${cu.name}</span><span style="font-size:10px;color:var(--t3);margin-left:4px;">${c.time}</span></div><div style="font-size:12px;">${c.text.replace(/@(\w+)/g,'<span style="color:var(--ac);font-weight:500;">@$1</span>')}</div></div>`;}).join('')||'<div style="color:var(--t3);font-size:12px;margin-bottom:10px;">No comments yet.</div>'}
+    <div class="fg" style="margin-bottom:0;">
+      <label>ADD COMMENT (optional)</label>
+      <textarea id="new-cmt" placeholder="Describe your progress, blockers, or notes&hellip;" style="min-height:68px;"></textarea>
     </div>`;
     document.getElementById('modal-footer').innerHTML=`
       <button class="btn" onclick="closeModal()">Close</button>
-      <button class="btn bp" onclick="saveTaskStatus('${taskId}')">Update Status</button>`;
+      <button class="btn bp" onclick="saveTaskStatus('${taskId}')">Update &amp; Notify</button>`;
     return;
   }
 
@@ -2447,33 +2456,72 @@ function renderTaskModal(taskId){
     <button class="btn bp" onclick="saveTask('${taskId}')">Save & Notify</button>`;
 }
 
+function _logAndNotify(t, oldStatus, newStatus, cmt, userName){
+  AUDIT_LOG.unshift({
+    time: new Date().toISOString().slice(0,16).replace('T',' '),
+    user: userName,
+    action: `Updated status of ${t.id}: ${oldStatus} → ${newStatus}${cmt?' (with comment)':''}`,
+    entity: t.id,
+    type: 'update'
+  });
+  const assignee = USERS.find(u=>u.id===t.uid);
+  const toEmail  = assignee?.email || '';
+  const subject  = `[MoM Pro] Task ${t.id} updated to: ${newStatus}`;
+  const body     = `<p>Hi ${assignee?.name||'Team'},</p><p>Task <strong>${t.title}</strong> status: <strong>${oldStatus} → ${newStatus}</strong> (${t.pct}%)</p>${cmt?`<p><em>Comment: ${cmt}</em></p>`:''}<p>Updated by: ${userName}</p>`;
+  const az = typeof azureSavedConfig==='function' ? azureSavedConfig() : null;
+  const ts = new Date().toISOString().slice(0,16).replace('T',' ');
+  if(az && az.msClientId && az.msTenantId && toEmail){
+    sendNotificationEmail(toEmail, subject, body);
+    EMAIL_LOG.unshift({time:ts, to:toEmail, subject, status:'sent', trigger:'Status update'});
+  } else {
+    EMAIL_LOG.unshift({time:ts, to:toEmail||'(no email)', subject, status:'simulated', trigger:'Status update'});
+    showToast(`📧 Notification logged for ${toEmail||'assignee'}. Connect Office 365 to send live email.`,'ok');
+  }
+}
+
 function saveTaskStatus(id){
-  // Restricted save — status only
   const t=TASKS.find(x=>x.id===id);
   if(!t)return;
-  const newStatus=document.getElementById('tm-status')?.value||t.status;
-  const old=t.status;
-  t.status=newStatus;
-  if(newStatus==='completed')t.pct=100;
-  else if(newStatus==='in-progress'&&t.pct===0)t.pct=10;
-  AUDIT_LOG.unshift({time:new Date().toISOString().slice(0,16).replace('T',' '),user:document.getElementById('un').textContent,action:`Updated status of ${id}: ${old} → ${newStatus}`,entity:id,type:'update'});
-  showToast(`Status updated to "${newStatus}".`,'ok');
+  const newStatus = document.getElementById('tm-status')?.value || t.status;
+  const newPct    = parseInt(document.getElementById('tm-pct')?.value ?? t.pct);
+  const cmt       = (document.getElementById('new-cmt')?.value||'').trim();
+  const userName  = document.getElementById('un')?.textContent || 'Assignee';
+  const oldStatus = t.status;
+  t.status = newStatus;
+  t.pct    = newPct;
+  if(newStatus==='completed') t.pct=100;
+  if(cmt){
+    if(!COMMENTS[id]) COMMENTS[id]=[];
+    const cu = USERS.find(u=>u.name===userName) || USERS[0];
+    COMMENTS[id].push({uid:cu?.id||1, time:'Just now', text:cmt});
+  }
+  _logAndNotify(t, oldStatus, newStatus, cmt, userName);
+  const azConfigured = typeof azureSavedConfig==='function' && azureSavedConfig()?.msClientId;
+  if(!azConfigured) showToast(`Status updated to "${newStatus}".`,'ok');
   closeModal();
   renderTasks();
 }
 
 function saveTask(id){
   const t=TASKS.find(x=>x.id===id);
+  const userName = document.getElementById('un')?.textContent || 'Admin';
   if(t){
-    t.title=document.getElementById('tm-title')?.value||t.title;
-    t.status=document.getElementById('tm-status')?.value||t.status;
-    t.esc=parseInt(document.getElementById('tm-esc')?.value||0);
-    t.pct=parseInt(document.getElementById('tm-pct')?.value||t.pct);
-    t.notes=document.getElementById('tm-notes')?.value||t.notes;
-    const cmt=document.getElementById('new-cmt')?.value?.trim();
-    if(cmt){if(!COMMENTS[id])COMMENTS[id]=[];COMMENTS[id].push({uid:1,time:'Just now',text:cmt});}
+    const oldStatus = t.status;
+    t.title  = document.getElementById('tm-title')?.value  || t.title;
+    t.status = document.getElementById('tm-status')?.value || t.status;
+    t.esc    = parseInt(document.getElementById('tm-esc')?.value||0);
+    t.pct    = parseInt(document.getElementById('tm-pct')?.value||t.pct);
+    t.notes  = document.getElementById('tm-notes')?.value  || t.notes;
+    const cmt= (document.getElementById('new-cmt')?.value||'').trim();
+    if(cmt){
+      if(!COMMENTS[id]) COMMENTS[id]=[];
+      const cu = USERS.find(u=>u.name===userName) || USERS[0];
+      COMMENTS[id].push({uid:cu?.id||1, time:'Just now', text:cmt});
+    }
+    _logAndNotify(t, oldStatus, t.status, cmt, userName);
+    const azConfigured = typeof azureSavedConfig==='function' && azureSavedConfig()?.msClientId;
+    if(!azConfigured) showToast('Task saved.','ok');
   }
-  showToast('Task updated. Email notification requires SMTP integration — not sent in demo mode.','info');
   closeModal();
 }
 
