@@ -139,7 +139,7 @@ textarea{resize:vertical;min-height:72px}
 #toast{position:fixed;bottom:22px;right:22px;z-index:9999;display:none;pointer-events:none}
 /* ── Modal ── */
 .modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center;z-index:500;backdrop-filter:blur(2px)}
-.modal{background:var(--bg2);border:1px solid var(--br);border-radius:14px;width:660px;max-width:95vw;max-height:88vh;overflow-y:auto}
+.modal{background:var(--bg2);border:1px solid var(--br);border-radius:14px;width:660px;max-width:95vw;max-height:88vh;overflow-y:auto}.modal.fullscreen{width:98vw;max-width:98vw;max-height:96vh;border-radius:8px}
 .mh{padding:18px 22px 14px;border-bottom:1px solid var(--br);display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;background:var(--bg2);z-index:1}
 .mt{font-size:15px;font-weight:600}
 .mx{width:26px;height:26px;border-radius:6px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--t3);border:1px solid var(--br);background:none;font-size:15px;transition:all .15s}
@@ -746,10 +746,10 @@ function showToast(msg,type='info'){
 
 function openModal(type,data){
   const modal=document.getElementById('modal');
-  if(type==='new-meeting'){renderNewMeetingModal();}
+  if(type==='new-meeting'){renderNewMeetingModal();document.querySelector('.modal').classList.remove('fullscreen');}
   else if(type==='task'&&data){renderTaskModal(data);}
-  else if(type==='meeting-detail'&&data){renderMeetingDetailModal(data);}
-  else if(type==='add-user'){renderAddUserModal();}
+  else if(type==='meeting-detail'&&data){renderMeetingDetailModal(data);document.querySelector('.modal').classList.add('fullscreen');}
+  else if(type==='add-user'){renderAddUserModal();document.querySelector('.modal').classList.remove('fullscreen');}
   modal.style.display='flex';
 }
 function closeModal(){document.getElementById('modal').style.display='none';}
@@ -1074,8 +1074,8 @@ function renderCalendar(){
 ═══════════════════════════════════════════ */
 function downloadBulkTemplate(){
   // No user_id column — assignee matched by name OR email
-  const headers=['meeting_no','meeting_date','action_item','assignee_name','assignee_email','due_date','priority','attendees'];
-  const example=['MTG-2024-01','2024-01-15','Prepare Q1 budget report','Rajesh Kumar','r.kumar@corp.com','2024-02-15','high','a.singh@corp.com'];
+  const headers=['meeting_no','meeting_date','meeting_title','chairperson_name','location','action_item','assignee_name','assignee_email','due_date','priority','attendees'];
+  const example=['MTG-2024-01','2024-01-15','Q1 Planning Review','Vikram Patel','Boardroom A','Prepare Q1 budget report','Rajesh Kumar','r.kumar@corp.com','2024-02-15','high','a.singh@corp.com'];
   const csv=[headers.join(','), example.join(',')].join('\n');
   const blob=new Blob([csv],{type:'text/csv'});
   const a=document.createElement('a');
@@ -1186,12 +1186,12 @@ function processBulkUpload(){
           id:newId,
           no:mno,
           date:row.meeting_date||new Date().toISOString().slice(0,10),
-          title:'Meeting '+mno,
-          chairperson:USERS[0]?.id||1,
+          title:row.meeting_title||('Meeting '+mno),
+          chairperson:(()=>{const cn=(row.chairperson_name||'').trim().toLowerCase();const cu=cn?USERS.find(u=>u.name.toLowerCase()===cn):null;return cu?cu.id:(USERS[0]?.id||1);})(),
           attendees:USERS.slice(0,1).map(u=>u.id),
           externalAttendees:[],
           status:'active',
-          venue:'TBD'
+          venue:row.location||'TBD'
         };
         MEETINGS.push(newMeeting);
         meetingNoToId[mno]=newId;
@@ -1302,7 +1302,7 @@ function renderBulkUpload(){
         <table style="font-size:12px;">
           <thead><tr><th>Column</th><th>Type</th><th>Required</th><th>Example</th></tr></thead>
           <tbody>
-            ${[['meeting_no','Text','Yes','MTG-2024-01'],['meeting_date','YYYY-MM-DD','Yes','2024-01-15'],['action_item','Text','Yes','Prepare Q1 report'],['assignee_name','Full name (no ID needed)','Optional*','Rajesh Kumar'],['assignee_email','Email','Optional*','r.kumar@corp.com'],['due_date','YYYY-MM-DD','Yes','2024-02-15'],['priority','high/medium/low','No','high'],['attendees','Comma-separated emails','No','a@b.com, c@d.com']].map(([c,t,r,e])=>`<tr><td style="font-family:var(--mo);font-size:10px;color:var(--ac);">${c}</td><td>${t}</td><td><span class="bdg ${r==='Yes'?'b-er':r.startsWith('Optional')?'b-wn':'b-df'}">${r}</span></td><td style="color:var(--t3);">${e}</td></tr>`).join('')}
+            ${[['meeting_no','Text','Yes','MTG-2024-01'],['meeting_date','YYYY-MM-DD','Yes','2024-01-15'],['meeting_title','Text','No','Q1 Planning Review'],['chairperson_name','Full name of chair','No','Vikram Patel'],['location','Venue/Platform','No','Boardroom A'],['action_item','Text','Yes','Prepare Q1 report'],['assignee_name','Full name (no ID needed)','Optional*','Rajesh Kumar'],['assignee_email','Email','Optional*','r.kumar@corp.com'],['due_date','YYYY-MM-DD','Yes','2024-02-15'],['priority','high/medium/low','No','high'],['attendees','Comma-separated emails','No','a@b.com, c@d.com']].map(([c,t,r,e])=>`<tr><td style="font-family:var(--mo);font-size:10px;color:var(--ac);">${c}</td><td>${t}</td><td><span class="bdg ${r==='Yes'?'b-er':r.startsWith('Optional')?'b-wn':'b-df'}">${r}</span></td><td style="color:var(--t3);">${e}</td></tr>`).join('')}
             <tr><td colspan="4" style="font-size:10px;color:var(--t3);padding-top:4px;">* Provide assignee_name OR assignee_email (or both). No user_id required.</td></tr>
           </tbody>
         </table>
@@ -2726,7 +2726,136 @@ function renderMeetingDetailModal(meetingId){
   document.getElementById('modal-footer').innerHTML=`
     <button class="btn" onclick="closeModal()">Close</button>
     <button class="btn" onclick="closeModal();showToast('Email not sent — SMTP not connected in demo mode.','warn')">Email MoM</button>
-    <button class="btn bp" onclick="closeModal();showToast('PDF export requires backend integration (e.g. Puppeteer / wkhtmltopdf).','warn')">Export PDF</button>`;
+    <button class="btn bp" onclick="exportMoMPDF('${m.id}')">Export PDF</button>
+    <button class="btn bok" onclick="exportMoMExcel('${m.id}')">Export Excel</button>`;
+}
+
+
+/* ═══════════════════════════════════════════
+   EXPORT FUNCTIONS (client-side, no backend)
+═══════════════════════════════════════════ */
+function exportMoMPDF(meetingId){
+  const m=MEETINGS.find(x=>x.id===meetingId);
+  if(!m)return;
+  const mt=TASKS.filter(t=>t.mid===meetingId);
+  const att=m.attendees.map(id=>gu(id));
+  const chair=gu(m.chairperson);
+  const extAtt=m.externalAttendees||[];
+  const cn=companyName||'Your Company';
+
+  const taskRows=mt.map((t,i)=>{const u=gu(t.uid);
+    const statusLabel={completed:'Completed','in-progress':'In Progress',overdue:'Overdue',pending:'Pending'};
+    const priorityLabel={high:'HIGH',medium:'MEDIUM',low:'LOW'};
+    return `<tr style="border-bottom:1px solid #eee;">
+      <td style="padding:7px 9px;">${i+1}</td>
+      <td style="padding:7px 9px;">${t.title}</td>
+      <td style="padding:7px 9px;">${u.name}</td>
+      <td style="padding:7px 9px;">${t.due}</td>
+      <td style="padding:7px 9px;">${priorityLabel[t.priority]||t.priority}</td>
+      <td style="padding:7px 9px;">${statusLabel[t.status]||t.status}</td>
+      <td style="padding:7px 9px;">${t.pct}%</td>
+    </tr>`;
+  }).join('');
+
+  const allAtt=[...att.map(u=>u.name+(u.id===m.chairperson?' (Chair)':'')), ...extAtt.map(ea=>ea.name+(ea.org?' — '+ea.org:''))].join(', ');
+
+  const printWin=window.open('','_blank','width=900,height=700');
+  printWin.document.write(`<!DOCTYPE html><html><head><title>MoM — ${m.no}</title>
+  <style>
+    body{font-family:'Segoe UI',Arial,sans-serif;margin:0;padding:32px;color:#1a1916;font-size:13px;}
+    .header{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #0a2540;padding-bottom:14px;margin-bottom:20px;}
+    .company{font-size:20px;font-weight:700;color:#0a2540;}
+    .doc-title{font-size:13px;font-weight:600;color:#5a9dc5;text-transform:uppercase;letter-spacing:1px;margin-top:3px;}
+    .meta-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;background:#f4f6fa;padding:14px 16px;border-radius:6px;margin-bottom:16px;}
+    .meta-label{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:#9b9890;margin-bottom:3px;}
+    .meta-val{font-size:13px;font-weight:600;color:#0a2540;}
+    .chair-box{background:#e0f2fe;border:1px solid #0284c7;border-radius:6px;padding:10px 14px;margin-bottom:16px;display:flex;align-items:center;gap:10px;}
+    .chair-label{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:#0284c7;margin-bottom:2px;}
+    .chair-name{font-size:15px;font-weight:700;color:#0a2540;}
+    .chair-dept{font-size:11px;color:#2d6a9f;}
+    .section{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:#9b9890;border-bottom:1px solid #e0ddd5;padding-bottom:5px;margin:16px 0 10px;}
+    table{width:100%;border-collapse:collapse;font-size:12px;}
+    th{background:#f4f3ef;padding:7px 9px;text-align:left;font-size:10px;font-weight:600;text-transform:uppercase;color:#9b9890;}
+    .att{font-size:12px;color:#334155;line-height:1.8;}
+    .footer{margin-top:28px;border-top:1px solid #e0ddd5;padding-top:10px;font-size:10px;color:#9b9890;display:flex;justify-content:space-between;}
+    @media print{body{padding:20px;}.no-print{display:none;}}
+  </style></head><body>
+  <div class="no-print" style="margin-bottom:16px;">
+    <button onclick="window.print()" style="background:#0284c7;color:#fff;border:none;padding:9px 20px;border-radius:6px;font-size:13px;cursor:pointer;margin-right:8px;">🖨 Print / Save as PDF</button>
+    <button onclick="window.close()" style="background:#f1f5f9;color:#334155;border:1px solid #cbd5e1;padding:9px 16px;border-radius:6px;font-size:13px;cursor:pointer;">✕ Close</button>
+    <span style="font-size:11px;color:#64748b;margin-left:12px;">Tip: Choose "Save as PDF" from your printer dialog.</span>
+  </div>
+  <div class="header">
+    <div><div class="company">${cn}</div><div class="doc-title">Minutes of Meeting</div></div>
+    <div style="text-align:right;font-size:11px;color:#9b9890;line-height:1.8;">
+      <div><b>${m.no}</b></div><div>${m.date}</div><div>${m.venue}</div>
+    </div>
+  </div>
+  <div class="meta-grid">
+    <div><div class="meta-label">Meeting No.</div><div class="meta-val">${m.no}</div></div>
+    <div><div class="meta-label">Date</div><div class="meta-val">${m.date}</div></div>
+    <div><div class="meta-label">Venue / Platform</div><div class="meta-val">${m.venue}</div></div>
+    <div style="grid-column:1/-1"><div class="meta-label">Meeting Title</div><div class="meta-val">${m.title}</div></div>
+  </div>
+  <div class="chair-box">
+    <div>
+      <div class="chair-label">Chairperson / Presiding Officer</div>
+      <div class="chair-name">${chair.name}</div>
+      <div class="chair-dept">${chair.dept}${chair.email?' · '+chair.email:''}</div>
+    </div>
+  </div>
+  <div class="section">Attendees (${att.length + extAtt.length})</div>
+  <div class="att">${allAtt}</div>
+  <div class="section">Action Items (${mt.length})</div>
+  <table>
+    <thead><tr><th>#</th><th>Action Item</th><th>Assignee</th><th>Due Date</th><th>Priority</th><th>Status</th><th>Progress</th></tr></thead>
+    <tbody>${taskRows}</tbody>
+  </table>
+  <div class="footer"><span>Generated by MoM Pro · ${new Date().toLocaleDateString()}</span><span>${cn} — Confidential</span></div>
+  </body></html>`);
+  printWin.document.close();
+  closeModal();
+}
+
+function exportMoMExcel(meetingId){
+  const m=MEETINGS.find(x=>x.id===meetingId);
+  if(!m){showToast('Meeting not found','warn');return;}
+  const mt=TASKS.filter(t=>t.mid===meetingId);
+  const chair=gu(m.chairperson);
+  const att=m.attendees.map(id=>gu(id));
+  const extAtt=m.externalAttendees||[];
+  const cn=companyName||'Your Company';
+
+  // Build CSV content (Excel-compatible)
+  const esc=v=>`"${String(v||'').replace(/"/g,'""')}"`;
+  const rows=[];
+  rows.push([esc(cn+' — Minutes of Meeting')]);
+  rows.push([]);
+  rows.push([esc('Meeting No.'),esc(m.no),esc('Date'),esc(m.date)]);
+  rows.push([esc('Title'),esc(m.title),esc('Venue'),esc(m.venue)]);
+  rows.push([esc('Chairperson'),esc(chair.name),esc('Dept'),esc(chair.dept)]);
+  rows.push([]);
+  rows.push([esc('Internal Attendees'),esc(att.map(u=>u.name+(u.id===m.chairperson?' (Chair)':'')).join('; '))]);
+  if(extAtt.length) rows.push([esc('External Attendees'),esc(extAtt.map(ea=>ea.name+(ea.org?' ('+ea.org+')':'')).join('; '))]);
+  rows.push([]);
+  rows.push(['#','Action Item','Assignee','Dept','Email','Due Date','Priority','Status','Progress %'].map(esc));
+  mt.forEach((t,i)=>{
+    const u=gu(t.uid);
+    rows.push([esc(i+1),esc(t.title),esc(u.name),esc(u.dept),esc(u.email),esc(t.due),esc(t.priority),esc(t.status),esc(t.pct)]);
+  });
+  rows.push([]);
+  rows.push([esc('Generated by MoM Pro'),esc(new Date().toLocaleDateString())]);
+
+  const csv='﻿'+rows.map(r=>r.join(',')).join('
+'); // BOM for Excel UTF-8
+  const blob=new Blob([csv],{type:'text/csv;charset=utf-8'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download=`MoM_${m.no}_${m.date}.csv`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+  closeModal();
+  showToast('Excel/CSV exported — open in Microsoft Excel or Google Sheets.','ok');
 }
 
 /* ═══════════════════════════════════════════
