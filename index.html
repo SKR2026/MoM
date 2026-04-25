@@ -1090,7 +1090,7 @@ function renderEscalations(){
       <td>${eb(t.esc)}</td>
       <td style="display:flex;gap:5px;">
         <button class="btn bs" onclick="openModal('task','${t.id}')">Update</button>
-        <button class="btn bs" onclick="showToast('Email not sent — SMTP not connected in demo mode.','warn')">Notify</button>
+        <button class="btn bs" onclick="notifyEscalation('${t.id}')">Notify</button>
       </td>
     </tr>`}).join('')}</tbody></table></div>
   </div>
@@ -1978,7 +1978,10 @@ async function sendGraphMail(accessToken, { toEmail, subject, htmlBody }) {
  */
 async function sendNotificationEmail(to, subject, html) {
   const az = azureSavedConfig();
-  if (!az || !az.msClientId || !az.msTenantId) return;
+  if (!az || !az.msClientId || !az.msTenantId) {
+    showToast('Email not sent — configure Office 365 in Settings → Email first.', 'warn');
+    return;
+  }
   if (location.protocol === 'file:') {
     showToast('Email not sent: app must be served over http/https for Microsoft sign-in.', 'warn');
     return;
@@ -2904,11 +2907,76 @@ function renderMeetingDetailModal(meetingId){_momId=meetingId;
   </div>`;
   document.getElementById('modal-footer').innerHTML=`
     <button class="btn" onclick="closeModal()">Close</button>
-    <button class="btn" onclick="closeModal();showToast('Email not sent — SMTP not connected in demo mode.','warn')">Email MoM</button>
+    <button class="btn" onclick="emailMoM(_momId);closeModal()">Email MoM</button>
     <button class="btn bp" onclick="exportMoMPDF(_momId)">Export PDF</button>
     <button class="btn bok" onclick="exportMoMExcel(_momId)">Export Excel</button>`;
 }
 
+
+/**
+ * emailMoM(meetingId)
+ * Emails the full Minutes of Meeting summary to all attendees.
+ */
+async function emailMoM(meetingId) {
+  const m = MEETINGS.find(x => x.id === meetingId);
+  if (!m) { showToast('Meeting not found', 'warn'); return; }
+  const mt = TASKS.filter(t => t.mid === meetingId);
+  const subject = `Minutes of Meeting — ${m.no} (${m.date})`;
+  const taskRows = mt.map(t => {
+    const u = gu(t.uid);
+    return `<tr><td style="padding:6px 8px;border-bottom:1px solid #eee;">${t.title}</td><td style="padding:6px 8px;border-bottom:1px solid #eee;">${u.name||'—'}</td><td style="padding:6px 8px;border-bottom:1px solid #eee;">${t.due}</td><td style="padding:6px 8px;border-bottom:1px solid #eee;">${t.status}</td></tr>`;
+  }).join('');
+  const html = `<div style="font-family:sans-serif;max-width:600px;">
+    <h2 style="color:#0a2540;">Minutes of Meeting — ${m.no}</h2>
+    <p><strong>Date:</strong> ${m.date} &nbsp;|&nbsp; <strong>Venue:</strong> ${m.venue}</p>
+    <p><strong>Chairperson:</strong> ${typeof m.chairperson==='string'?m.chairperson:(gu(m.chairperson).name||'—')}</p>
+    <h3 style="margin-top:20px;">Action Items</h3>
+    <table style="width:100%;border-collapse:collapse;font-size:13px;">
+      <thead><tr style="background:#f4f3ef;"><th style="padding:6px 8px;text-align:left;">Task</th><th style="padding:6px 8px;text-align:left;">Assignee</th><th style="padding:6px 8px;text-align:left;">Due</th><th style="padding:6px 8px;text-align:left;">Status</th></tr></thead>
+      <tbody>${taskRows||'<tr><td colspan="4" style="padding:8px;">No action items.</td></tr>'}</tbody>
+    </table>
+    <p style="margin-top:20px;font-size:12px;color:#888;">Sent via MoM Pro</p>
+  </div>`;
+  // Send to all internal attendees with an email
+  const recipients = (m.attendees||[]).map(id=>gu(id)).filter(u=>u&&u.email&&u.email.includes('@'));
+  // Also include external attendees with email
+  const extRecipients = (m.externalAttendees||[]).filter(ea=>ea.email&&ea.email.includes('@'));
+  const allEmails = [...new Set([...recipients.map(u=>u.email), ...extRecipients.map(ea=>ea.email)])];
+  if (!allEmails.length) { showToast('No attendee emails found for this meeting.', 'warn'); return; }
+  showToast('Sending MoM to ' + allEmails.length + ' recipient(s)…', 'info');
+  for (const email of allEmails) {
+    await sendNotificationEmail(email, subject, html);
+  }
+}
+
+/**
+ * notifyEscalation(taskId)
+ * Sends an escalation notification email to the task's assignee.
+ */
+async function notifyEscalation(taskId) {
+  const t = TASKS.find(x => x.id === taskId);
+  if (!t) { showToast('Task not found', 'warn'); return; }
+  const u = gu(t.uid);
+  if (!u || !u.email || !u.email.includes('@')) {
+    showToast('No email address found for assignee.', 'warn');
+    return;
+  }
+  const subject = `Escalation Alert — ${t.title} is overdue`;
+  const html = `<div style="font-family:sans-serif;max-width:600px;">
+    <h2 style="color:#dc2626;">⚠ Escalation Alert</h2>
+    <p>Hi ${u.name||'there'},</p>
+    <p>The following task assigned to you is overdue and has been escalated:</p>
+    <table style="width:100%;border-collapse:collapse;font-size:13px;margin:16px 0;">
+      <tr><td style="padding:6px 10px;background:#f4f3ef;font-weight:600;width:120px;">Task</td><td style="padding:6px 10px;border-bottom:1px solid #eee;">${t.title}</td></tr>
+      <tr><td style="padding:6px 10px;background:#f4f3ef;font-weight:600;">Due Date</td><td style="padding:6px 10px;border-bottom:1px solid #eee;color:#dc2626;">${t.due}</td></tr>
+      <tr><td style="padding:6px 10px;background:#f4f3ef;font-weight:600;">Status</td><td style="padding:6px 10px;border-bottom:1px solid #eee;">${t.status}</td></tr>
+      <tr><td style="padding:6px 10px;background:#f4f3ef;font-weight:600;">Escalation Level</td><td style="padding:6px 10px;">${t.esc}</td></tr>
+    </table>
+    <p>Please update the task status as soon as possible to avoid further escalation.</p>
+    <p style="margin-top:20px;font-size:12px;color:#888;">Sent via MoM Pro</p>
+  </div>`;
+  await sendNotificationEmail(u.email, subject, html);
+}
 
 function exportMoMPDF(meetingId){
   var m=MEETINGS.find(function(x){return x.id===meetingId;});
