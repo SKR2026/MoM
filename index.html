@@ -973,10 +973,47 @@ function processBulkUpload(){
     if(lines.length<2){showToast('File is empty or has only a header row.','warn');return;}
 
     const headers=lines[0].split(',').map(h=>h.trim().toLowerCase().replace(/"/g,''));
-    let imported=0,errors=0;
+    let importedTasks=0, importedMeetings=0, errors=0;
+
+    // ── Step 1: collect all unique meeting_no values from the CSV
+    // and create MEETINGS entries for any that don't already exist
+    const meetingNoToId={};
+
+    // Seed map with existing meetings (match by .no field = MTG-xxxx)
+    MEETINGS.forEach(m=>{ meetingNoToId[m.no]=m.id; });
 
     for(let i=1;i<lines.length;i++){
-      // handle quoted CSV values
+      const cols=lines[i].match(/(".*?"|[^",\n]+|(?<=,)(?=,)|(?<=,)$|^(?=,))/g)||[];
+      const cleanCols=cols.map(c=>c.replace(/^"|"$/g,'').trim());
+      const row={};
+      headers.forEach((h,idx)=>row[h]=cleanCols[idx]||'');
+
+      const mno=(row.meeting_no||'').trim();
+      if(!mno) continue;
+
+      // If this meeting_no is new, create a MEETINGS entry
+      if(!meetingNoToId[mno]){
+        const newId='MOM-'+(MEETINGS.length+1+importedMeetings).toString().padStart(3,'0');
+        const newMeeting={
+          id:newId,
+          no:mno,
+          date:row.meeting_date||new Date().toISOString().slice(0,10),
+          title:'Meeting '+mno,
+          chairperson:USERS[0]?.id||1,
+          attendees:USERS.slice(0,1).map(u=>u.id),
+          externalAttendees:[],
+          status:'active',
+          venue:'TBD'
+        };
+        MEETINGS.push(newMeeting);
+        meetingNoToId[mno]=newId;
+        importedMeetings++;
+        AUDIT_LOG.unshift({time:new Date().toISOString().slice(0,16).replace('T',' '),user:'Super Admin',action:`Bulk created meeting ${mno} from import`,entity:newId,type:'create'});
+      }
+    }
+
+    // ── Step 2: create tasks, now correctly linked to MOM-xxx ids
+    for(let i=1;i<lines.length;i++){
       const cols=lines[i].match(/(".*?"|[^",\n]+|(?<=,)(?=,)|(?<=,)$|^(?=,))/g)||[];
       const cleanCols=cols.map(c=>c.replace(/^"|"$/g,'').trim());
       const row={};
@@ -985,39 +1022,46 @@ function processBulkUpload(){
       if(!row.action_item||!row.assignee_email||!row.due_date){errors++;continue;}
 
       const assignee=USERS.find(u=>u.email&&u.email.toLowerCase()===row.assignee_email.toLowerCase());
+      const mno=(row.meeting_no||'').trim();
+      const resolvedMid=mno?meetingNoToId[mno]:null;
 
       const newTask={
-        id:'T'+( Date.now()+i),
+        id:'T'+(Date.now()+i),
         title:row.action_item,
         uid:assignee?assignee.id:USERS[0]?.id||null,
         due:row.due_date,
         priority:row.priority||'medium',
         status:'pending',
         esc:'none',
-        mid:row.meeting_no||null,
+        mid:resolvedMid,   // ← now correctly MOM-001 not MTG-2024-01
+        mno:mno||null,
         tags:[],
-        comments:0
+        comments:0,
+        pct:0,
+        notes:''
       };
 
       TASKS.push(newTask);
-      imported++;
+      importedTasks++;
     }
 
+    // ── Step 3: update history table
     const ts=new Date().toISOString().slice(0,10);
     const tbody=document.getElementById('upload-history');
     if(tbody){
       const tr=document.createElement('tr');
       const badge=errors>0?`<span class="bdg b-wn">Partial (${errors} errors)</span>`:`<span class="bdg b-ok">Imported</span>`;
-      tr.innerHTML=`<td style="font-family:var(--mo);font-size:11px;">${file.name}</td><td>${ts}</td><td>${imported}</td><td>${badge}</td>`;
+      tr.innerHTML=`<td style="font-family:var(--mo);font-size:11px;">${file.name}</td><td>${ts}</td><td>${importedTasks}</td><td>${badge}</td>`;
       tbody.insertBefore(tr,tbody.firstChild);
     }
 
-    AUDIT_LOG.unshift({time:new Date().toISOString().slice(0,16).replace('T',' '),user:'Super Admin',action:`Bulk imported ${imported} task(s) from ${file.name}${errors?` (${errors} skipped)`:''}`,entity:'BULK',type:'import'});
+    AUDIT_LOG.unshift({time:new Date().toISOString().slice(0,16).replace('T',' '),user:'Super Admin',action:`Bulk imported ${importedTasks} task(s) and ${importedMeetings} new meeting(s) from ${file.name}${errors?` (${errors} skipped)`:''}`,entity:'BULK',type:'import'});
 
-    if(imported===0){
-      showToast(`No tasks imported. Check that columns match the template and required fields are filled.`,'warn');
+    if(importedTasks===0){
+      showToast('No tasks imported. Check columns match the template and required fields are filled.','warn');
     } else {
-      showToast(`✅ ${imported} task(s) imported${errors?`, ${errors} row(s) skipped (missing required fields)`:''}.  Go to Tasks to view them.`,'ok');
+      const mtgNote=importedMeetings>0?`, ${importedMeetings} new meeting(s) created`:'';
+      showToast(`✅ ${importedTasks} task(s) imported${mtgNote}${errors?`, ${errors} skipped`:''}. Check Meetings & Tasks to verify.`,'ok');
     }
 
     input.value='';
