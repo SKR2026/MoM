@@ -429,6 +429,142 @@ let selectedTasks=new Set();
 
 let companyName = 'Your Company Name';
 
+/* ═══════════════════════════════════════════
+   NOTIFICATION ENGINE
+═══════════════════════════════════════════ */
+const IN_APP_NOTIFS = [];
+const NOTIF_QUEUE   = {};
+const NOTIF_CFG_KEY = 'mompro_notif_config';
+let   _digestTimer  = null;
+
+function notifSavedConfig(){
+  try{ return JSON.parse(localStorage.getItem(NOTIF_CFG_KEY)||'null'); }catch(e){ return null; }
+}
+function notifDefaultConfig(){
+  return { digestFrequency:'immediate', taskAssigned:true, statusUpdate:true,
+    overdueAlert:true, escalation:true, momPublished:true, weeklyDigest:true };
+}
+
+function pushNotif({ title, body, taskId='', type='update', toEmails=[] }){
+  const id   = 'n'+Date.now()+Math.random().toString(36).slice(2,6);
+  const time = new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
+  IN_APP_NOTIFS.unshift({ id, time, title, body, taskId, type, read:false });
+  if(IN_APP_NOTIFS.length > 50) IN_APP_NOTIFS.length = 50;
+  _refreshBell();
+  const cfg = notifSavedConfig() || notifDefaultConfig();
+  toEmails.forEach(email=>{
+    if(!email) return;
+    if(!NOTIF_QUEUE[email]) NOTIF_QUEUE[email]=[];
+    NOTIF_QUEUE[email].push({ title, body, taskId, type, time });
+    if(cfg.digestFrequency==='immediate') _flushDigestFor(email);
+  });
+}
+
+async function _flushDigestFor(email){
+  const items = NOTIF_QUEUE[email];
+  if(!items || items.length===0) return;
+  const user    = USERS.find(u=>u.email===email);
+  const name    = user?.name || email;
+  const count   = items.length;
+  const subject = `[MoM Pro] ${count} task update${count>1?'s':''} — action required`;
+  const rows    = items.map(it=>{
+    const t = TASKS.find(x=>x.id===it.taskId);
+    return `<tr style="border-bottom:1px solid #eee;">
+      <td style="padding:8px 10px;font-weight:500;">${it.title}</td>
+      <td style="padding:8px 10px;color:#555;">${it.body}</td>
+      <td style="padding:8px 10px;color:#555;font-size:12px;">${t?'Due: '+t.due:''}</td>
+      <td style="padding:8px 10px;text-align:right;font-size:12px;color:#888;">${t?t.pct+'%':''}</td>
+    </tr>`;
+  }).join('');
+  const html = `
+<div style="font-family:Arial,sans-serif;max-width:600px;">
+  <div style="background:#000f20;padding:16px 24px;">
+    <h2 style="color:#fff;margin:0;font-size:18px;">MoM Pro — Task Digest</h2>
+  </div>
+  <div style="padding:20px 24px;">
+    <p>Hi ${name},</p>
+    <p>Here is a summary of <strong>${count} task update${count>1?'s':''}</strong> since your last digest:</p>
+    <table style="width:100%;border-collapse:collapse;margin:16px 0;font-size:14px;">
+      <thead><tr style="background:#f4f4f4;">
+        <th style="padding:8px 10px;text-align:left;">Task</th>
+        <th style="padding:8px 10px;text-align:left;">Update</th>
+        <th style="padding:8px 10px;text-align:left;">Due Date</th>
+        <th style="padding:8px 10px;text-align:right;">Progress</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <p style="color:#888;font-size:12px;">You are receiving this because you are assigned to tasks in MoM Pro.</p>
+  </div>
+</div>`;
+  NOTIF_QUEUE[email] = [];
+  await sendNotificationEmail(email, subject, html);
+}
+
+async function _flushAllDigests(){
+  const emails = Object.keys(NOTIF_QUEUE).filter(e=>NOTIF_QUEUE[e]?.length>0);
+  for(const email of emails) await _flushDigestFor(email);
+}
+
+function startDigestScheduler(){
+  if(_digestTimer){ clearInterval(_digestTimer); _digestTimer=null; }
+  const cfg = notifSavedConfig() || notifDefaultConfig();
+  const ms  = {'15min':15*60*1000,'hourly':60*60*1000,'daily':24*60*60*1000,'weekly':7*24*60*60*1000}[cfg.digestFrequency];
+  if(ms) _digestTimer = setInterval(_flushAllDigests, ms);
+}
+
+function _refreshBell(){
+  const unread = IN_APP_NOTIFS.filter(n=>!n.read).length;
+  const badge  = document.getElementById('bell-badge');
+  if(badge){ badge.textContent = unread>9?'9+':unread; badge.classList.toggle('show',unread>0); }
+  _renderNotifList();
+}
+
+function _renderNotifList(){
+  const list = document.getElementById('notif-list');
+  if(!list) return;
+  if(IN_APP_NOTIFS.length===0){
+    list.innerHTML='<div style="padding:24px;text-align:center;font-size:13px;color:var(--t3);">No notifications yet.</div>';
+    return;
+  }
+  const icons={update:'🔄',escalation:'⚠️',create:'✅',overdue:'🔴',reminder:'📅',info:'ℹ️'};
+  list.innerHTML=IN_APP_NOTIFS.map(n=>`
+    <div class="notif-item${n.read?'':' unread'}" onclick="notifClick('${n.id}','${n.taskId}')">
+      <div class="notif-dot${n.read?' read':''}"></div>
+      <div style="flex:1;min-width:0;">
+        <div style="font-size:12px;font-weight:${n.read?'400':'600'};color:var(--tx);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+          ${icons[n.type]||'🔔'} ${n.title}</div>
+        <div style="font-size:11px;color:var(--t2);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${n.body}</div>
+        <div style="font-size:10px;color:var(--t3);margin-top:2px;">${n.time}</div>
+      </div>
+    </div>`).join('');
+}
+
+function toggleNotifPanel(){
+  const panel=document.getElementById('notif-panel');
+  if(!panel) return;
+  panel.classList.toggle('open');
+  if(panel.classList.contains('open')) _renderNotifList();
+}
+
+function notifClick(notifId, taskId){
+  const n=IN_APP_NOTIFS.find(x=>x.id===notifId);
+  if(n) n.read=true;
+  _refreshBell();
+  document.getElementById('notif-panel')?.classList.remove('open');
+  if(taskId){ navigate('tasks'); setTimeout(()=>openModal('task-detail',taskId),200); }
+}
+
+function markAllRead(){ IN_APP_NOTIFS.forEach(n=>n.read=true); _refreshBell(); }
+function clearNotifs(){ IN_APP_NOTIFS.length=0; _refreshBell(); }
+
+document.addEventListener('click', e=>{
+  const panel=document.getElementById('notif-panel');
+  const btn=document.getElementById('bell-btn');
+  if(panel && !panel.contains(e.target) && !btn?.contains(e.target)) panel.classList.remove('open');
+});
+
+
+
 function initCompanyName(){
   const stored = (typeof localStorage !== 'undefined' && localStorage.getItem('momCompanyName')) || '';
   if(stored) companyName = stored;
@@ -2320,17 +2456,124 @@ function renderEscCfg(){
 }
 
 function renderNotifCfg(){
+  const cfg = notifSavedConfig() || notifDefaultConfig();
+  const freqOptions = [
+    {v:'immediate', l:'Immediate (send on every update)'},
+    {v:'15min',     l:'Every 15 minutes'},
+    {v:'hourly',    l:'Hourly digest'},
+    {v:'daily',     l:'Daily digest'},
+    {v:'weekly',    l:'Weekly digest (Monday)'},
+  ];
+  const toggleRow = (key, label, desc) => `
+    <div style="display:flex;align-items:center;padding:11px 0;border-bottom:1px solid var(--br);gap:12px;">
+      <div style="flex:1;"><div style="font-size:13px;font-weight:500;">${label}</div>
+        <div style="font-size:11px;color:var(--t3);">${desc}</div></div>
+      <div class="tgl${cfg[key]?' on':''}" id="ntgl-${key}" onclick="this.classList.toggle('on')"></div>
+    </div>`;
   document.getElementById('content').innerHTML=`
-  <div style="max-width:620px;"><div class="card">
-    <div class="ch"><div class="ctit">Notification Schedule</div></div>
-    ${[['Task assigned','On assignment','Immediate'],['Upcoming reminder','3 days before due','Daily'],['Overdue alert','On due date','Daily'],['Escalation notice','Per escalation policy','Immediate'],['MoM published','After meeting saved','Immediate'],['Weekly summary','Every Monday','Weekly']].map(([n,t,f])=>`
-    <div style="display:flex;align-items:center;padding:11px 0;border-bottom:1px solid var(--br);gap:10px;">
-      <div style="flex:1;"><div style="font-size:13px;font-weight:500;">${n}</div><div style="font-size:11px;color:var(--t3);">${t}</div></div>
-      <select style="width:130px;font-size:11px;">${['Immediate','Daily','Every 2 days','Weekly'].map(o=>`<option ${o===f?'selected':''}>${o}</option>`).join('')}</select>
-      <div class="tgl on"></div>
-    </div>`).join('')}
-    <button class="btn bp" style="margin-top:14px;" onclick="showToast('Notification settings saved','ok')">Save Settings</button>
-  </div></div>`;
+  <div style="max-width:620px;">
+    <div class="card" style="margin-bottom:18px;">
+      <div class="ch"><div class="ctit">Email Digest Frequency</div></div>
+      <div style="font-size:12px;color:var(--t2);margin-bottom:12px;line-height:1.7;">
+        All pending task updates for each assignee are <b>batched into one summarised email</b>
+        at the chosen interval — no separate email per task.
+      </div>
+      <div class="fg">
+        <label>SEND FREQUENCY</label>
+        <select id="notif-freq" style="font-size:13px;font-weight:500;">
+          ${freqOptions.map(o=>`<option value="${o.v}" ${cfg.digestFrequency===o.v?'selected':''}>${o.l}</option>`).join('')}
+        </select>
+        <div style="font-size:11px;color:var(--t3);margin-top:4px;">
+          <b>Immediate</b>: one email per update event per person.<br>
+          <b>Hourly / Daily / Weekly</b>: collects all updates and sends a single digest per person.
+        </div>
+      </div>
+      <div id="digest-preview" style="margin-top:10px;padding:10px 12px;background:var(--bg3);border-radius:var(--rs);font-size:12px;color:var(--t2);"></div>
+    </div>
+    <div class="card" style="margin-bottom:18px;">
+      <div class="ch"><div class="ctit">Notification Types</div></div>
+      ${toggleRow('taskAssigned','Task assigned','Notify assignee when a task is created or reassigned.')}
+      ${toggleRow('statusUpdate','Status / progress update','Notify when status or progress is changed on any task.')}
+      ${toggleRow('overdueAlert','Overdue alert','Notify on the due date and daily after if the task is still open.')}
+      ${toggleRow('escalation','Escalation notice','Notify when a task is escalated to L1 / L2 / L3.')}
+      ${toggleRow('momPublished','MoM published','Notify attendees when a meeting is saved with action items.')}
+      ${toggleRow('weeklyDigest','Weekly summary','Every Monday — full summary of all open tasks per assignee.')}
+    </div>
+    <div class="card" style="margin-bottom:18px;">
+      <div class="ch"><div class="ctit">Test &amp; Send Now</div></div>
+      <div style="font-size:12px;color:var(--t2);margin-bottom:12px;">
+        Send the current pending digest to all assignees right now (bypasses frequency setting).
+      </div>
+      <div style="display:flex;gap:9px;flex-wrap:wrap;">
+        <button class="btn" onclick="_testDigestPreview()">Preview queue</button>
+        <button class="btn bp" onclick="_sendNowAll()">Send digest now</button>
+      </div>
+      <div id="digest-test-out" style="margin-top:10px;"></div>
+    </div>
+    <div style="display:flex;gap:9px;">
+      <button class="btn bp" onclick="saveNotifConfig()">Save Settings</button>
+    </div>
+  </div>`;
+  _updateDigestPreview();
+  document.getElementById('notif-freq').addEventListener('change', _updateDigestPreview);
+}
+
+function _updateDigestPreview(){
+  const freq = document.getElementById('notif-freq')?.value || 'immediate';
+  const pending = Object.values(NOTIF_QUEUE).reduce((s,arr)=>s+(arr?.length||0),0);
+  const recips  = Object.keys(NOTIF_QUEUE).filter(e=>NOTIF_QUEUE[e]?.length>0).length;
+  const labels  = { immediate:'Emails sent instantly on each update.',
+    '15min':'Digest sent every 15 minutes.', hourly:'Digest sent once per hour.',
+    daily:'Digest sent once per day.', weekly:'Digest sent every Monday morning.' };
+  const el = document.getElementById('digest-preview');
+  if(el) el.innerHTML = `<b>${labels[freq]||''}</b> &nbsp;&middot;&nbsp; ${pending} update${pending!==1?'s':''} queued across ${recips} recipient${recips!==1?'s':''}.`;
+}
+
+function saveNotifConfig(){
+  const cfg = {
+    digestFrequency: document.getElementById('notif-freq')?.value || 'immediate',
+    taskAssigned: document.getElementById('ntgl-taskAssigned')?.classList.contains('on'),
+    statusUpdate: document.getElementById('ntgl-statusUpdate')?.classList.contains('on'),
+    overdueAlert: document.getElementById('ntgl-overdueAlert')?.classList.contains('on'),
+    escalation:   document.getElementById('ntgl-escalation')?.classList.contains('on'),
+    momPublished: document.getElementById('ntgl-momPublished')?.classList.contains('on'),
+    weeklyDigest: document.getElementById('ntgl-weeklyDigest')?.classList.contains('on'),
+  };
+  localStorage.setItem(NOTIF_CFG_KEY, JSON.stringify(cfg));
+  startDigestScheduler();
+  showToast('Notification settings saved. Scheduler restarted.','ok');
+}
+
+function _testDigestPreview(){
+  const out = document.getElementById('digest-test-out');
+  const queued = Object.entries(NOTIF_QUEUE).filter(([,arr])=>arr?.length>0);
+  if(queued.length===0){
+    if(out) out.innerHTML='<div class="alert ai" style="margin-top:0;">No pending notifications. Trigger some task updates first.</div>';
+    return;
+  }
+  const rows = queued.map(([email,items])=>{
+    const u = USERS.find(x=>x.email===email);
+    return `<tr><td style="padding:6px 10px;">${u?.name||email}</td><td style="padding:6px 10px;color:var(--t2);">${email}</td><td style="padding:6px 10px;font-weight:600;color:var(--ac);">${items.length}</td></tr>`;
+  }).join('');
+  if(out) out.innerHTML=`
+    <div style="font-size:12px;color:var(--t2);margin-bottom:6px;">Pending digest recipients:</div>
+    <div class="tw"><table style="font-size:12px;">
+      <thead><tr><th>Name</th><th>Email</th><th>Items</th></tr></thead>
+      <tbody>${rows}</tbody></table></div>`;
+}
+
+async function _sendNowAll(){
+  const az = azureSavedConfig();
+  if(!az || !az.msClientId){
+    showToast('Configure Office 365 first (Settings \u2192 Email \u2014 Office 365).','warn');
+    return;
+  }
+  const total = Object.values(NOTIF_QUEUE).reduce((s,a)=>s+(a?.length||0),0);
+  if(total===0){ showToast('No pending notifications to send.','info'); return; }
+  showToast('Sending digests\u2026','info');
+  await _flushAllDigests();
+  showToast('Digest emails sent.','ok');
+  renderNotifCfg();
 }
 
 /* ═══════════════════════════════════════════
@@ -2573,12 +2816,21 @@ function _logAndNotify(t, oldStatus, newStatus, cmt, userName){
   const body     = `<p>Hi ${assignee?.name||'Team'},</p><p>Task <strong>${t.title}</strong> status: <strong>${oldStatus} → ${newStatus}</strong> (${t.pct}%)</p>${cmt?`<p><em>Comment: ${cmt}</em></p>`:''}<p>Updated by: ${userName}</p>`;
   const az = typeof azureSavedConfig==='function' ? azureSavedConfig() : null;
   const ts = new Date().toISOString().slice(0,16).replace('T',' ');
-  if(az && az.msClientId && az.msTenantId && toEmail){
-    sendNotificationEmail(toEmail, subject, body);
-    EMAIL_LOG.unshift({time:ts, to:toEmail, subject, status:'sent', trigger:'Status update'});
-  } else {
+  // Push in-app notification bell entry
+  pushNotif({
+    title: `${t.id}: ${newStatus}`,
+    body:  cmt ? `${oldStatus} → ${newStatus} — "${cmt.slice(0,60)}${cmt.length>60?'…':''}"` : `${oldStatus} → ${newStatus} (${t.pct}%)`,
+    taskId: t.id,
+    type:   newStatus==='overdue'?'overdue':'update',
+    toEmails: toEmail ? [toEmail] : []
+  });
+  // Email: pushNotif queues for digest. For audit log, record simulated if no config.
+  if(!(az && az.msClientId && az.msTenantId)){
     EMAIL_LOG.unshift({time:ts, to:toEmail||'(no email)', subject, status:'simulated', trigger:'Status update'});
-    showToast(`📧 Notification logged for ${toEmail||'assignee'}. Connect Office 365 to send live email.`,'ok');
+    const cfg2 = notifSavedConfig() || notifDefaultConfig();
+    if(cfg2.digestFrequency !== 'immediate'){
+      showToast(`📧 Queued for ${cfg2.digestFrequency} digest.`,'info');
+    }
   }
 }
 
@@ -2789,6 +3041,7 @@ function renderDevSystem(){
    INIT
 ═══════════════════════════════════════════ */
 loadPersistedUsers();   // restore saved users before anything else renders
+startDigestScheduler(); // start digest timer based on saved config
 buildNav();
 navigate('dashboard');
 // Show login screen on load
