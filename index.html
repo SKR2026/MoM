@@ -1389,23 +1389,101 @@ function renderBulkUpload(){
    REPORTS
 ═══════════════════════════════════════════ */
 function renderReports(){
+  /* ── Completion by Department (real data) ── */
+  const deptColors=['#2563eb','#16a34a','#d97706','#dc2626','#7c3aed','#0891b2','#be185d','#92400e'];
+  // Collect all unique departments from users
+  const allDepts=[...new Set(USERS.map(u=>u.dept).filter(Boolean))].sort();
+  const deptRows=allDepts.map((dept,i)=>{
+    const usersInDept=USERS.filter(u=>u.dept===dept);
+    const deptTasks=TASKS.filter(t=>usersInDept.some(u=>u.id===t.uid));
+    const total=deptTasks.length;
+    const completed=deptTasks.filter(t=>t.status==='completed').length;
+    const pct=total>0?Math.round((completed/total)*100):0;
+    return{dept,pct,total,completed,color:deptColors[i%deptColors.length]};
+  }).filter(r=>r.total>0);
+  const deptHTML=deptRows.length>0
+    ?deptRows.map(r=>`
+      <div style="margin-bottom:12px;">
+        <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px;">
+          <span>${r.dept}</span>
+          <span style="color:var(--t3);font-size:11px;">${r.completed}/${r.total} &nbsp;</span>
+          <span style="font-weight:600;">${r.pct}%</span>
+        </div>
+        <div class="prog"><div class="pf" style="width:${r.pct}%;background:${r.color}"></div></div>
+      </div>`).join('')
+    :`<div style="text-align:center;color:var(--t3);padding:28px 0;font-size:12px;">No task data yet</div>`;
+
+  /* ── Monthly Task Trend (real data — last 6 months) ── */
+  const now=new Date();
+  const months=[];
+  for(let i=5;i>=0;i--){
+    const d=new Date(now.getFullYear(),now.getMonth()-i,1);
+    months.push({
+      key:`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`,
+      label:d.toLocaleString('default',{month:'short'}),
+      created:0,completed:0
+    });
+  }
+  TASKS.forEach(t=>{
+    if(t.due){
+      const mk=t.due.slice(0,7);
+      const m=months.find(x=>x.key===mk);
+      if(m){
+        m.created++;
+        if(t.status==='completed') m.completed++;
+      }
+    }
+  });
+  // SVG chart dimensions
+  const svgW=280,svgH=140,padL=24,padR=12,padT=10,padB=22;
+  const chartW=svgW-padL-padR,chartH=svgH-padT-padB;
+  const xStep=chartW/(months.length-1||1);
+  const allVals=[...months.map(m=>m.created),...months.map(m=>m.completed),1];
+  const maxVal=Math.max(...allVals);
+  const py=v=>padT+chartH-(v/maxVal)*chartH;
+  const createdPts=months.map((m,i)=>`${padL+i*xStep},${py(m.created)}`).join(' ');
+  const completedPts=months.map((m,i)=>`${padL+i*xStep},${py(m.completed)}`).join(' ');
+  // Grid lines (4 horizontal)
+  const gridLines=[0,1,2,3].map(i=>{
+    const y=padT+(chartH/3)*i;
+    return`<line x1="${padL}" y1="${y}" x2="${svgW-padR}" y2="${y}" stroke="var(--br)" stroke-width="0.5"/>`;
+  }).join('');
+  // Dots for created line
+  const createdDots=months.map((m,i)=>`<circle cx="${padL+i*xStep}" cy="${py(m.created)}" r="3" fill="var(--ac)" stroke="var(--sf)" stroke-width="1.5">
+    <title>${m.label}: ${m.created} created</title></circle>`).join('');
+  // Dots for completed line
+  const completedDots=months.map((m,i)=>`<circle cx="${padL+i*xStep}" cy="${py(m.completed)}" r="3" fill="var(--ok)" stroke="var(--sf)" stroke-width="1.5">
+    <title>${m.label}: ${m.completed} completed</title></circle>`).join('');
+  // Month labels
+  const xLabels=months.map((m,i)=>`<text x="${padL+i*xStep}" y="${svgH-4}" text-anchor="middle" font-size="9" fill="var(--t3)">${m.label}</text>`).join('');
+  // Legend
+  const legend=`
+    <rect x="${padL}" y="${padT}" width="8" height="3" rx="1.5" fill="var(--ac)"/>
+    <text x="${padL+10}" y="${padT+4}" font-size="8" fill="var(--t2)">Total Due</text>
+    <rect x="${padL+52}" y="${padT}" width="8" height="3" rx="1.5" fill="var(--ok)"/>
+    <text x="${padL+62}" y="${padT+4}" font-size="8" fill="var(--t2)">Completed</text>`;
+  const trendSVG=`<svg width="100%" viewBox="0 0 ${svgW} ${svgH}">
+    ${gridLines}
+    ${legend}
+    <polyline points="${completedPts}" fill="none" stroke="var(--ok)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" opacity="0.85"/>
+    <polyline points="${createdPts}" fill="none" stroke="var(--ac)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    ${completedDots}
+    ${createdDots}
+    ${xLabels}
+  </svg>`;
+
   document.getElementById('content').innerHTML=`
   <div class="g2" style="margin-bottom:18px;">
     <div class="card">
-      <div class="ch"><div class="ctit">Completion by Department</div></div>
-      ${[['Operations',75,'#2563eb'],['Finance',90,'#16a34a'],['IT',55,'#d97706'],['HR',40,'#dc2626'],['Executive',100,'#7c3aed']].map(([d,p,c])=>`
-      <div style="margin-bottom:12px;">
-        <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px;"><span>${d}</span><span style="font-weight:600;">${p}%</span></div>
-        <div class="prog"><div class="pf" style="width:${p}%;background:${c}"></div></div>
-      </div>`).join('')}
+      <div class="ch">
+        <div class="ctit">Completion by Department</div>
+        <span style="font-size:11px;color:var(--t3);">${TASKS.filter(t=>t.status==='completed').length} / ${TASKS.length} tasks</span>
+      </div>
+      ${deptHTML}
     </div>
     <div class="card">
-      <div class="ch"><div class="ctit">Monthly Task Trend</div></div>
-      <svg width="100%" viewBox="0 0 280 140">
-        ${[0,30,60,90,120].map(y=>`<line x1="20" y1="${y+10}" x2="265" y2="${y+10}" stroke="var(--br)" stroke-width="0.5"/>`).join('')}
-        <polyline points="20,110 65,90 110,70 155,50 200,60 245,35" fill="none" stroke="var(--ac)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-        ${[[20,'Nov'],[65,'Dec'],[110,'Jan'],[155,'Feb'],[200,'Mar'],[245,'Apr']].map(([x,l])=>`<text x="${x}" y="138" text-anchor="middle" font-size="10" fill="var(--t3)">${l}</text>`).join('')}
-      </svg>
+      <div class="ch"><div class="ctit">Monthly Task Trend</div><span style="font-size:11px;color:var(--t3);">Last 6 months</span></div>
+      ${trendSVG}
     </div>
   </div>
   <div class="g2">
