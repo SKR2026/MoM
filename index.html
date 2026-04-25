@@ -227,18 +227,8 @@ input[type=checkbox].task-cb{width:15px;height:15px;accent-color:var(--ac);curso
           <input type="password" id="l-pass" name="password" placeholder="Enter password" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()">
         </div>
         <button type="submit" class="btn bp" style="width:100%;justify-content:center;">Sign In</button>
-        <div style="margin-top:14px;padding:10px 12px;background:var(--bg3);border-radius:var(--rs);font-size:11px;color:var(--t2);">
-          <div style="font-weight:600;margin-bottom:6px;color:var(--tx);">🔑 Default Login Credentials</div>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:3px 12px;">
-            <span style="color:var(--t3);">Super Admin:</span><span><b>superadmin</b> / admin@123</span>
-            <span style="color:var(--t3);">Admin:</span><span><b>admin</b> / admin@456</span>
-            <span style="color:var(--t3);">Developer:</span><span><b>developer</b> / dev@123</span>
-          </div>
-          <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;">
-            <button type="button" onclick="quickLogin('superadmin','admin@123')" style="background:var(--al);color:var(--ac);border:1px solid var(--ac);border-radius:4px;padding:3px 9px;font-size:10px;cursor:pointer;font-family:var(--fn);">⚡ Super Admin</button>
-            <button type="button" onclick="quickLogin('admin','admin@456')" style="background:var(--ol);color:var(--ok);border:1px solid var(--ok);border-radius:4px;padding:3px 9px;font-size:10px;cursor:pointer;font-family:var(--fn);">⚡ Admin</button>
-            <button type="button" onclick="quickLogin('developer','dev@123')" style="background:var(--wl);color:var(--wn);border:1px solid var(--wn);border-radius:4px;padding:3px 9px;font-size:10px;cursor:pointer;font-family:var(--fn);">⚡ Developer</button>
-          </div>
+        <div style="margin-top:12px;font-size:11px;color:var(--t3);text-align:center;">
+          Enter your credentials to continue.
         </div>
         </form>
       </div>
@@ -491,12 +481,6 @@ function switchLoginTab(tab){
   document.getElementById('lpane-staff').style.display=tab==='staff'?'block':'none';
   document.getElementById('lpane-user').style.display=tab==='user'?'block':'none';
   document.getElementById('login-err').style.display='none';
-}
-
-function quickLogin(user, pass){
-  document.getElementById('l-user').value = user;
-  document.getElementById('l-pass').value = pass;
-  doLogin();
 }
 
 function doLogin(){
@@ -762,10 +746,10 @@ function showToast(msg,type='info'){
 
 function openModal(type,data){
   const modal=document.getElementById('modal');
-  if(type==='new-meeting'){renderNewMeetingModal();document.querySelector('.modal').classList.remove('fullscreen');}
+  if(type==='new-meeting'){renderNewMeetingModal();document.querySelector('.modal')?.classList.remove('fullscreen');}
   else if(type==='task'&&data){renderTaskModal(data);}
-  else if(type==='meeting-detail'&&data){renderMeetingDetailModal(data);document.querySelector('.modal').classList.add('fullscreen');}
-  else if(type==='add-user'){renderAddUserModal();document.querySelector('.modal').classList.remove('fullscreen');}
+  else if(type==='meeting-detail'&&data){renderMeetingDetailModal(data);document.querySelector('.modal')?.classList.add('fullscreen');}
+  else if(type==='add-user'){renderAddUserModal();document.querySelector('.modal')?.classList.remove('fullscreen');}
   modal.style.display='flex';
 }
 function closeModal(){document.getElementById('modal').style.display='none';}
