@@ -324,10 +324,10 @@ const USERS=[
   {id:5,name:'Vikram Patel',role:'top-mgmt',dept:'Executive',email:'v.patel@corp.com',ini:'VP',col:'#fee2e2',tc:'#dc2626'},
 ];
 const MEETINGS=[
-  {id:'MOM-001',no:'MTG-2024-01',date:'2024-01-15',title:'Q1 Planning Review',chairperson:5,attendees:[1,2,3,5],externalAttendees:[{name:'David Wilson',org:'Deloitte Advisory',email:'d.wilson@deloitte.com'}],status:'completed',venue:'Boardroom A'},
-  {id:'MOM-002',no:'MTG-2024-02',date:'2024-01-22',title:'IT Infrastructure Update',chairperson:3,attendees:[3,4],externalAttendees:[],status:'completed',venue:'Conference Room 2'},
-  {id:'MOM-003',no:'MTG-2024-03',date:'2024-02-05',title:'HR Policy Alignment',chairperson:5,attendees:[2,4,5],externalAttendees:[{name:'Meera Joshi',org:'HR Consultants Pvt Ltd',email:'m.joshi@hrconsult.in'},{name:'Rahul Verma',org:'Legal Advisors LLP',email:'r.verma@legal.com'}],status:'active',venue:'Virtual (Teams)'},
-  {id:'MOM-004',no:'MTG-2024-04',date:'2024-02-19',title:'Finance Audit Prep',chairperson:1,attendees:[1,2,5],externalAttendees:[],status:'active',venue:'Boardroom B'},
+  {id:'MOM-001',no:'MTG-2024-01',date:'2024-01-15',title:'Q1 Planning Review',chairperson:'Vikram Patel',attendees:[1,2,3,5],externalAttendees:[{name:'David Wilson',org:'Deloitte Advisory',email:'d.wilson@deloitte.com'}],status:'completed',venue:'Boardroom A'},
+  {id:'MOM-002',no:'MTG-2024-02',date:'2024-01-22',title:'IT Infrastructure Update',chairperson:'Amit Singh',attendees:[3,4],externalAttendees:[],status:'completed',venue:'Conference Room 2'},
+  {id:'MOM-003',no:'MTG-2024-03',date:'2024-02-05',title:'HR Policy Alignment',chairperson:'Vikram Patel',attendees:[2,4,5],externalAttendees:[{name:'Meera Joshi',org:'HR Consultants Pvt Ltd',email:'m.joshi@hrconsult.in'},{name:'Rahul Verma',org:'Legal Advisors LLP',email:'r.verma@legal.com'}],status:'active',venue:'Virtual (Teams)'},
+  {id:'MOM-004',no:'MTG-2024-04',date:'2024-02-19',title:'Finance Audit Prep',chairperson:'Rajesh Kumar',attendees:[1,2,5],externalAttendees:[],status:'active',venue:'Boardroom B'},
 ];
 let TASKS=[
   {id:'T001',mid:'MOM-001',mno:'MTG-2024-01',title:'Prepare Q1 budget report',uid:1,due:'2024-02-01',status:'overdue',priority:'high',pct:60,esc:2,notes:'Escalated to dept head. Finance team to provide consolidated data.'},
@@ -851,9 +851,9 @@ function renderDashboard(){
   <div class="g2">
     <div class="card">
       <div class="ch"><div class="ctit">Recent Meetings</div><button class="btn bs" onclick="navigate('meetings')">View all</button></div>
-      ${MEETINGS.slice(0,3).map(m=>{const chair=gu(m.chairperson);return`<div style="display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--br);">
+      ${MEETINGS.slice(0,3).map(m=>{const chairName=typeof m.chairperson==='string'?m.chairperson:(gu(m.chairperson).name||'—');return`<div style="display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--br);">
         <div style="width:34px;height:34px;border-radius:7px;background:var(--al);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:var(--ac);flex-shrink:0;">${m.no.split('-').pop()}</div>
-        <div style="flex:1;min-width:0;"><div style="font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${m.title}</div><div style="font-size:10px;color:var(--t3);">${m.no} · ${m.date} · Chair: ${chair.name}</div></div>
+        <div style="flex:1;min-width:0;"><div style="font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${m.title}</div><div style="font-size:10px;color:var(--t3);">${m.no} · ${m.date} · Chair: ${chairName}</div></div>
         ${sb(m.status)}</div>`}).join('')}
     </div>
     <div class="card">
@@ -885,11 +885,11 @@ function renderMeetings(){
 }
 function meetingRows(data){
   return`<table><thead><tr><th>No.</th><th>Title</th><th>Date</th><th>Chairperson</th><th>Venue</th><th>Attendees</th><th>Tasks</th><th>Status</th><th></th></tr></thead><tbody>
-  ${data.map(m=>{const att=m.attendees.map(id=>gu(id));const mt=TASKS.filter(t=>t.mid===m.id);const chair=gu(m.chairperson);return`<tr>
+  ${data.map(m=>{const att=m.attendees.map(id=>gu(id));const mt=TASKS.filter(t=>t.mid===m.id);const chairName=typeof m.chairperson==='string'?m.chairperson:(gu(m.chairperson).name||'—');return`<tr>
     <td><span style="font-family:var(--mo);font-size:11px;color:var(--ac);">${m.no}</span></td>
     <td style="font-weight:500;max-width:160px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${m.title}</td>
     <td style="color:var(--t2);font-size:12px;">${m.date}</td>
-    <td><div style="display:flex;align-items:center;gap:5px;">${av(chair,20)}<span style="font-size:11px;font-weight:500;">${chair.name}</span></div></td>
+    <td><div style="display:flex;align-items:center;gap:5px;"><span style="font-size:12px;font-weight:500;">${chairName}</span></div></td>
     <td style="font-size:12px;color:var(--t2);">${m.venue}</td>
     <td><div style="display:flex;gap:2px;align-items:center;">${att.slice(0,3).map(u=>`<div class="av" style="width:22px;height:22px;font-size:8px;background:${u.col};color:${u.tc};border:2px solid var(--sf);">${u.ini}</div>`).join('')}${(att.length+(m.externalAttendees||[]).length)>3?`<div class="av" style="width:22px;height:22px;font-size:8px;background:var(--bg3);color:var(--t3);">+${(att.length+(m.externalAttendees||[]).length)-3}</div>`:''}</div></td>
     <td style="font-size:12px;">${mt.length}</td>
@@ -1188,15 +1188,7 @@ function processBulkUpload(){
           no:mno,
           date:row.meeting_date||new Date().toISOString().slice(0,10),
           title:row.meeting_title||row['meeting title']||('Meeting '+mno),
-          chairperson:(()=>{
-            const cn=(row.chairperson_name||'').trim().toLowerCase();
-            if(!cn) return USERS[0]?.id||1;
-            // Match by: 1) exact full name, 2) initials (e.g. KMG), 3) partial name
-            const cu=USERS.find(u=>u.name.toLowerCase()===cn)
-              ||USERS.find(u=>u.ini&&u.ini.toLowerCase()===cn)
-              ||USERS.find(u=>u.name.toLowerCase().includes(cn));
-            return cu?cu.id:(USERS[0]?.id||1);
-          })(),
+          chairperson:(row.chairperson_name||'').trim()||'—',
           attendees:USERS.slice(0,1).map(u=>u.id),
           externalAttendees:[],
           status:'active',
@@ -2443,14 +2435,7 @@ function renderNewMeetingModal(){
     <div class="fg"><label>MEETING TYPE</label><select><option>Management Review</option><option>Project Update</option><option>Audit & Compliance</option><option>Strategy Planning</option><option>Operations</option></select></div>
     <div class="fg full">
       <label>CHAIRPERSON / PRESIDING OFFICER</label>
-      <div style="display:flex;gap:8px;align-items:center;">
-        <select id="nm-chair" style="flex:1;" onchange="updateChairPreview()">
-          ${USERS.map(u=>`<option value="${u.id}">${u.name} — ${u.dept}</option>`).join('')}
-        </select>
-        <div id="chair-preview" style="display:flex;align-items:center;gap:6px;padding:5px 10px;background:var(--al);border:1px solid var(--ac);border-radius:var(--rs);font-size:12px;color:var(--ac);font-weight:500;white-space:nowrap;">
-          ${av(USERS[0],22)}&nbsp;${USERS[0].name}
-        </div>
-      </div>
+      <input id="nm-chair" placeholder="e.g. Vikram Patel" style="width:100%;">
     </div>
   </div>
 
@@ -2497,12 +2482,6 @@ function renderNewMeetingModal(){
     <button class="btn" onclick="closeModal()">Cancel</button>
     <button class="btn" onclick="showToast('Draft saved','info')">Save Draft</button>
     <button class="btn bp" onclick="saveMeeting()">Save & Notify All Attendees</button>`;
-}
-
-function updateChairPreview(){
-  const uid=parseInt(document.getElementById('nm-chair').value);
-  const u=gu(uid);
-  document.getElementById('chair-preview').innerHTML=`${av(u,22)}&nbsp;${u.name}`;
 }
 
 function addExtAttendee(){
@@ -2556,7 +2535,7 @@ function saveMeeting(){
 
   // Collect internal attendees
   const intAtt=[...document.querySelectorAll('.int-att-cb:checked')].map(c=>parseInt(c.value));
-  const chairId=parseInt(document.getElementById('nm-chair')?.value)||intAtt[0]||1;
+  const chairName=(document.getElementById('nm-chair')?.value||'').trim()||'—';
   const extCount=extAttendees.length;
   const total=intAtt.length+extCount;
 
@@ -2564,7 +2543,7 @@ function saveMeeting(){
   const newMeeting={
     id:'MOM-'+(MEETINGS.length+1).toString().padStart(3,'0'),
     no,date,title,
-    chairperson:chairId,
+    chairperson:chairName,
     attendees:intAtt,
     externalAttendees:[...extAttendees],
     status:'active',
@@ -2725,7 +2704,7 @@ function renderMeetingDetailModal(meetingId){_momId=meetingId;
   if(!m)return;
   const mt=TASKS.filter(t=>t.mid===meetingId);
   const att=m.attendees.map(id=>gu(id));
-  const chair=gu(m.chairperson);
+  const chairDisplay=typeof m.chairperson==='string'?m.chairperson:(gu(m.chairperson).name||'—');
   const extAtt=m.externalAttendees||[];
   document.getElementById('modal-title').textContent=`MoM — ${m.no}`;
   document.getElementById('modal-body').innerHTML=`
@@ -2735,19 +2714,19 @@ function renderMeetingDetailModal(meetingId){_momId=meetingId;
     <div><div style="font-size:10px;color:var(--t3);margin-bottom:3px;">VENUE</div><div style="font-weight:500;">${m.venue}</div></div>
   </div>
   <div style="background:var(--al);border:1px solid var(--ac);border-radius:var(--rs);padding:10px 14px;margin-bottom:16px;display:flex;align-items:center;gap:10px;">
-    ${av(chair,32)}
+    <div style="width:36px;height:36px;border-radius:50%;background:var(--ac);color:#fff;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;flex-shrink:0;">
+      ${chairDisplay.split(' ').map(w=>w[0]||'').join('').toUpperCase().slice(0,2)}
+    </div>
     <div>
       <div style="font-size:10px;color:var(--ac);font-weight:600;text-transform:uppercase;letter-spacing:.5px;margin-bottom:1px;">Chairperson</div>
-      <div style="font-size:14px;font-weight:600;">${chair.name}</div>
-      <div style="font-size:11px;color:var(--t2);">${chair.dept} · ${chair.email}</div>
+      <div style="font-size:14px;font-weight:600;">${chairDisplay}</div>
     </div>
     <span class="bdg b-in" style="margin-left:auto;">Presiding</span>
   </div>
   <div class="divl">Internal Attendees (${att.length})</div>
   <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px;">
     ${att.map(u=>{
-      const isChair=u.id===m.chairperson;
-      return`<span class="tag${isChair?' tag-chair':''}" title="${isChair?'Chairperson':'Attendee'}">${av(u,18)}&nbsp;${u.name}${isChair?'&nbsp;<span style="font-size:9px;font-weight:700;">(Chair)</span>':''}</span>`;
+      return`<span class="tag" title="Attendee">${av(u,18)}&nbsp;${u.name}</span>`;
     }).join('')}
   </div>
   ${extAtt.length?`
@@ -2781,7 +2760,7 @@ function exportMoMPDF(meetingId){
   if(!m){showToast('Meeting not found','warn');return;}
   var mt=TASKS.filter(function(t){return t.mid===meetingId;});
   var att=m.attendees.map(function(id){return gu(id);});
-  var chair=gu(m.chairperson);
+  var chairStr=typeof m.chairperson==='string'?m.chairperson:(gu(m.chairperson).name||'—');
   var extAtt=m.externalAttendees||[];
   var cn=companyName||'Your Company';
   var taskRows=mt.map(function(t,i){
@@ -2814,8 +2793,7 @@ function exportMoMPDF(meetingId){
     +'<div><div class="lb">Date</div><div class="vl">'+m.date+'</div></div>'
     +'<div><div class="lb">Venue</div><div class="vl">'+m.venue+'</div></div>'
     +'<div style="grid-column:1/-1"><div class="lb">Meeting Title</div><div class="vl">'+m.title+'</div></div></div>'
-    +'<div class="cb"><div class="cl">Chairperson</div><div class="cn">'+chair.name+'</div>'
-    +'<div style="font-size:11px;color:#2d6a9f">'+chair.dept+(chair.email?' / '+chair.email:'')+'</div></div>'
+    +'<div class="cb"><div class="cl">Chairperson</div><div class="cn">'+chairStr+'</div></div>'
     +'<div class="sc">Attendees ('+String(att.length+extAtt.length)+')</div>'
     +'<div style="font-size:12px;line-height:1.8">'+allAtt+'</div>'
     +'<div class="sc">Action Items ('+mt.length+')</div>'
@@ -2831,7 +2809,7 @@ function exportMoMExcel(meetingId){
   var m=MEETINGS.find(function(x){return x.id===meetingId;});
   if(!m){showToast('Meeting not found','warn');return;}
   var mt=TASKS.filter(function(t){return t.mid===meetingId;});
-  var chair=gu(m.chairperson);
+  var chairStr=typeof m.chairperson==='string'?m.chairperson:(gu(m.chairperson).name||'—');
   var att=m.attendees.map(function(id){return gu(id);});
   var extAtt=m.externalAttendees||[];
   var cn=companyName||'Your Company';
@@ -2841,9 +2819,9 @@ function exportMoMExcel(meetingId){
   rows.push([]);
   rows.push([esc('Meeting No.'),esc(m.no),esc('Date'),esc(m.date)]);
   rows.push([esc('Title'),esc(m.title),esc('Venue'),esc(m.venue)]);
-  rows.push([esc('Chairperson'),esc(chair.name),esc('Dept'),esc(chair.dept)]);
+  rows.push([esc('Chairperson'),esc(chairStr)]);
   rows.push([]);
-  rows.push([esc('Internal Attendees'),esc(att.map(function(u){return u.name+(u.id===m.chairperson?' (Chair)':'');}).join('; '))]);
+  rows.push([esc('Internal Attendees'),esc(att.map(function(u){return u.name;}).join('; '))]);
   if(extAtt.length) rows.push([esc('External Attendees'),esc(extAtt.map(function(ea){return ea.name+(ea.org?' ('+ea.org+')':'');}).join('; '))]);
   rows.push([]);
   rows.push(['#','Action Item','Assignee','Dept','Email','Due Date','Priority','Status','Progress %'].map(esc));
