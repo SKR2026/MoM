@@ -928,6 +928,7 @@ function renderMeetings(){
   </div>`;
 }
 function meetingRows(data){
+  const canDelete=currentRole==='super-admin'||currentRole==='admin'||currentRole==='developer';
   return`<table><thead><tr><th>No.</th><th>Title</th><th>Date</th><th>Chairperson</th><th>Venue</th><th>Attendees</th><th>Tasks</th><th>Status</th><th></th></tr></thead><tbody>
   ${data.map(m=>{const att=m.attendees.map(id=>gu(id));const mt=TASKS.filter(t=>t.mid===m.id);const chairName=typeof m.chairperson==='string'?m.chairperson:(gu(m.chairperson).name||'—');return`<tr>
     <td><span style="font-family:var(--mo);font-size:11px;color:var(--ac);">${m.no}</span></td>
@@ -938,12 +939,34 @@ function meetingRows(data){
     <td><div style="display:flex;gap:2px;align-items:center;">${att.slice(0,3).map(u=>`<div class="av" style="width:22px;height:22px;font-size:8px;background:${u.col};color:${u.tc};border:2px solid var(--sf);">${u.ini}</div>`).join('')}${(att.length+(m.externalAttendees||[]).length)>3?`<div class="av" style="width:22px;height:22px;font-size:8px;background:var(--bg3);color:var(--t3);">+${(att.length+(m.externalAttendees||[]).length)-3}</div>`:''}</div></td>
     <td style="font-size:12px;">${mt.length}</td>
     <td>${sb(m.status)}</td>
-    <td><button class="btn bs" onclick="openModal('meeting-detail','${m.id}')">View MoM</button></td>
+    <td style="white-space:nowrap;">
+      <button class="btn bs" onclick="openModal('meeting-detail','${m.id}')">View MoM</button>
+      ${canDelete?`<button class="btn bs ber" style="margin-left:5px;" onclick="deleteMeeting('${m.id}')" title="Delete meeting and all its tasks">✕ Delete</button>`:''}
+    </td>
   </tr>`}).join('')}</tbody></table>`;
 }
 function filterMeetings(q){
   const f=MEETINGS.filter(m=>m.title.toLowerCase().includes(q.toLowerCase())||m.no.toLowerCase().includes(q.toLowerCase()));
   document.getElementById('mtbl').innerHTML=meetingRows(f);
+}
+function deleteMeeting(id){
+  const m=MEETINGS.find(x=>x.id===id);
+  if(!m)return;
+  const taskCount=TASKS.filter(t=>t.mid===id).length;
+  const msg=`Delete meeting "${m.no} — ${m.title}"?`
+    +(taskCount?`\n\nThis will also permanently delete ${taskCount} linked action item${taskCount>1?'s':''}. `:'')
+    +'\n\nThis cannot be undone.';
+  if(!confirm(msg))return;
+  // Remove meeting
+  const mIdx=MEETINGS.findIndex(x=>x.id===id);
+  if(mIdx>-1) MEETINGS.splice(mIdx,1);
+  // Remove all linked tasks
+  TASKS=TASKS.filter(t=>t.mid!==id);
+  AUDIT_LOG.unshift({time:new Date().toISOString().slice(0,16).replace('T',' '),user:document.getElementById('un')?.textContent||'Admin',action:`Deleted meeting ${m.no}: "${m.title}"${taskCount?' + '+taskCount+' task(s)':''}`,entity:id,type:'delete'});
+  persistMeetings();
+  persistTasks();
+  showToast(`Meeting "${m.no}" deleted${taskCount?' along with '+taskCount+' task(s)':''}.`,'warn');
+  renderMeetings();
 }
 
 /* ═══════════════════════════════════════════
