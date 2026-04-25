@@ -316,66 +316,18 @@ input[type=checkbox].task-cb{width:15px;height:15px;accent-color:var(--ac);curso
 /* ═══════════════════════════════════════════
    DATA
 ═══════════════════════════════════════════ */
-const USERS=[
-  {id:1,name:'Rajesh Kumar',role:'assignee',dept:'Operations',email:'r.kumar@corp.com',ini:'RK',col:'#dcfce7',tc:'#16a34a'},
-  {id:2,name:'Priya Sharma',role:'assignee',dept:'Finance',email:'p.sharma@corp.com',ini:'PS',col:'#fce7f3',tc:'#db2777'},
-  {id:3,name:'Amit Singh',role:'manager',dept:'IT',email:'a.singh@corp.com',ini:'AS',col:'#ede9fe',tc:'#7c3aed'},
-  {id:4,name:'Sunita Devi',role:'assignee',dept:'HR',email:'s.devi@corp.com',ini:'SD',col:'#fef3c7',tc:'#d97706'},
-  {id:5,name:'Vikram Patel',role:'top-mgmt',dept:'Executive',email:'v.patel@corp.com',ini:'VP',col:'#fee2e2',tc:'#dc2626'},
-];
-const MEETINGS=[
-  {id:'MOM-001',no:'MTG-2024-01',date:'2024-01-15',title:'Q1 Planning Review',chairperson:'Vikram Patel',attendees:[1,2,3,5],externalAttendees:[{name:'David Wilson',org:'Deloitte Advisory',email:'d.wilson@deloitte.com'}],status:'completed',venue:'Boardroom A'},
-  {id:'MOM-002',no:'MTG-2024-02',date:'2024-01-22',title:'IT Infrastructure Update',chairperson:'Amit Singh',attendees:[3,4],externalAttendees:[],status:'completed',venue:'Conference Room 2'},
-  {id:'MOM-003',no:'MTG-2024-03',date:'2024-02-05',title:'HR Policy Alignment',chairperson:'Vikram Patel',attendees:[2,4,5],externalAttendees:[{name:'Meera Joshi',org:'HR Consultants Pvt Ltd',email:'m.joshi@hrconsult.in'},{name:'Rahul Verma',org:'Legal Advisors LLP',email:'r.verma@legal.com'}],status:'active',venue:'Virtual (Teams)'},
-  {id:'MOM-004',no:'MTG-2024-04',date:'2024-02-19',title:'Finance Audit Prep',chairperson:'Rajesh Kumar',attendees:[1,2,5],externalAttendees:[],status:'active',venue:'Boardroom B'},
-];
+const USERS=[];
+const MEETINGS=[];
 let MEETING_TYPES=(function(){
   try{var s=localStorage.getItem('momMeetingTypes');if(s){var p=JSON.parse(s);if(Array.isArray(p)&&p.length)return p;}}catch(e){}
   return ['Management Review','Project Update','Audit & Compliance','Strategy Planning','Operations','Board Meeting','Statutory Meeting'];
 })();
 function saveMeetingTypes(){try{localStorage.setItem('momMeetingTypes',JSON.stringify(MEETING_TYPES));}catch(e){}}
 
-let TASKS=[
-  {id:'T001',mid:'MOM-001',mno:'MTG-2024-01',title:'Prepare Q1 budget report',uid:1,due:'2024-02-01',status:'overdue',priority:'high',pct:60,esc:2,notes:'Escalated to dept head. Finance team to provide consolidated data.'},
-  {id:'T002',mid:'MOM-001',mno:'MTG-2024-01',title:'Server upgrade procurement',uid:3,due:'2024-02-15',status:'in-progress',priority:'high',pct:40,esc:0,notes:''},
-  {id:'T003',mid:'MOM-002',mno:'MTG-2024-02',title:'Revise leave policy document',uid:4,due:'2024-02-10',status:'overdue',priority:'medium',pct:20,esc:1,notes:''},
-  {id:'T004',mid:'MOM-002',mno:'MTG-2024-02',title:'Network security audit',uid:3,due:'2024-03-01',status:'in-progress',priority:'high',pct:70,esc:0,notes:''},
-  {id:'T005',mid:'MOM-003',mno:'MTG-2024-03',title:'Draft employee handbook',uid:2,due:'2024-02-28',status:'completed',priority:'medium',pct:100,esc:0,notes:''},
-  {id:'T006',mid:'MOM-003',mno:'MTG-2024-03',title:'ROI analysis submission',uid:1,due:'2024-03-05',status:'pending',priority:'low',pct:10,esc:0,notes:''},
-  {id:'T007',mid:'MOM-004',mno:'MTG-2024-04',title:'Vendor shortlisting report',uid:2,due:'2024-02-25',status:'in-progress',priority:'medium',pct:55,esc:0,notes:''},
-];
-const COMMENTS={
-  'T001':[
-    {uid:1,time:'Feb 11 · 10:22 AM',text:'Working on this. Finance team needs to provide consolidated data by EOD.'},
-    {uid:3,time:'Feb 11 · 11:05 AM',text:'@Rajesh — please prioritise. This is blocking the board deck. Need by Friday.'},
-    {uid:5,time:'Feb 12 · 9:00 AM',text:'Escalated to L2. @Amit please ensure this gets resolved this week.'},
-  ],
-  'T005':[
-    {uid:2,time:'Feb 25 · 4:30 PM',text:'First draft complete. Shared with HR head for review.'},
-    {uid:4,time:'Feb 26 · 9:10 AM',text:'Reviewed. Minor changes needed in section 3 on leave encashment.'},
-    {uid:2,time:'Feb 28 · 2:00 PM',text:'Updated and finalised. Marking complete.'},
-  ],
-};
-const AUDIT_LOG=[
-  {time:'2024-02-12 09:14',user:'Super Admin',action:'Escalated T001 to L2',entity:'T001',type:'escalation'},
-  {time:'2024-02-11 15:32',user:'Rajesh Kumar',action:'Updated progress to 60%',entity:'T001',type:'update'},
-  {time:'2024-02-10 11:00',user:'Super Admin',action:'Sent reminder to Sunita Devi',entity:'T003',type:'notification'},
-  {time:'2024-02-09 09:00',user:'System',action:'Auto-escalated T003 to L1 (3 days overdue)',entity:'T003',type:'escalation'},
-  {time:'2024-02-08 14:20',user:'Priya Sharma',action:'Marked T005 as completed',entity:'T005',type:'update'},
-  {time:'2024-02-07 10:05',user:'Super Admin',action:'Bulk imported 12 tasks from tasks_jan_2024.xlsx',entity:'BULK',type:'import'},
-  {time:'2024-02-06 16:45',user:'Amit Singh',action:'Updated T004 progress to 70%',entity:'T004',type:'update'},
-  {time:'2024-02-05 09:30',user:'Super Admin',action:'Created meeting MTG-2024-03',entity:'MOM-003',type:'create'},
-  {time:'2024-02-04 11:00',user:'System',action:'Auto-escalated T001 to L1',entity:'T001',type:'escalation'},
-  {time:'2024-02-03 14:00',user:'Super Admin',action:'Firebase configuration updated',entity:'SYSTEM',type:'config'},
-];
-const EMAIL_LOG=[
-  {time:'2024-02-12 09:15',to:'r.kumar@corp.com',subject:'[MoM Pro] Escalation Notice — T001',status:'delivered',trigger:'Escalation L2'},
-  {time:'2024-02-11 08:00',to:'r.kumar@corp.com',subject:'[MoM Pro] Daily Reminder — T001 overdue',status:'delivered',trigger:'Daily reminder'},
-  {time:'2024-02-10 11:02',to:'s.devi@corp.com',subject:'[MoM Pro] Reminder — T003 due today',status:'delivered',trigger:'Due date reminder'},
-  {time:'2024-02-09 08:00',to:'s.devi@corp.com',subject:'[MoM Pro] Escalation Notice — T003',status:'delivered',trigger:'Escalation L1'},
-  {time:'2024-02-05 09:31',to:'p.sharma@corp.com, s.devi@corp.com',subject:'[MoM Pro] MoM Published — MTG-2024-03',status:'delivered',trigger:'MoM created'},
-  {time:'2024-02-01 08:00',to:'r.kumar@corp.com',subject:'[MoM Pro] Task Due Today — T001',status:'bounced',trigger:'Due date reminder'},
-];
+let TASKS=[];
+const COMMENTS={};
+const AUDIT_LOG=[];
+const EMAIL_LOG=[];
 let currentRole='super-admin';
 let darkMode=false;
 let aiItemCount=2;
@@ -3075,14 +3027,14 @@ function devGate(){
 
 function renderDevConsole(){
   if(!devGate())return;
+  const now=new Date();
+  const pad=n=>String(n).padStart(2,'0');
+  const ts=`${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
   const logs=[
-    {t:'14:32:01',lvl:'INFO',msg:'Firebase connection established — latency 42ms'},
-    {t:'14:31:58',lvl:'INFO',msg:'Auth session started for user: developer'},
-    {t:'14:31:55',lvl:'WARN',msg:'Email SMTP retry #2 — smtp.office365.com timeout'},
-    {t:'14:31:40',lvl:'INFO',msg:'TASKS array loaded — 7 records'},
-    {t:'14:31:40',lvl:'INFO',msg:'MEETINGS array loaded — 4 records'},
-    {t:'14:31:39',lvl:'ERROR',msg:'Audit log write failed: network unreachable (retrying)'},
-    {t:'14:31:38',lvl:'INFO',msg:'App initialised — version 2.4.1-dev'},
+    {t:ts,lvl:'INFO',msg:`App initialised — version 2.4.1-dev`},
+    {t:ts,lvl:'INFO',msg:`MEETINGS array loaded — ${MEETINGS.length} records`},
+    {t:ts,lvl:'INFO',msg:`TASKS array loaded — ${TASKS.length} records`},
+    {t:ts,lvl:'INFO',msg:`USERS array loaded — ${USERS.length} records`},
   ];
   const lc={INFO:'var(--ok)',WARN:'var(--wn)',ERROR:'var(--er)'};
   document.getElementById('content').innerHTML=`
@@ -3168,6 +3120,17 @@ function renderDevSystem(){
 /* ═══════════════════════════════════════════
    INIT
 ═══════════════════════════════════════════ */
+// One-time migration: wipe any old demo data that may be cached in localStorage
+(function clearDemoCache(){
+  const FLAG='mompro_clean_v1';
+  if(!localStorage.getItem(FLAG)){
+    localStorage.removeItem('mompro_meetings_v1');
+    localStorage.removeItem('mompro_tasks_v1');
+    localStorage.removeItem('mompro_users_v1');
+    localStorage.removeItem('mompro_passwords_v1');
+    localStorage.setItem(FLAG,'1');
+  }
+})();
 loadPersistedUsers();   // restore saved users before anything else renders
 loadPersistedMeetings(); // restore saved meetings before rendering
 loadPersistedTasks();    // restore saved tasks before rendering
