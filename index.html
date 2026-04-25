@@ -398,6 +398,8 @@ function loadPersistedMeetings(){
 function persistTasks(){
   try{ localStorage.setItem(TASKS_STORE_KEY, JSON.stringify(TASKS)); }
   catch(e){ console.warn('Could not persist tasks:', e); }
+  // Refresh nav badges to reflect live task/escalation counts
+  if(typeof buildNav==='function') buildNav();
 }
 
 function loadPersistedTasks(){
@@ -640,8 +642,8 @@ const NAV=[
   {section:'Main',roles:['super-admin','admin','assignee','manager','top-mgmt','developer'],items:[
     {id:'dashboard',label:'Dashboard',icon:'<rect x="1" y="1" width="6" height="6" rx="1"/><rect x="9" y="1" width="6" height="6" rx="1"/><rect x="1" y="9" width="6" height="6" rx="1"/><rect x="9" y="9" width="6" height="6" rx="1"/>'},
     {id:'meetings',label:'Meetings',icon:'<rect x="1" y="2" width="14" height="12" rx="2"/><path d="M1 6h14M5 1v2M11 1v2"/>',roles:['super-admin','admin','top-mgmt','manager','developer']},
-    {id:'tasks',label:'My Tasks',icon:'<path d="M6 4h8M6 8h8M6 12h8M2 4h.5M2 8h.5M2 12h.5"/>',badge:3},
-    {id:'escalations',label:'Escalations',icon:'<path d="M8 1l2 5h5l-4 3 1.5 5L8 11l-4.5 3L5 9 1 6h5z"/>',badge:2,roles:['super-admin','admin','top-mgmt','manager','developer']},
+    {id:'tasks',label:'My Tasks',icon:'<path d="M6 4h8M6 8h8M6 12h8M2 4h.5M2 8h.5M2 12h.5"/>'},
+    {id:'escalations',label:'Escalations',icon:'<path d="M8 1l2 5h5l-4 3 1.5 5L8 11l-4.5 3L5 9 1 6h5z"/>',roles:['super-admin','admin','top-mgmt','manager','developer']},
     {id:'calendar',label:'Calendar',icon:'<rect x="1" y="2" width="14" height="12" rx="2"/><path d="M1 6h14M5 1v2M11 1v2"/>',roles:['super-admin','admin','top-mgmt','manager','developer']},
   ]},
   {section:'Actions',roles:['super-admin','admin','developer'],items:[
@@ -671,18 +673,32 @@ function canAccess(item){
   return allowed.includes(currentRole);
 }
 
+function getLiveBadge(id){
+  if(id==='tasks'){
+    const pending=TASKS.filter(t=>t.status!=='done'&&t.status!=='completed').length;
+    return pending>0?pending:0;
+  }
+  if(id==='escalations'){
+    const esc=TASKS.filter(t=>t.esc>0).length;
+    return esc>0?esc:0;
+  }
+  return 0;
+}
+
 function buildNav(){
   const nav=document.getElementById('sb-nav');
   nav.innerHTML=NAV
     .filter(s=>(s.roles||[]).includes(currentRole))
     .map(s=>`
-      <div class="nl" style="${s.devOnly?'color:var(--wn);':''}">${s.devOnly?'⚡ ':''} ${s.section}</div>
-      ${s.items.filter(i=>canAccess(i)).map(i=>`
+      <div class="nl" style="${s.devOnly?'color:var(--wn);':''}">${s.devOnly?'&#9889; ':''} ${s.section}</div>
+      ${s.items.filter(i=>canAccess(i)).map(i=>{
+        const badge=getLiveBadge(i.id);
+        return `
         <div class="ni" id="ni-${i.id}" onclick="navigate('${i.id}')">
           <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">${i.icon}</svg>
           ${i.label}
-          ${i.badge?`<span class="nb">${i.badge}</span>`:''}
-        </div>`).join('')}
+          ${badge?`<span class="nb">${badge}</span>`:''}
+        </div>`;}).join('')}
     `).join('');
 }
 
