@@ -2061,36 +2061,18 @@ function deleteUserRow(uid){
 function renderAddUserModal(){
   document.getElementById('modal-title').textContent='Add New User';
   document.getElementById('modal-body').innerHTML=`
-  <!-- Auth method toggle -->
-  <div style="margin-bottom:16px;">
-    <div style="font-size:11px;font-weight:600;color:var(--t2);margin-bottom:7px;letter-spacing:.2px;">FIREBASE AUTH METHOD</div>
-    <div style="display:flex;gap:8px;">
-      <div class="chip on" id="auth-email-chip" onclick="selectAuthMethod('email')">✉ Email / Password</div>
-      <div class="chip" id="auth-google-chip" onclick="selectAuthMethod('google')">G Google Sign-In</div>
-      <div class="chip" id="auth-link-chip" onclick="selectAuthMethod('link')">🔗 Email Link (Passwordless)</div>
-    </div>
-  </div>
-
   <div class="fgrid">
     <div class="fg"><label>FULL NAME *</label><input id="nu-name" placeholder="e.g. Arjun Mehta" oninput="autoFillIni()"></div>
     <div class="fg"><label>DISPLAY INITIALS</label><input id="nu-ini" placeholder="AM" maxlength="2" style="text-transform:uppercase;"></div>
     <div class="fg full"><label>EMAIL ADDRESS *</label><input id="nu-email" type="email" placeholder="arjun.mehta@corp.com"></div>
-
-    <!-- Password row — shown only for email method -->
-    <div class="fg full" id="pw-row">
-      <label>TEMPORARY PASSWORD *</label>
+    <div class="fg full">
+      <label>PASSWORD *</label>
       <div style="display:flex;gap:8px;">
-        <input id="nu-pass" type="password" placeholder="Min 8 characters" style="flex:1;">
-        <button class="btn bs" type="button" onclick="genPassword()" title="Auto-generate">⚙ Generate</button>
+        <input id="nu-pass" type="password" placeholder="Min 6 characters" style="flex:1;">
+        <button class="btn bs" type="button" onclick="genPassword()" title="Auto-generate a strong password">⚙ Generate</button>
       </div>
-      <div style="font-size:10px;color:var(--t3);margin-top:3px;">User will be prompted to change password on first login.</div>
+      <div style="font-size:10px;color:var(--t3);margin-top:3px;">User logs in with their email address or full name + this password.</div>
     </div>
-
-    <!-- Passwordless hint -->
-    <div class="fg full" id="link-row" style="display:none;">
-      <div class="alert ai">Firebase will send a sign-in link to the user's email. No password required.</div>
-    </div>
-
     <div class="fg"><label>DEPARTMENT</label>
       <select id="nu-dept">
         ${['Operations','Finance','IT','HR','Executive','Marketing','Legal','Procurement'].map(d=>`<option>${d}</option>`).join('')}
@@ -2116,34 +2098,18 @@ function renderAddUserModal(){
       <label>SEND WELCOME EMAIL</label>
       <div style="display:flex;align-items:center;gap:10px;margin-top:8px;">
         <div class="tgl on" id="welcome-tgl" onclick="this.classList.toggle('on')" title="Toggle welcome email"></div>
-        <span style="font-size:12px;color:var(--t3);">Via Office 365 SMTP</span>
+        <span style="font-size:12px;color:var(--t3);">Via Office 365 (if configured)</span>
       </div>
     </div>
-  </div>
-
-  <!-- Firebase UID preview -->
-  <div style="margin-top:4px;padding:10px 13px;background:var(--bg3);border-radius:var(--rs);font-family:var(--mo);font-size:11px;color:var(--t3);">
-    <span style="color:var(--t2);font-weight:600;">Firebase UID (assigned on create):</span> <span id="uid-preview" style="color:var(--ac);">will be auto-generated</span>
-  </div>
-  `;
+  </div>`;
 
   document.getElementById('modal-footer').innerHTML=`
     <button class="btn" onclick="closeModal()">Cancel</button>
-    <button class="btn bp" onclick="doAddUser()">🔥 Create in Firebase &amp; Add User</button>
+    <button class="btn bp" onclick="doAddUser()">+ Add User</button>
   `;
 
-  // init colour selection state
   window._nuCol={bg:'#dcfce7',tc:'#16a34a'};
   window._nuAuthMethod='email';
-}
-
-function selectAuthMethod(m){
-  window._nuAuthMethod=m;
-  ['email','google','link'].forEach(k=>{
-    document.getElementById('auth-'+k+'-chip').classList.toggle('on',k===m);
-  });
-  document.getElementById('pw-row').style.display=m==='email'?'':'none';
-  document.getElementById('link-row').style.display=m==='link'?'':'none';
 }
 
 function autoFillIni(){
@@ -2171,47 +2137,57 @@ function genPassword(){
 }
 
 function doAddUser(){
-  const name=document.getElementById('nu-name').value.trim();
-  const email=document.getElementById('nu-email').value.trim();
-  const ini=(document.getElementById('nu-ini').value.trim()||name.split(' ').map(w=>w[0]).join('')).toUpperCase().slice(0,2);
-  const dept=document.getElementById('nu-dept').value;
-  const role=document.getElementById('nu-role').value;
-  const method=window._nuAuthMethod||'email';
-  const pass=method==='email'?(document.getElementById('nu-pass')||{}).value||'':'';
-  const welcome=document.getElementById('welcome-tgl').classList.contains('on');
+  const name    = document.getElementById('nu-name').value.trim();
+  const email   = document.getElementById('nu-email').value.trim();
+  const ini     = (document.getElementById('nu-ini').value.trim() || name.split(' ').map(w=>w[0]).join('')).toUpperCase().slice(0,2);
+  const dept    = document.getElementById('nu-dept').value;
+  const role    = document.getElementById('nu-role').value;
+  const pass    = (document.getElementById('nu-pass')?.value || '').trim();
+  const welcome = document.getElementById('welcome-tgl')?.classList.contains('on');
 
-  if(!name){showToast('Full name is required','warn');return;}
-  if(!email||!email.includes('@')){showToast('Valid email is required','warn');return;}
-  if(method==='email'&&pass.length<8){showToast('Password must be at least 8 characters','warn');return;}
-  if(USERS.find(u=>u.email===email)){showToast('A user with this email already exists','warn');return;}
+  if(!name)                         { showToast('Full name is required','warn'); return; }
+  if(!email || !email.includes('@')){ showToast('Valid email is required','warn'); return; }
+  if(pass.length < 6)               { showToast('Password must be at least 6 characters','warn'); return; }
+  if(USERS.find(u=>u.email===email)){ showToast('A user with this email already exists','warn'); return; }
 
-  // Simulate Firebase UID
-  const uid='firebase_'+Math.random().toString(36).slice(2,10);
-  document.getElementById('uid-preview').textContent=uid;
+  const newId = Math.max(...USERS.map(u=>u.id)) + 1;
+  const col   = window._nuCol || {bg:'#e0f2fe', tc:'#0284c7'};
 
-  // Add to USERS array
-  const newId=Math.max(...USERS.map(u=>u.id))+1;
-  const col=window._nuCol||{bg:'#e0f2fe',tc:'#0284c7'};
-  USERS.push({id:newId,name,role,dept,email,ini,col:col.bg,tc:col.tc});
+  // Add to users list
+  USERS.push({id:newId, name, role, dept, email, ini, col:col.bg, tc:col.tc});
 
-  // Store password so user can actually log in
-  if(method==='email' && pass) USER_PASSWORDS[newId] = pass;
+  // Store password — user can now log in immediately
+  USER_PASSWORDS[newId] = pass;
 
-  // Add to FB_STATUS
-  FB_STATUS[newId]={online:false,lastSeen:'Never',authProvider:method==='google'?'google':'email',sessions:0,lastLogin:'—'};
+  // Add to presence tracker
+  FB_STATUS[newId] = {online:false, lastSeen:'Never', authProvider:'email', sessions:0, lastLogin:'—'};
 
-  // Audit
-  AUDIT_LOG.unshift({time:new Date().toISOString().slice(0,16).replace('T',' '),user:'Super Admin',action:`Created Firebase Auth account for ${name} (${email}) via ${method}`,entity:'SYSTEM',type:'create'});
+  // Audit log
+  AUDIT_LOG.unshift({
+    time: new Date().toISOString().slice(0,16).replace('T',' '),
+    user: 'Super Admin',
+    action: `Added user ${name} (${email}) with role: ${role}`,
+    entity: 'SYSTEM',
+    type: 'create'
+  });
+
+  // Send welcome email if toggled and Office 365 configured
+  if(welcome){
+    const az = typeof azureSavedConfig==='function' ? azureSavedConfig() : null;
+    const ts  = new Date().toISOString().slice(0,16).replace('T',' ');
+    const subject = '[MoM Pro] Your account has been created';
+    const body    = `<p>Hi ${name},</p><p>Your MoM Pro account has been set up. Log in at the app URL using your email address and the temporary password provided by your admin.</p><p>Please change your password after first login.</p>`;
+    if(az && az.msClientId && az.msTenantId){
+      sendNotificationEmail(email, subject, body);
+      EMAIL_LOG.unshift({time:ts, to:email, subject, status:'sent', trigger:'New user welcome'});
+    } else {
+      EMAIL_LOG.unshift({time:ts, to:email, subject, status:'simulated', trigger:'New user welcome'});
+    }
+  }
 
   closeModal();
   renderUsers();
-
-  const msgs={
-    email:`Firebase account created for ${name}. ${welcome?'Welcome email sent via Office 365.':''}`,
-    google:`Google Sign-In enabled for ${name}. Invite link sent.`,
-    link:`Passwordless sign-in link sent to ${email}.`,
-  };
-  showToast(msgs[method]||'User added','ok');
+  showToast(`${name} added. They can now log in with their email and password.`, 'ok');
 }
 
 function renderEscCfg(){
