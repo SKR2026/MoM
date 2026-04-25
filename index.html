@@ -392,6 +392,37 @@ const AUTH_CREDENTIALS={
 };
 // USER_PASSWORDS: keyed by USERS[].id — populated when users are added / passwords set
 const USER_PASSWORDS = {};
+
+/* ── Persistent user store ─────────────────────────────────────────────────
+   USERS and USER_PASSWORDS are persisted in localStorage so that users
+   added through the UI survive page reloads.
+─────────────────────────────────────────────────────────────────────────── */
+const USERS_STORE_KEY = 'mompro_users_v1';
+const PWDS_STORE_KEY  = 'mompro_passwords_v1';
+
+function persistUsers(){
+  try{
+    localStorage.setItem(USERS_STORE_KEY, JSON.stringify(USERS));
+    localStorage.setItem(PWDS_STORE_KEY,  JSON.stringify(USER_PASSWORDS));
+  }catch(e){ console.warn('Could not persist users:', e); }
+}
+
+function loadPersistedUsers(){
+  try{
+    const savedUsers = JSON.parse(localStorage.getItem(USERS_STORE_KEY) || 'null');
+    const savedPwds  = JSON.parse(localStorage.getItem(PWDS_STORE_KEY)  || 'null');
+    if(savedUsers && Array.isArray(savedUsers) && savedUsers.length > 0){
+      // Replace the in-memory array contents with saved data
+      USERS.length = 0;
+      savedUsers.forEach(u => USERS.push(u));
+    }
+    if(savedPwds && typeof savedPwds === 'object'){
+      // Restore passwords — keys are stored as strings, convert back to numbers
+      Object.entries(savedPwds).forEach(([k,v]) => { USER_PASSWORDS[Number(k)] = v; });
+    }
+  }catch(e){ console.warn('Could not load persisted users:', e); }
+}
+
 let loggedInAs=null;
 let currentLoginTab='staff';
 let selectedTasks=new Set();
@@ -2043,6 +2074,7 @@ function saveUserRow(uid){
   if(newPass) USER_PASSWORDS[uid] = newPass;
   AUDIT_LOG.unshift({time:new Date().toISOString().slice(0,16).replace('T',' '),user:'Super Admin',
     action:`Updated user ${uid}: name="${newName}", role="${newRole}"${newPass?' + password reset':''}`,entity:'SYSTEM',type:'update'});
+  persistUsers();   // save changes to localStorage
   showToast(`${newName} saved.${newPass?' Password updated.':USER_PASSWORDS[uid]?'':' No password set — user cannot log in yet.'}`,'ok');
   renderUsers();
 }
@@ -2053,7 +2085,9 @@ function deleteUserRow(uid){
   if(!confirm(`Remove ${u.name} from the system? This cannot be undone.`))return;
   const idx=USERS.findIndex(x=>x.id===uid);
   if(idx>-1)USERS.splice(idx,1);
+  delete USER_PASSWORDS[uid];   // remove password entry too
   AUDIT_LOG.unshift({time:new Date().toISOString().slice(0,16).replace('T',' '),user:'Super Admin',action:`Deleted user: ${u.name} (${u.email})`,entity:'SYSTEM',type:'delete'});
+  persistUsers();   // save deletion to localStorage
   showToast(`${u.name} removed.`,'warn');
   renderUsers();
 }
@@ -2185,6 +2219,7 @@ function doAddUser(){
     }
   }
 
+  persistUsers();   // save to localStorage so login survives reload
   closeModal();
   renderUsers();
   showToast(`${name} added. They can now log in with their email and password.`, 'ok');
@@ -2676,6 +2711,7 @@ function renderDevSystem(){
 /* ═══════════════════════════════════════════
    INIT
 ═══════════════════════════════════════════ */
+loadPersistedUsers();   // restore saved users before anything else renders
 buildNav();
 navigate('dashboard');
 // Show login screen on load
