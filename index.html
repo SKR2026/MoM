@@ -532,8 +532,10 @@ function loginAsUser(uid){
 }
 
 function simulateLinkAccess(){
-  loginAsUser(1);
-  showToast('Opened via shared link — logged in as Rajesh Kumar','info');
+  const u=USERS[0];
+  if(!u){showToast('No users exist yet — add users first','warn');return;}
+  loginAsUser(u.id);
+  showToast('Opened via shared link — logged in as '+u.name,'info');
 }
 
 function showLoginScreen(){
@@ -777,9 +779,9 @@ function switchRole(r){
   const allowed=ALLOWED_ROLES[currentRole]||[currentRole];
   if(!allowed.includes(r)){showToast('Role switch not permitted','err');return;}
   currentRole=r;
-  const roleLabels={'super-admin':'Super Admin','assignee':'Rajesh Kumar','manager':'Manager','top-mgmt':'Vikram Patel','developer':'Developer','admin':'Admin'};
+  const roleLabels={'super-admin':'Super Admin','assignee':'Assignee','manager':'Manager','top-mgmt':'Top Management','developer':'Developer','admin':'Admin'};
   const roleDesc={'super-admin':'Administrator','assignee':'Assignee','manager':'Manager','top-mgmt':'Top Management','developer':'Developer Mode','admin':'Admin'};
-  const roleIni={'super-admin':'SA','assignee':'RK','manager':'MG','top-mgmt':'VP','developer':'DV','admin':'AD'};
+  const roleIni={'super-admin':'SA','assignee':'AS','manager':'MG','top-mgmt':'TM','developer':'DV','admin':'AD'};
   const roleCol={'super-admin':'#bae6fd','assignee':'#dcfce7','manager':'#ede9fe','top-mgmt':'#fee2e2','developer':'#fef3c7','admin':'#bbf7d0'};
   const roleTc={'super-admin':'#0284c7','assignee':'#16a34a','manager':'#7c3aed','top-mgmt':'#dc2626','developer':'#d97706','admin':'#15803d'};
   document.getElementById('un').textContent=roleLabels[r];
@@ -805,7 +807,7 @@ function renderDashboard(){
   const tot=myTasks.length;
   const pct=tot?Math.round(comp/tot*100):0;
   document.getElementById('content').innerHTML=`
-  ${currentRole==='assignee'?`<div class="alert ai" style="margin-bottom:16px;">Viewing as Rajesh Kumar (Assignee) — showing only your tasks.</div>`:''}
+  ${currentRole==='assignee'?`<div class="alert ai" style="margin-bottom:16px;">Viewing as ${loggedInAs&&loggedInAs.name?loggedInAs.name:'Assignee'} — showing only your tasks.</div>`:''}
   <div class="g4" style="margin-bottom:20px;">
     <div class="sc"><div class="sl-">Total Tasks</div><div class="sv">${tot}</div><div class="sc2">Across ${MEETINGS.length} meetings</div><div class="sbar"><div class="sbf" style="width:100%;background:var(--ac)"></div></div></div>
     <div class="sc"><div class="sl-">Completed</div><div class="sv" style="color:var(--ok)">${comp}</div><div class="sc2">${pct}% rate</div><div class="sbar"><div class="sbf" style="width:${pct}%;background:var(--ok)"></div></div></div>
@@ -1193,14 +1195,22 @@ function renderEscalations(){
     </tr>`}).join('')}</tbody></table></div>
   </div>
   <div class="card">
-    <div class="ch"><div class="ctit">Escalation Timeline</div></div>
-    <div class="tl">
-      <div class="tli"><div class="tld" style="background:var(--er);"></div><div class="tlt">Feb 12, 2024 — 9:14 AM</div><div class="tlx">T001 escalated to L2. Dept head notified via email.</div></div>
-      <div class="tli"><div class="tld" style="background:var(--wn);"></div><div class="tlt">Feb 9, 2024 — 9:00 AM</div><div class="tlx">T003 auto-escalated to L1. Manager notified.</div></div>
-      <div class="tli"><div class="tld" style="background:var(--wn);"></div><div class="tlt">Feb 4, 2024 — 11:00 AM</div><div class="tlx">T001 escalated to L1 (3 days overdue).</div></div>
-      <div class="tli"><div class="tld" style="background:var(--ok);"></div><div class="tlt">Jan 30, 2024 — 3:00 PM</div><div class="tlx">T005 escalation resolved. Priya Sharma completed task.</div></div>
+    <div class="ch"><div class="ctit">Escalation Timeline</div><span style="font-size:11px;color:var(--t3);">from audit log</span></div>
+    <div class="tl" id="esc-timeline">
+    ${(()=>{
+      const escEvents = AUDIT_LOG.filter(a=>a.type==='escalation'||a.type==='notification');
+      if(!escEvents.length) return '<div style="color:var(--t3);font-size:12px;padding:8px 0;">No escalation events recorded yet.</div>';
+      const dotColor = a => a.type==='escalation' ? (a.action&&a.action.includes('L3')?'var(--in)':a.action&&a.action.includes('L2')?'var(--er)':'var(--wn)') : 'var(--ok)';
+      return escEvents.slice(0,10).map(a=>`
+        <div class="tli">
+          <div class="tld" style="background:${dotColor(a)};"></div>
+          <div class="tlt">${a.time}</div>
+          <div class="tlx">${a.action} <span style="font-family:var(--mo);font-size:10px;color:var(--ac);">${a.entity}</span></div>
+        </div>`).join('');
+    })()}
     </div>
-  </div>`;
+    </div>`;
+
 }
 
 /* ═══════════════════════════════════════════
@@ -1242,7 +1252,7 @@ function renderCalendar(){
 function downloadBulkTemplate(){
   // No user_id column — assignee matched by name OR email
   const headers=['meeting_no','meeting_date','meeting_title','chairperson_name','location','action_item','assignee_name','assignee_email','due_date','priority','attendees'];
-  const example=['MTG-2024-01','2024-01-15','Q1 Planning Review','Vikram Patel','Boardroom A','Prepare Q1 budget report','Rajesh Kumar','r.kumar@corp.com','2024-02-15','high','a.singh@corp.com'];
+  const example=['MTG-001','2026-04-26','Monthly Review','Chairperson Name','Boardroom A','Action item description','Assignee Name','assignee@company.com','2026-05-10','high','cc@company.com'];
   const csv=[headers.join(','), example.join(',')].join('\n');
   const blob=new Blob([csv],{type:'text/csv'});
   const a=document.createElement('a');
