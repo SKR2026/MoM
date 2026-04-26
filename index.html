@@ -521,7 +521,6 @@ function doLogin(){
       currentRole = roleMap[matchUser.role] || matchUser.role;
       hideLoginScreen();
       applySession(matchUser.name, matchUser.dept, matchUser.ini, matchUser.col, matchUser.tc, true);
-      fbUpgradeAuth(matchUser.email||(matchUser.id+''));
       return;
     }
     // User exists but no password set — tell admin
@@ -544,7 +543,6 @@ function loginAsUser(uid){
   currentRole=roleMap[u.role]||'assignee';
   hideLoginScreen();
   applySession(u.name,u.dept,u.ini,u.col,u.tc,true);
-  fbUpgradeAuth(u.email||(u.id+''));
 }
 
 function simulateLinkAccess(){
@@ -2120,26 +2118,7 @@ function startFirebaseSync() {
   });
 }
 
-function fbUpgradeAuth(emailOrId) {
-  if (!_authFs || !emailOrId) return;
-  const email = String(emailOrId).includes("@") ? emailOrId : (emailOrId + "@mompro.internal");
-  const pass  = "mp_" + String(emailOrId).replace(/[^a-zA-Z0-9]/g,"_") + "_2025";
-  function _writeRole(uid) {
-    const u = loggedInAs && typeof loggedInAs==="object" ? loggedInAs : null;
-    const role = u ? (u.role||currentRole) : currentRole;
-    const fr = FS_ROLES();
-    if (fr && uid) fr.doc(uid).set({role,uid,email,ts:Date.now()}).catch(e=>console.warn("[MoMPro] Role:",e.code));
-  }
-  _authFs.signInWithEmailAndPassword(email,pass)
-    .then(c=>{_writeRole(c.user.uid);console.log("[MoMPro] Auth upgraded:",c.user.uid);})
-    .catch(err=>{
-      if(["auth/user-not-found","auth/wrong-password","auth/invalid-credential","auth/invalid-login-credentials"].includes(err.code)){
-        _authFs.createUserWithEmailAndPassword(email,pass)
-          .then(c=>{_writeRole(c.user.uid);console.log("[MoMPro] Auth created:",c.user.uid);})
-          .catch(e2=>console.warn("[MoMPro] Auth create:",e2.code));
-      } else {console.warn("[MoMPro] Auth upgrade:",err.code);}
-    });
-}
+// fbUpgradeAuth removed — anonymous auth satisfies Firestore rules (request.auth != null)
 
 // Batch write with write-lock: prevents listener from wiping pending data
 function _fsWriteBatch(writes) {
