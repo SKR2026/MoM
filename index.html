@@ -1010,6 +1010,46 @@ function renderEditMeetingModal(meetingId){
     <div class="fg" style="margin:0;"><label>ORGANISATION</label><input id="ea-org" placeholder="e.g. Deloitte"></div>
     <div class="fg" style="margin:0;"><label>EMAIL</label><input id="ea-email" type="email" placeholder="john@org.com"></div>
     <button class="btn bok" onclick="addExtAttendee()" style="height:34px;white-space:nowrap;padding:0 12px;">+ Add</button>
+  </div>
+
+  <div class="divl">Action Items / Tasks <span style="font-weight:400;color:var(--t3);">(existing — click to edit)</span></div>
+  <div id="em-task-list" style="margin-bottom:14px;">
+    ${(()=>{
+      const mTasks=TASKS.filter(t=>t.mid===meetingId);
+      if(!mTasks.length) return `<div style="font-size:12px;color:var(--t3);padding:10px 0;">No tasks yet for this meeting.</div>`;
+      return mTasks.map(t=>{
+        const asgn=gu(t.uid);
+        const priBadge=t.priority==='high'?'b-er':t.priority==='low'?'b-ok':'b-wn';
+        return `<div id="em-task-row-${t.id}" style="border:1px solid var(--br);border-radius:var(--rs);padding:10px 12px;margin-bottom:8px;background:var(--bg2);">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+            <span class="bdg ${priBadge}" style="font-size:10px;">${t.priority}</span>
+            <span style="font-size:13px;font-weight:500;flex:1;">${t.title}</span>
+          </div>
+          <div class="fgrid" style="gap:8px;">
+            <div class="fg" style="margin:0;"><label>TITLE</label><input id="emt-title-${t.id}" value="${t.title}"></div>
+            <div class="fg" style="margin:0;"><label>ASSIGNEE</label>
+              <select id="emt-uid-${t.id}">${USERS.map(u=>`<option value="${u.id}" ${u.id===t.uid?'selected':''}>${u.name} — ${u.dept}</option>`).join('')}</select>
+            </div>
+            <div class="fg" style="margin:0;"><label>DUE DATE</label><input type="date" id="emt-due-${t.id}" value="${t.due}"></div>
+            <div class="fg" style="margin:0;"><label>PRIORITY</label>
+              <select id="emt-pri-${t.id}">
+                <option value="high" ${t.priority==='high'?'selected':''}>High</option>
+                <option value="medium" ${t.priority==='medium'?'selected':''}>Medium</option>
+                <option value="low" ${t.priority==='low'?'selected':''}>Low</option>
+              </select>
+            </div>
+            <div class="fg" style="margin:0;"><label>STATUS</label>
+              <select id="emt-status-${t.id}">
+                <option value="pending" ${t.status==='pending'?'selected':''}>Pending</option>
+                <option value="in-progress" ${t.status==='in-progress'?'selected':''}>In Progress</option>
+                <option value="done" ${t.status==='done'?'selected':''}>Done</option>
+                <option value="escalated" ${t.status==='escalated'?'selected':''}>Escalated</option>
+              </select>
+            </div>
+          </div>
+        </div>`;
+      }).join('');
+    })()}
   </div>`;
   // render existing external attendees
   renderExtList();
@@ -1034,7 +1074,20 @@ function saveEditMeeting(meetingId){
   m.attendees=[...document.querySelectorAll('.int-att-cb:checked')].map(c=>parseInt(c.value));
   m.externalAttendees=[...extAttendees];
   // sync task mno if meeting number changed
-  TASKS.filter(t=>t.mid===meetingId).forEach(t=>t.mno=m.no);
+  TASKS.filter(t=>t.mid===meetingId).forEach(t=>{
+    t.mno=m.no;
+    // also save any inline edits from the task rows in the modal
+    const titleEl=document.getElementById('emt-title-'+t.id);
+    const uidEl=document.getElementById('emt-uid-'+t.id);
+    const dueEl=document.getElementById('emt-due-'+t.id);
+    const priEl=document.getElementById('emt-pri-'+t.id);
+    const statusEl=document.getElementById('emt-status-'+t.id);
+    if(titleEl) t.title=titleEl.value.trim()||t.title;
+    if(uidEl) t.uid=parseInt(uidEl.value);
+    if(dueEl) t.due=dueEl.value||t.due;
+    if(priEl) t.priority=priEl.value||t.priority;
+    if(statusEl) t.status=statusEl.value||t.status;
+  });
   AUDIT_LOG.unshift({time:new Date().toISOString().slice(0,16).replace('T',' '),user:document.getElementById('un')?.textContent||'Admin',action:`Edited meeting ${m.no}: "${title}"`,entity:meetingId,type:'update'});
   persistMeetings();
   persistTasks();
@@ -1436,10 +1489,12 @@ function processBulkUpload(){
       const mno=(row.meeting_no||'').trim();
       const resolvedMid=mno?meetingNoToId[mno]:null;
 
+      if(!assignee) errors++; // count as warning — task imported but unassigned
+
       const newTask={
         id:'T'+(Date.now()+i),
         title:row.action_item,
-        uid:assignee?assignee.id:USERS[0]?.id||null,
+        uid:assignee?assignee.id:null,
         due:row.due_date,
         priority:row.priority||'medium',
         status:'pending',
@@ -1475,7 +1530,8 @@ function processBulkUpload(){
       showToast('No tasks imported. Check columns match the template and required fields are filled.','warn');
     } else {
       const mtgNote=importedMeetings>0?`, ${importedMeetings} new meeting(s) created`:'';
-      showToast(`✅ ${importedTasks} task(s) imported${mtgNote}${errors?`, ${errors} skipped`:''}. Check Meetings & Tasks to verify.`,'ok');
+      const errNote=errors>0?`, ${errors} imported as Unassigned (assignee name/email not matched — please edit)`:''
+      showToast(`✅ ${importedTasks} task(s) imported${mtgNote}${errNote}. Check Meetings & Tasks to verify.`,errors>0?'warn':'ok');
     }
 
     input.value='';
