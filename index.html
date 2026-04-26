@@ -2112,16 +2112,27 @@ function initFirestoreListeners() {
   // ── Meetings ───────────────────────────────────────────────────────────────
   const fm = FS_MEETINGS();
   if (fm) fm.orderBy("date","asc").onSnapshot(snap => {
-    const fsMeetings = snap.docs.map(d => d.data());
-    if (!_firstMeetingsSnap && fsMeetings.length === 0) {
-      // First snapshot empty — Firestore has no data yet, keep local
+    if (!_firstMeetingsSnap) {
+      // First snapshot: fully replace local state with whatever Firestore has (including zero)
       _firstMeetingsSnap = true;
+      MEETINGS.length = 0;
+      snap.docs.forEach(d => MEETINGS.push(d.data()));
+      try { localStorage.setItem(MEETINGS_STORE_KEY, JSON.stringify(MEETINGS)); } catch(e2) {}
+      if (loggedInAs) { buildNav(); updateBell(); refreshCurrentPage(); }
       return;
     }
-    _firstMeetingsSnap = true;
-    // Firestore is the single source of truth — replace local state completely
-    MEETINGS.length = 0;
-    fsMeetings.forEach(m => MEETINGS.push(m));
+    // Subsequent snapshots: apply incremental changes so deletions are always honoured
+    snap.docChanges().forEach(change => {
+      if (change.type === 'added' || change.type === 'modified') {
+        const m = change.doc.data();
+        const idx = MEETINGS.findIndex(x => x.id === m.id);
+        if (idx > -1) MEETINGS[idx] = m; else MEETINGS.push(m);
+      } else if (change.type === 'removed') {
+        const removedId = change.doc.id;
+        const idx = MEETINGS.findIndex(x => x.id === removedId);
+        if (idx > -1) MEETINGS.splice(idx, 1);
+      }
+    });
     try { localStorage.setItem(MEETINGS_STORE_KEY, JSON.stringify(MEETINGS)); } catch(e2) {}
     if (loggedInAs) { buildNav(); updateBell(); refreshCurrentPage(); }
   }, e => console.warn("[MoMPro] Meetings listener:", e.code));
@@ -2129,19 +2140,31 @@ function initFirestoreListeners() {
   // ── Tasks ──────────────────────────────────────────────────────────────────
   const ft = FS_TASKS();
   if (ft) ft.onSnapshot(snap => {
-    const fsTasks = snap.docs.map(d => {
-      const t = d.data();
-      if (t.uid != null) t.uid = Number(t.uid);
-      return t;
-    });
-    if (!_firstTasksSnap && fsTasks.length === 0) {
-      // First snapshot empty — keep local data
+    if (!_firstTasksSnap) {
+      // First snapshot: fully replace local state with whatever Firestore has (including zero)
       _firstTasksSnap = true;
+      TASKS = snap.docs.map(d => {
+        const t = d.data();
+        if (t.uid != null) t.uid = Number(t.uid);
+        return t;
+      });
+      try { localStorage.setItem(TASKS_STORE_KEY, JSON.stringify(TASKS)); } catch(e2) {}
+      updateBell();
+      if (loggedInAs) { buildNav(); refreshCurrentPage(); }
       return;
     }
-    _firstTasksSnap = true;
-    // Firestore is the single source of truth — replace local state completely
-    TASKS = fsTasks;
+    // Subsequent snapshots: apply incremental changes so deletions are always honoured
+    snap.docChanges().forEach(change => {
+      if (change.type === 'added' || change.type === 'modified') {
+        const t = change.doc.data();
+        if (t.uid != null) t.uid = Number(t.uid);
+        const idx = TASKS.findIndex(x => x.id === t.id);
+        if (idx > -1) TASKS[idx] = t; else TASKS.push(t);
+      } else if (change.type === 'removed') {
+        const removedId = change.doc.id;
+        TASKS = TASKS.filter(x => x.id !== removedId);
+      }
+    });
     try { localStorage.setItem(TASKS_STORE_KEY, JSON.stringify(TASKS)); } catch(e2) {}
     updateBell();
     if (loggedInAs) { buildNav(); refreshCurrentPage(); }
