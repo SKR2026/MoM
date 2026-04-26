@@ -291,9 +291,9 @@ input[type=checkbox].task-cb{width:15px;height:15px;accent-color:var(--ac);curso
     <select id="role-sw" style="width:160px;font-size:12px;" onchange="switchRole(this.value)">
     </select>
     <span id="btn-new-meeting"><button class="btn bs bp" onclick="openModal('new-meeting')">+ New Meeting</button></span>
-    <button class="btn bs" onclick="showToast('2 pending escalations','warn')" style="position:relative;">
+    <button class="btn bs" id="bell-btn" onclick="showBellSummary()" style="position:relative;">
       <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 1a5 5 0 015 5v3l1 2H2l1-2V6a5 5 0 015-5zM6 13a2 2 0 004 0"/></svg>
-      <div class="ndot" style="position:absolute;top:2px;right:2px;"></div>
+      <div class="ndot" id="bell-dot" style="position:absolute;top:2px;right:2px;display:none;"></div>
     </button>
   </div>
   <div class="content" id="content"></div>
@@ -396,6 +396,7 @@ function loadPersistedMeetings(){
 function persistTasks(){
   try{ localStorage.setItem(TASKS_STORE_KEY, JSON.stringify(TASKS)); }
   catch(e){ console.warn('Could not persist tasks:', e); }
+  setTimeout(updateBell, 0); // refresh live counts
 }
 
 function loadPersistedTasks(){
@@ -557,6 +558,7 @@ function applyRoleUI(){
 }
 
 function applySession(name,desc,ini,col,tc,showLogout){
+  setTimeout(updateBell, 100); // refresh on login
   document.getElementById('un').textContent=name;
   document.getElementById('ur').textContent=desc;
   const av=document.getElementById('ua');
@@ -633,6 +635,35 @@ function doLogout(){
   showToast('Logged out successfully','info');
 }
 
+/* ─────────────────────────────────────────────────
+   NOTIFICATION BELL — live counts, no hardcoding
+───────────────────────────────────────────────── */
+function updateBell(){
+  const overdue   = TASKS.filter(t=>t.status==='overdue').length;
+  const escalated = TASKS.filter(t=>t.esc>0).length;
+  const pending   = TASKS.filter(t=>t.status==='pending').length;
+  const total     = overdue + escalated;
+  const dot = document.getElementById('bell-dot');
+  if(dot) dot.style.display = total>0 ? 'block' : 'none';
+  // Also refresh sidebar badges whenever bell updates
+  buildNav();
+}
+
+function showBellSummary(){
+  const overdue   = TASKS.filter(t=>t.status==='overdue');
+  const escalated = TASKS.filter(t=>t.esc>0);
+  const pending   = TASKS.filter(t=>t.status==='pending');
+  if(!overdue.length && !escalated.length && !pending.length){
+    showToast('✅ No alerts — all tasks on track.','ok');
+    return;
+  }
+  const parts=[];
+  if(overdue.length)   parts.push(`${overdue.length} overdue task${overdue.length>1?'s':''}`);
+  if(escalated.length) parts.push(`${escalated.length} escalated task${escalated.length>1?'s':''}`);
+  if(pending.length)   parts.push(`${pending.length} pending task${pending.length>1?'s':''}`);
+  showToast('⚠ ' + parts.join(' · '),'warn');
+}
+
 /* ═══════════════════════════════════════════
    NAVIGATION MAP
 ═══════════════════════════════════════════ */
@@ -640,8 +671,8 @@ const NAV=[
   {section:'Main',roles:['super-admin','admin','assignee','manager','top-mgmt','developer'],items:[
     {id:'dashboard',label:'Dashboard',icon:'<rect x="1" y="1" width="6" height="6" rx="1"/><rect x="9" y="1" width="6" height="6" rx="1"/><rect x="1" y="9" width="6" height="6" rx="1"/><rect x="9" y="9" width="6" height="6" rx="1"/>'},
     {id:'meetings',label:'Meetings',icon:'<rect x="1" y="2" width="14" height="12" rx="2"/><path d="M1 6h14M5 1v2M11 1v2"/>',roles:['super-admin','admin','top-mgmt','manager','developer']},
-    {id:'tasks',label:'My Tasks',icon:'<path d="M6 4h8M6 8h8M6 12h8M2 4h.5M2 8h.5M2 12h.5"/>',badge:3},
-    {id:'escalations',label:'Escalations',icon:'<path d="M8 1l2 5h5l-4 3 1.5 5L8 11l-4.5 3L5 9 1 6h5z"/>',badge:2,roles:['super-admin','admin','top-mgmt','manager','developer']},
+    {id:'tasks',label:'My Tasks',icon:'<path d="M6 4h8M6 8h8M6 12h8M2 4h.5M2 8h.5M2 12h.5"/>'},
+    {id:'escalations',label:'Escalations',icon:'<path d="M8 1l2 5h5l-4 3 1.5 5L8 11l-4.5 3L5 9 1 6h5z"/>',roles:['super-admin','admin','top-mgmt','manager','developer']},
     {id:'calendar',label:'Calendar',icon:'<rect x="1" y="2" width="14" height="12" rx="2"/><path d="M1 6h14M5 1v2M11 1v2"/>',roles:['super-admin','admin','top-mgmt','manager','developer']},
   ]},
   {section:'Actions',roles:['super-admin','admin','developer'],items:[
@@ -681,7 +712,16 @@ function buildNav(){
         <div class="ni" id="ni-${i.id}" onclick="navigate('${i.id}')">
           <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">${i.icon}</svg>
           ${i.label}
-          ${i.badge?`<span class="nb">${i.badge}</span>`:''}
+          ${(()=>{
+            let count=0;
+            if(i.id==='tasks'){
+              const myUid=loggedInAs&&loggedInAs.id?loggedInAs.id:null;
+              count=TASKS.filter(t=>myUid?t.uid===myUid&&t.status!=='completed':t.status!=='completed').length;
+            } else if(i.id==='escalations'){
+              count=TASKS.filter(t=>t.esc>0).length;
+            }
+            return count>0?`<span class="nb">${count}</span>`:'';
+          })()}
         </div>`).join('')}
     `).join('');
 }
@@ -3845,6 +3885,7 @@ buildNav();
 navigate('dashboard');
 // Check for deep-link (assignee clicked email link) — if found, skip login
 initCompanyName();
+updateBell(); // initial badge counts
 if(!handleDeepLink()){
   // Normal flow — show login screen
   initLogin();
