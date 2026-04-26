@@ -361,8 +361,9 @@ function loadPersistedUsers(){
     const savedPwds  = JSON.parse(localStorage.getItem(PWDS_STORE_KEY)  || 'null');
     if(savedUsers && Array.isArray(savedUsers) && savedUsers.length > 0){
       // Replace the in-memory array contents with saved data
+      // Ensure all ids are numbers (JSON may preserve type but be safe)
       USERS.length = 0;
-      savedUsers.forEach(u => USERS.push(u));
+      savedUsers.forEach(u => { u.id = Number(u.id); USERS.push(u); });
     }
     if(savedPwds && typeof savedPwds === 'object'){
       // Restore passwords — keys are stored as strings, convert back to numbers
@@ -404,7 +405,11 @@ function loadPersistedTasks(){
     const saved = JSON.parse(localStorage.getItem(TASKS_STORE_KEY) || 'null');
     if(saved && Array.isArray(saved) && saved.length > 0){
       TASKS.length = 0;
-      saved.forEach(t => TASKS.push(t));
+      saved.forEach(t => {
+        // Ensure uid is a number (or null) to match USERS[].id after JSON round-trip
+        if(t.uid !== null && t.uid !== undefined) t.uid = Number(t.uid);
+        TASKS.push(t);
+      });
     }
   }catch(e){ console.warn('Could not load persisted tasks:', e); }
 }
@@ -499,7 +504,7 @@ function doLogin(){
     u.name.toLowerCase()  === uVal
   );
   if(matchUser){
-    const storedPw = USER_PASSWORDS[matchUser.id];
+    const storedPw = USER_PASSWORDS[Number(matchUser.id)];
     if(storedPw !== undefined && storedPw === pVal){
       errEl.style.display='none';
       loggedInAs = 'user-' + matchUser.id;
@@ -760,7 +765,7 @@ function navigate(page){
 /* ═══════════════════════════════════════════
    HELPERS
 ═══════════════════════════════════════════ */
-function gu(id){return USERS.find(u=>u.id===id)||{ini:'?',col:'#eee',tc:'#666',name:'Unknown',dept:'',email:''}}
+function gu(id){if(id===null||id===undefined)return{ini:'?',col:'#eee',tc:'#666',name:'Unassigned',dept:'',email:''};const numId=Number(id);return USERS.find(u=>u.id===numId)||{ini:'?',col:'#eee',tc:'#666',name:'Unknown',dept:'',email:''}}
 function av(u,sz=28){return`<div class="av" style="width:${sz}px;height:${sz}px;font-size:${Math.round(sz*.36)}px;background:${u.col};color:${u.tc};">${u.ini}</div>`}
 function sb(s){const m={completed:'b-ok','in-progress':'b-in',overdue:'b-er',pending:'b-df',active:'b-ok'};const l={completed:'Completed','in-progress':'In Progress',overdue:'Overdue',pending:'Pending',active:'Active'};return`<span class="bdg ${m[s]||'b-df'}">${l[s]||s}</span>`}
 function pb(p){return`<span class="bdg ${p==='high'?'b-er':p==='medium'?'b-wn':'b-df'}">${p.charAt(0).toUpperCase()+p.slice(1)}</span>`}
@@ -1083,7 +1088,7 @@ function saveEditMeeting(meetingId){
     const priEl=document.getElementById('emt-pri-'+t.id);
     const statusEl=document.getElementById('emt-status-'+t.id);
     if(titleEl) t.title=titleEl.value.trim()||t.title;
-    if(uidEl) t.uid=parseInt(uidEl.value);
+    if(uidEl) t.uid=parseInt(uidEl.value, 10);
     if(dueEl) t.due=dueEl.value||t.due;
     if(priEl) t.priority=priEl.value||t.priority;
     if(statusEl) t.status=statusEl.value||t.status;
@@ -1130,7 +1135,7 @@ function saveAddTask(meetingId){
   if(!m)return;
   const title=(document.getElementById('at-title')?.value||'').trim();
   if(!title){showToast('Please enter an action item description.','warn');return;}
-  const uid=parseInt(document.getElementById('at-uid')?.value||USERS[0]?.id);
+  const uid=parseInt(document.getElementById('at-uid')?.value||USERS[0]?.id, 10);
   const due=document.getElementById('at-due')?.value||new Date().toISOString().slice(0,10);
   const priority=document.getElementById('at-pri')?.value||'medium';
   const notes=(document.getElementById('at-notes')?.value||'').trim();
@@ -3012,7 +3017,7 @@ function doAddUser(){
   if(pass.length < 6)               { showToast('Password must be at least 6 characters','warn'); return; }
   if(USERS.find(u=>u.email===email)){ showToast('A user with this email already exists','warn'); return; }
 
-  const newId = Math.max(...USERS.map(u=>u.id)) + 1;
+  const newId = USERS.length > 0 ? Math.max(...USERS.map(u=>u.id)) + 1 : 1;
   const col   = window._nuCol || {bg:'#e0f2fe', tc:'#0284c7'};
 
   // Add to users list
