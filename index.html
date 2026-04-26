@@ -2159,13 +2159,10 @@ function initFirestoreListeners() {
   }, e => console.warn("[MoMPro] Meta listener:", e.code));
 }
 
-// ── Firebase service account ─────────────────────────────────────────────────
-// This is a DEDICATED read/write service account for Firestore access only.
-// It is NOT an app user — it just lets the app connect securely to Firestore.
-// Firestore rules: allow read, write: if request.auth.uid == "<UID of this account>"
-// Create this account once: Firebase Console → Authentication → Add user
-const _FS_SVC_EMAIL = "mompro-service@skr-mom.firebaseapp.com";
-const _FS_SVC_PASS  = "MoMPro@Secure#2025!";
+// ── Firebase Anonymous Auth ──────────────────────────────────────────────────
+// Uses Anonymous Auth — no setup needed. Just enable Anonymous in Firebase Console
+// → Authentication → Sign-in method → Anonymous → Enable.
+// Firestore rules must be:  allow read, write: if request.auth != null;
 
 function startFirebaseSync() {
   if (!_authFs || !_db) {
@@ -2173,26 +2170,30 @@ function startFirebaseSync() {
     return;
   }
   _authFs.onAuthStateChanged(user => {
-    if (user && user.email === _FS_SVC_EMAIL) {
-      console.log("[MoMPro] Service account authenticated. UID:", user.uid);
+    if (user) {
+      // Already signed in (anonymous or otherwise) — start listeners
+      console.log("[MoMPro] Auth ready. UID:", user.uid, "| isAnon:", user.isAnonymous);
       initFirestoreListeners();
-    } else if (!user) {
-      _authFs.signInWithEmailAndPassword(_FS_SVC_EMAIL, _FS_SVC_PASS)
+    } else {
+      // Sign in anonymously — requires Anonymous provider enabled in Firebase Console
+      _authFs.signInAnonymously()
         .then(c => {
-          console.log("[MoMPro] Service account sign-in OK. UID:", c.user.uid);
-          initFirestoreListeners();
+          console.log("[MoMPro] Anonymous sign-in OK. UID:", c.user.uid);
+          // initFirestoreListeners() will be called by onAuthStateChanged above
         })
         .catch(e => {
-          console.error("[MoMPro] Service account sign-in FAILED:", e.code, e.message);
-          if (e.code === 'auth/user-not-found' || e.code === 'auth/invalid-credential' || e.code === 'auth/wrong-password') {
+          console.error("[MoMPro] Anonymous sign-in FAILED:", e.code, e.message);
+          if (e.code === 'auth/operation-not-allowed') {
             setTimeout(() => showToast(
-              '⚠️ Firebase service account not set up. Go to Firebase Console → Authentication → Add user: ' +
-              _FS_SVC_EMAIL + ' with the configured password. Data will not sync until this is done.',
+              '⚠️ Enable Anonymous Auth: Firebase Console → Authentication → Sign-in method → Anonymous → Enable. ' +
+              'Also set Firestore rules: allow read, write: if request.auth != null;',
               'warn'), 500);
           } else if (e.code === 'auth/network-request-failed') {
-            setTimeout(() => showToast('Network error — Firebase sync unavailable. App running in offline mode.', 'warn'), 500);
+            setTimeout(() => showToast('Network error — Firebase sync unavailable. Running in offline mode.', 'warn'), 500);
+          } else {
+            setTimeout(() => showToast('Firebase auth error: ' + e.code + '. App running in offline mode.', 'warn'), 500);
           }
-          // App still works fully in offline mode via localStorage
+          // App still works fully offline via localStorage
         });
     }
   });
@@ -2278,21 +2279,15 @@ function fsWriteAllMeetingsAndTasks(meetings, tasks) {
 
 function renderFirebase(){
   const isLive = !!(_db && _listenersStarted);
-  // Rules: locked to the service account UID only — no public access.
-  // The app uses signInWithEmailAndPassword (service account) instead of anonymous auth,
-  // so this works on file:// protocol too. App login/roles are enforced by the app itself.
-  // ── How to get the service account UID ──────────────────────────────────────
-  // 1. Firebase Console → Authentication → Users → find mompro-service@skr-mom.firebaseapp.com
-  // 2. Copy the UID shown there
-  // 3. Paste it below in place of YOUR_SERVICE_ACCOUNT_UID
-  const SVC_UID = "9gHathHebVh3t3qulgmLt4SUUG62"; // ← paste UID here after creating the account
+  // Rules: Anonymous Auth — any signed-in user (anonymous) can read/write.
+  // App-level login (username/password) is enforced by the app itself, not Firebase.
+  // Firestore just needs: allow read, write: if request.auth != null;
   const RULES = [
-    "rules_version = '2';",
+    "rules_version = \'2\';",
     "service cloud.firestore {",
     "  match /databases/{database}/documents {",
     "    match /{document=**} {",
-    "      // Only the app service account can read/write — no public access",
-    "      allow read, write: if request.auth != null && request.auth.uid == \"" + SVC_UID + "\";",
+    "      allow read, write: if request.auth != null;",
     "    }",
     "  }",
     "}"
@@ -2341,8 +2336,10 @@ function renderFirebase(){
             .catch(()=>showToast('Select and copy the text manually','warn'))
         ">Copy Rules</button>
       </div>
-      <div style="background:var(--bg3);border-radius:var(--rs);padding:8px 12px;font-size:11px;color:var(--t2);margin-bottom:10px;line-height:1.7;">
-        Deploy in <b>Firebase Console &rarr; Firestore Database &rarr; Rules</b>, then click <b>Publish</b>.
+      <div style="background:var(--bg3);border-radius:var(--rs);padding:10px 14px;font-size:12px;color:var(--t2);margin-bottom:10px;line-height:1.9;">
+        <b>2-step setup (do once in Firebase Console):</b><br>
+        <b>①</b> <b>Authentication → Sign-in method → Anonymous → Enable &amp; Save</b><br>
+        <b>②</b> <b>Firestore Database → Rules</b> — paste the rules below and click <b>Publish</b>
       </div>
       <pre id="fs-rules-pre" style="background:#0d1117;color:#e5e7eb;border-radius:var(--rs);padding:14px;font-family:var(--mo);font-size:11px;line-height:1.8;overflow-x:auto;white-space:pre;margin:0;">${RULES}</pre>
     </div>
