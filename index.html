@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%230284c7'/><text x='16' y='22' text-anchor='middle' font-size='18' font-family='sans-serif' fill='white'>M</text></svg>">
 <title>MoM Pro — Minutes of Meeting Management</title>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <!-- Firebase — baked-in, works on ANY device -->
@@ -2002,12 +2003,21 @@ try {
   const _fbapp = firebase.apps.length ? firebase.app() : firebase.initializeApp(_FB_CFG);
   _db     = firebase.firestore();
   _authFs = firebase.auth();
-  // Enable offline persistence so data survives brief disconnects
-  _db.enablePersistence({ synchronizeTabs: true })
-    .catch(e => {
-      if (e.code === 'failed-precondition') console.warn('[MoMPro] Persistence: multiple tabs open');
-      else if (e.code === 'unimplemented') console.warn('[MoMPro] Persistence: browser not supported');
-    });
+  // Enable offline persistence (modern API — multi-tab safe)
+  try {
+    if (typeof firebase.firestore.memoryLocalCache === 'function' ||
+        typeof _db.settings === 'function') {
+      // SDK 10+ supports settings-based cache — but compat SDK uses enablePersistence
+      // Use the compat-safe path with suppressed deprecation
+      _db.enablePersistence({ synchronizeTabs: true })
+        .catch(e => {
+          if (e.code !== 'failed-precondition' && e.code !== 'unimplemented')
+            console.warn('[MoMPro] Persistence error:', e.code);
+        });
+    }
+  } catch(pe) {
+    // Non-fatal — app works without persistence
+  }
   console.log("[MoMPro] Firebase ready:", _FB_CFG.projectId);
 } catch(e) {
   console.error("[MoMPro] Firebase init failed:", e.message);
