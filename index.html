@@ -926,6 +926,98 @@ function donut(vals,colors,cx,r){
   return parts.join('')+`<circle cx="${cx}" cy="${cx}" r="${r*.55}" fill="var(--sf)"/>`;
 }
 
+/* ── Half Speedometer SVG ──────────────────────────────────────────────────
+   pct  : 0-100 completion percentage
+   comp : completed count
+   tot  : total count
+   Returns an inline SVG string of a half-gauge with animated needle + arc
+────────────────────────────────────────────────────────────────────────── */
+function speedometer(pct, comp, tot){
+  const W = 260, H = 160;
+  const cx = W / 2, cy = 140;   // centre of the arc (below midpoint so arcs fit)
+  const R  = 110;                 // outer radius of gauge
+  const r  = 82;                  // inner radius (track width = R-r = 28px)
+
+  // Zone colours: red → amber → green across 180°
+  const zones = [
+    { from: 0,   to: 33,  color: '#ef4444' },   // red
+    { from: 33,  to: 66,  color: '#f59e0b' },   // amber
+    { from: 66,  to: 100, color: '#22c55e' },   // green
+  ];
+
+  // Convert a percentage (0-100) to radians on the half-circle (-π to 0, left to right)
+  const toRad = p => Math.PI + (p / 100) * Math.PI;  // 180° → 360° (left=0%, right=100%)
+
+  // Arc path helper: large arc flag needed when span > 180°
+  function arc(startPct, endPct, outerR, innerR){
+    const a1 = toRad(startPct), a2 = toRad(endPct);
+    const laf = (endPct - startPct) > 50 ? 1 : 0;
+    const x1o = cx + outerR * Math.cos(a1), y1o = cy + outerR * Math.sin(a1);
+    const x2o = cx + outerR * Math.cos(a2), y2o = cy + outerR * Math.sin(a2);
+    const x1i = cx + innerR * Math.cos(a1), y1i = cy + innerR * Math.sin(a1);
+    const x2i = cx + innerR * Math.cos(a2), y2i = cy + innerR * Math.sin(a2);
+    return `M${x1o},${y1o} A${outerR},${outerR} 0 ${laf},1 ${x2o},${y2o}`
+          +` L${x2i},${y2i} A${innerR},${innerR} 0 ${laf},0 ${x1i},${y1i} Z`;
+  }
+
+  // Background track (grey)
+  const trackPath = arc(0, 100, R, r);
+
+  // Coloured zone arcs
+  const zonePaths = zones.map(z =>
+    `<path d="${arc(z.from, z.to, R, r)}" fill="${z.color}" opacity="0.18"/>`
+  ).join('');
+
+  // Filled progress arc (coloured by zone)
+  const activeColor = pct < 33 ? '#ef4444' : pct < 66 ? '#f59e0b' : '#22c55e';
+  const filledPath  = pct > 0 ? `<path d="${arc(0, pct, R, r)}" fill="${activeColor}" opacity="0.9"/>` : '';
+
+  // Zone tick marks
+  const ticks = [0, 25, 50, 75, 100].map(p => {
+    const a = toRad(p);
+    const x1 = cx + (R+4)  * Math.cos(a), y1 = cy + (R+4)  * Math.sin(a);
+    const x2 = cx + (r-4)  * Math.cos(a), y2 = cy + (r-4)  * Math.sin(a);
+    return `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="var(--br2)" stroke-width="1.5"/>`;
+  }).join('');
+
+  // Tick labels
+  const labels = [[0,'0%'],[50,'50%'],[100,'100%']].map(([p, lbl]) => {
+    const a  = toRad(p);
+    const lx = cx + (R+16) * Math.cos(a);
+    const ly = cy + (R+16) * Math.sin(a);
+    return `<text x="${lx}" y="${ly}" text-anchor="middle" dominant-baseline="middle" font-size="10" fill="var(--t3)" font-family="var(--fn)">${lbl}</text>`;
+  }).join('');
+
+  // Needle
+  const needleAngle = toRad(pct);
+  const nLen = R - 14;
+  const nx = cx + nLen * Math.cos(needleAngle);
+  const ny = cy + nLen * Math.sin(needleAngle);
+  const needle = `<line x1="${cx}" y1="${cy}" x2="${nx}" y2="${ny}"
+    stroke="${activeColor}" stroke-width="3" stroke-linecap="round"
+    style="transform-origin:${cx}px ${cy}px;transition:all 1s cubic-bezier(.4,0,.2,1)"/>
+  <circle cx="${cx}" cy="${cy}" r="7" fill="${activeColor}"/>
+  <circle cx="${cx}" cy="${cy}" r="3.5" fill="var(--sf)"/>`;
+
+  // Centre text
+  const centerText = `
+  <text x="${cx}" y="${cy-22}" text-anchor="middle" font-size="32" font-weight="700"
+    font-family="var(--fn)" fill="${activeColor}" letter-spacing="-1">${pct}%</text>
+  <text x="${cx}" y="${cy-4}" text-anchor="middle" font-size="11" fill="var(--t3)"
+    font-family="var(--fn)">${comp} / ${tot} tasks</text>`;
+
+  return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" style="overflow:visible;">
+  <path d="${trackPath}" fill="var(--bg3)"/>
+  ${zonePaths}
+  ${filledPath}
+  ${ticks}
+  ${labels}
+  ${needle}
+  ${centerText}
+</svg>`;
+}
+
+
 function showToast(msg,type='info'){
   const t=document.getElementById('toast');
   const bg={info:'var(--il)',ok:'var(--ol)',warn:'var(--wl)',err:'var(--el)'};
@@ -1001,11 +1093,24 @@ function renderDashboard(){
   const pct=tot?Math.round(comp/tot*100):0;
   document.getElementById('content').innerHTML=`
   ${currentRole==='assignee'?`<div class="alert ai" style="margin-bottom:16px;">Viewing as ${loggedInAs&&loggedInAs.name?loggedInAs.name:'Assignee'} — showing only your assigned tasks.</div>`:currentRole==='manager'?`<div class="alert ai" style="margin-bottom:16px;">Showing tasks for your team (${loggedInAs&&loggedInAs.dept?loggedInAs.dept:'your department'}).</div>`:''}
-  <div class="g4" style="margin-bottom:20px;">
-    <div class="sc"><div class="sl-">Total Tasks</div><div class="sv">${tot}</div><div class="sc2">Across ${MEETINGS.length} meetings</div><div class="sbar"><div class="sbf" style="width:100%;background:var(--ac)"></div></div></div>
-    <div class="sc"><div class="sl-">Completed</div><div class="sv" style="color:var(--ok)">${comp}</div><div class="sc2">${pct}% rate</div><div class="sbar"><div class="sbf" style="width:${pct}%;background:var(--ok)"></div></div></div>
-    <div class="sc"><div class="sl-">In Progress</div><div class="sv" style="color:var(--ac)">${inp}</div><div class="sc2">Actively tracked</div><div class="sbar"><div class="sbf" style="width:${tot?Math.round(inp/tot*100):0}%;background:var(--ac)"></div></div></div>
-    <div class="sc"><div class="sl-">Overdue</div><div class="sv" style="color:var(--er)">${over}</div><div class="sc2">${myTasks.filter(t=>t.esc>0).length} escalated</div><div class="sbar"><div class="sbf" style="width:${tot?Math.round(over/tot*100):0}%;background:var(--er)"></div></div></div>
+  <!-- ── Half Speedometer + Stat Cards ── -->
+  <div style="display:flex;gap:18px;margin-bottom:20px;flex-wrap:wrap;align-items:stretch;">
+
+    <!-- Speedometer card -->
+    <div class="card" style="flex:0 0 300px;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:20px 24px 14px;">
+      <div class="ctit" style="margin-bottom:2px;">Task Completion</div>
+      <div style="font-size:11px;color:var(--t3);margin-bottom:10px;">${comp} of ${tot} tasks completed</div>
+      ${speedometer(pct, comp, tot)}
+    </div>
+
+    <!-- Stat cards stacked 2x2 -->
+    <div style="flex:1;min-width:240px;display:grid;grid-template-columns:1fr 1fr;gap:14px;align-content:start;">
+      <div class="sc"><div class="sl-">Total Tasks</div><div class="sv">${tot}</div><div class="sc2">Across ${MEETINGS.length} meetings</div><div class="sbar"><div class="sbf" style="width:100%;background:var(--ac)"></div></div></div>
+      <div class="sc"><div class="sl-">Completed</div><div class="sv" style="color:var(--ok)">${comp}</div><div class="sc2">${pct}% completion</div><div class="sbar"><div class="sbf" style="width:${pct}%;background:var(--ok)"></div></div></div>
+      <div class="sc"><div class="sl-">In Progress</div><div class="sv" style="color:var(--ac)">${inp}</div><div class="sc2">Actively tracked</div><div class="sbar"><div class="sbf" style="width:${tot?Math.round(inp/tot*100):0}%;background:var(--ac)"></div></div></div>
+      <div class="sc"><div class="sl-">Overdue</div><div class="sv" style="color:var(--er)">${over}</div><div class="sc2">${myTasks.filter(t=>t.esc>0).length} escalated</div><div class="sbar"><div class="sbf" style="width:${tot?Math.round(over/tot*100):0}%;background:var(--er)"></div></div></div>
+    </div>
+
   </div>
   ${over?`<div class="alert ad" style="margin-bottom:16px;">${over} overdue task${over>1?'s':''} require attention. ${myTasks.filter(t=>t.esc>=2).length} escalated to senior management.</div>`:''}
   <div class="g2" style="margin-bottom:20px;">
