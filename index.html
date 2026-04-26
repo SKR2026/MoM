@@ -235,7 +235,7 @@ input[type=checkbox].task-cb{width:15px;height:15px;accent-color:var(--ac);curso
           <label>PASSWORD</label>
           <input type="password" id="l-pass" name="password" placeholder="Enter password" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()">
         </div>
-        <button type="submit" class="btn bp" style="width:100%;justify-content:center;">Sign In</button>
+        <button type="submit" id="login-btn" class="btn bp" style="width:100%;justify-content:center;">Sign In</button>
         <div style="margin-top:12px;font-size:11px;color:var(--t3);text-align:center;">
           Enter your credentials to continue.
         </div>
@@ -502,78 +502,84 @@ function doLogin(){
   const uVal = document.getElementById('l-user').value.trim().toLowerCase();
   const pVal = document.getElementById('l-pass').value;
   const errEl = document.getElementById('login-err');
+  const btn   = document.getElementById('login-btn');
 
-  // 1. Check hardcoded staff credentials (superadmin / admin / developer)
+  console.log('[Login] attempt:', uVal, '| FS loaded:', _fsUsersLoaded, '| USERS:', USERS.length, '| PWDs:', Object.keys(USER_PASSWORDS).length);
+
+  // ── STEP 1: Hardcoded staff (superadmin / admin / developer) ─────────────
   const cred = AUTH_CREDENTIALS[uVal];
-  if(cred && cred.password === pVal){
-    errEl.style.display='none';
-    loggedInAs = uVal;
-    currentRole = cred.role;
-    hideLoginScreen();
-    applySession(cred.display, cred.desc, cred.ini, cred.col, cred.tc, true);
+  if(cred){
+    if(cred.password === pVal){
+      errEl.style.display = 'none';
+      loggedInAs  = uVal;
+      currentRole = cred.role;
+      hideLoginScreen();
+      applySession(cred.display, cred.desc, cred.ini, cred.col, cred.tc, true);
+      return;
+    } else {
+      // Username matched but password wrong — definitive failure
+      errEl.textContent = 'Incorrect password.';
+      errEl.style.display = 'block';
+      return;
+    }
+  }
+
+  // ── STEP 2: If Firestore not yet loaded, wait and retry ──────────────────
+  if (!_fsUsersLoaded) {
+    console.log('[Login] Firestore not ready — waiting...');
+    if(btn){ btn.disabled = true; btn.textContent = 'Connecting…'; }
+    errEl.textContent = 'Connecting to server — please wait...';
+    errEl.style.display = 'block';
+    const _wait = (attempt) => {
+      if (_fsUsersLoaded) {
+        if(btn){ btn.disabled = false; btn.textContent = 'Sign In'; }
+        errEl.style.display = 'none';
+        doLogin();
+      } else if (attempt < 30) {
+        setTimeout(() => _wait(attempt + 1), 500);
+      } else {
+        if(btn){ btn.disabled = false; btn.textContent = 'Sign In'; }
+        errEl.textContent = 'Server unreachable. Check internet and try again.';
+      }
+    };
+    setTimeout(() => _wait(0), 400);
     return;
   }
 
-  // 2. Check all USERS (match by email OR full name, any role)
+  // ── STEP 3: Match against USERS array ────────────────────────────────────
   const matchUser = USERS.find(u =>
-    u.email.toLowerCase() === uVal ||
-    u.name.toLowerCase()  === uVal
+    (u.email  && u.email.toLowerCase()  === uVal) ||
+    (u.name   && u.name.toLowerCase()   === uVal)
   );
+
+  console.log('[Login] matched user:', matchUser ? matchUser.name : 'none',
+    '| stored pw:', matchUser ? (USER_PASSWORDS[Number(matchUser.id)] !== undefined ? 'SET' : 'MISSING') : 'n/a');
+
   if(matchUser){
     const storedPw = USER_PASSWORDS[Number(matchUser.id)];
     if(storedPw !== undefined && storedPw === pVal){
-      errEl.style.display='none';
-      loggedInAs = matchUser;  // store full user object so loggedInAs.id works everywhere
+      errEl.style.display = 'none';
+      loggedInAs  = matchUser;
       const roleMap = {'super-admin':'super-admin','admin':'admin','top-mgmt':'top-mgmt','manager':'manager','assignee':'assignee'};
       currentRole = roleMap[matchUser.role] || matchUser.role;
       hideLoginScreen();
       applySession(matchUser.name, matchUser.dept, matchUser.ini, matchUser.col, matchUser.tc, true);
       return;
     }
-    // User exists but no password set — tell admin
-    if(storedPw === undefined){
-      if (!_fsUsersLoaded && typeof _db !== 'undefined' && _db) {
-        // Password may be in Firestore but not yet synced — retry after load
-        errEl.textContent = 'Connecting to server — retrying automatically...';
-        errEl._preFirestoreError = true;
-        errEl.style.display = 'block';
-        const _retryPw = (attempt) => {
-          if (_fsUsersLoaded) { doLogin(); }
-          else if (attempt < 20) { setTimeout(() => _retryPw(attempt + 1), 500); }
-          else { errEl.textContent = `Account found for "${matchUser.name}" but no password has been set yet. Ask the Super Admin to set one in Users & Roles.`; }
-        };
-        setTimeout(() => _retryPw(0), 500);
-        return;
-      }
-      errEl.textContent = `Account found for "${matchUser.name}" but no password has been set yet. Ask the Super Admin to set one in Users & Roles.`;
-      errEl.style.display='block';
+    if(storedPw !== undefined && storedPw !== pVal){
+      errEl.textContent = 'Incorrect password.';
+      errEl.style.display = 'block';
       return;
     }
+    // storedPw === undefined — password not set at all
+    errEl.textContent = `Account exists for "${matchUser.name}" but no password has been set. Ask the Super Admin to set one in Users & Roles.`;
+    errEl.style.display = 'block';
+    return;
   }
 
-  // If Firestore hasn't loaded yet, users/passwords may not be available on this device
-  if (!_fsUsersLoaded && typeof _db !== 'undefined' && _db) {
-    errEl.textContent = 'Connecting to server — retrying automatically...';
-    errEl._preFirestoreError = true;
-    errEl.style.display = 'block';
-    // Auto-retry login once Firestore users have loaded (up to 10 seconds)
-    const _retryLogin = (attempt) => {
-      if (_fsUsersLoaded) {
-        doLogin();
-      } else if (attempt < 20) {
-        setTimeout(() => _retryLogin(attempt + 1), 500);
-      } else {
-        errEl.textContent = 'Could not connect to server. Check your internet connection and try again.';
-        errEl._preFirestoreError = false;
-      }
-    };
-    setTimeout(() => _retryLogin(0), 500);
-    return;
-  } else {
-    errEl.textContent = 'Invalid username or password. Use your email address or full name to log in.';
-    errEl._preFirestoreError = false;
-  }
-  errEl.style.display='block';
+  // No match at all
+  errEl.textContent = 'User not found. Use your registered email address or full name.';
+  errEl.style.display = 'block';
 }
 
 function loginAsUser(uid){
@@ -796,7 +802,10 @@ const SA_ONLY=['bulk-upload','reports','audit','email-log',
 /* pages hidden from assignee and manager */
 const NO_ASSIGNEE=['meetings','escalations','calendar'];
 
+let _currentPage = 'dashboard';
+
 function navigate(page){
+  _currentPage = page;
   // Role guard
   const isAdmin=currentRole==='super-admin'||currentRole==='admin'||currentRole==='developer';
   const isManagerOrAbove=isAdmin||currentRole==='manager'||currentRole==='top-mgmt';
@@ -810,6 +819,12 @@ function navigate(page){
   const fns={dashboard:renderDashboard,meetings:renderMeetings,tasks:renderTasks,escalations:renderEscalations,calendar:renderCalendar,'bulk-upload':renderBulkUpload,reports:renderReports,audit:renderAudit,'email-log':renderEmailLog,'settings-firebase':renderFirebase,'settings-email':renderEmailCfg,'settings-users':renderUsers,'settings-escalation':renderEscCfg,'settings-notifications':renderNotifCfg,'settings-company':renderCompanySettings,'settings-meeting-types':renderMeetingTypes,'dev-console':renderDevConsole,'dev-api':renderDevApi,'dev-system':renderDevSystem};
   if(fns[page])fns[page]();
 }
+
+function refreshCurrentPage() {
+  if (!loggedInAs || !_currentPage) return;
+  navigate(_currentPage);
+}
+
 
 /* ═══════════════════════════════════════════
    HELPERS
@@ -2003,23 +2018,19 @@ try {
   const _fbapp = firebase.apps.length ? firebase.app() : firebase.initializeApp(_FB_CFG);
   _db     = firebase.firestore();
   _authFs = firebase.auth();
-  // Enable offline persistence — suppress the Firebase SDK's own deprecation warning
-  // (the compat SDK 10.x always emits it; the only fix is to intercept it temporarily)
-  try {
-    const _origWarn = console.warn;
-    console.warn = (...args) => {
+  // Enable offline persistence — suppress Firebase SDK deprecation warning permanently
+  // The compat SDK 10.x always emits it async; patch console.warn to filter it out
+  (function() {
+    const _orig = console.warn.bind(console);
+    console.warn = function(...args) {
       if (typeof args[0] === 'string' && args[0].includes('enableMultiTabIndexedDbPersistence')) return;
-      _origWarn.apply(console, args);
+      _orig(...args);
     };
+  })();
+  try {
     _db.enablePersistence({ synchronizeTabs: true })
-      .catch(e => {
-        if (e.code !== 'failed-precondition' && e.code !== 'unimplemented')
-          _origWarn('[MoMPro] Persistence error:', e.code);
-      })
-      .finally(() => { console.warn = _origWarn; });
-  } catch(pe) {
-    // Non-fatal — app works without persistence
-  }
+      .catch(() => {}); // ignore failed-precondition / unimplemented — non-fatal
+  } catch(pe) {}
   console.log("[MoMPro] Firebase ready:", _FB_CFG.projectId);
 } catch(e) {
   console.error("[MoMPro] Firebase init failed:", e.message);
@@ -2044,8 +2055,6 @@ function fbStatusBadge(online){
   return online ? '<span class="bdg b-ok">&#9679; Online</span>' : '<span class="bdg b-df">&#9675; Offline</span>';
 }
 
-// Write-lock: prevents Firestore snapshot from overwriting data during saves
-let _writeLock = false;
 let _firstMeetingsSnap = false;
 let _firstTasksSnap    = false;
 let _firstUsersSnap    = false;
@@ -2101,7 +2110,6 @@ function initFirestoreListeners() {
   // ── Meetings ───────────────────────────────────────────────────────────────
   const fm = FS_MEETINGS();
   if (fm) fm.orderBy("date","asc").onSnapshot(snap => {
-    if (_writeLock) return; // don't overwrite during an active save
     const fsMeetings = snap.docs.map(d => d.data());
     if (!_firstMeetingsSnap && fsMeetings.length === 0) {
       // First snapshot empty — Firestore has no data yet, keep local
@@ -2109,21 +2117,16 @@ function initFirestoreListeners() {
       return;
     }
     _firstMeetingsSnap = true;
-    // Merge: Firestore is source of truth once it has data
-    // Keep any locally-added items not yet confirmed by Firestore
-    const fsIds = new Set(fsMeetings.map(m => m.id));
-    const localOnly = MEETINGS.filter(m => !fsIds.has(m.id));
+    // Firestore is the single source of truth — replace local state completely
     MEETINGS.length = 0;
     fsMeetings.forEach(m => MEETINGS.push(m));
-    localOnly.forEach(m => MEETINGS.push(m)); // keep pending local items
     try { localStorage.setItem(MEETINGS_STORE_KEY, JSON.stringify(MEETINGS)); } catch(e2) {}
-    if (loggedInAs) { buildNav(); updateBell(); }
+    if (loggedInAs) { buildNav(); updateBell(); refreshCurrentPage(); }
   }, e => console.warn("[MoMPro] Meetings listener:", e.code));
 
   // ── Tasks ──────────────────────────────────────────────────────────────────
   const ft = FS_TASKS();
   if (ft) ft.onSnapshot(snap => {
-    if (_writeLock) return; // don't overwrite during an active save
     const fsTasks = snap.docs.map(d => {
       const t = d.data();
       if (t.uid != null) t.uid = Number(t.uid);
@@ -2135,13 +2138,11 @@ function initFirestoreListeners() {
       return;
     }
     _firstTasksSnap = true;
-    // Merge: keep local items not yet in Firestore
-    const fsTaskIds = new Set(fsTasks.map(t => t.id));
-    const localOnlyTasks = TASKS.filter(t => !fsTaskIds.has(t.id));
-    TASKS = [...fsTasks, ...localOnlyTasks];
+    // Firestore is the single source of truth — replace local state completely
+    TASKS = fsTasks;
     try { localStorage.setItem(TASKS_STORE_KEY, JSON.stringify(TASKS)); } catch(e2) {}
     updateBell();
-    if (loggedInAs) buildNav();
+    if (loggedInAs) { buildNav(); refreshCurrentPage(); }
   }, e => console.warn("[MoMPro] Tasks listener:", e.code));
 
   // Meta
@@ -2203,10 +2204,9 @@ function startFirebaseSync() {
 
 // fbUpgradeAuth removed — anonymous auth satisfies Firestore rules (request.auth != null)
 
-// Batch write with write-lock: prevents listener from wiping pending data
+// Batch write helper
 function _fsWriteBatch(writes) {
   if (!_db) return Promise.resolve();
-  _writeLock = true;
   const batch = _db.batch();
   writes.forEach(({col, id, data, del}) => {
     const ref = _db.collection(col).doc(id);
@@ -2215,28 +2215,28 @@ function _fsWriteBatch(writes) {
   });
   return batch.commit()
     .catch(e => console.warn("[MoMPro] Batch write error:", e.code, e.message))
-    .finally(() => { setTimeout(() => { _writeLock = false; }, 2000); });
+    ;
 }
 
 function fsWriteMeeting(m)  {
   const c=FS_MEETINGS();
-  if(c) { _writeLock=true; c.doc(m.id).set(m)
+  if(c) { c.doc(m.id).set(m)
     .catch(e=>{
       console.error("FW meeting:",e.code,e.message);
       if(e.code==='permission-denied') showToast('Permission denied — update Firestore Rules: allow read, write: if request.auth != null','err');
       else if(e.code==='not-found') showToast('Firestore database not created — go to Firebase Console → Firestore Database → Create database','err');
     })
-    .finally(()=>setTimeout(()=>{_writeLock=false;},2000)); }
+    ; }
 }
 function fsDeleteMeeting(id){ const c=FS_MEETINGS(); if(c) c.doc(id).delete().catch(e=>console.warn("FD meeting:",e.code)); }
 function fsWriteTask(t)     {
   const c=FS_TASKS();
-  if(c) { _writeLock=true; c.doc(t.id).set(t)
+  if(c) { c.doc(t.id).set(t)
     .catch(e=>{
       console.error("FW task:",e.code,e.message);
       if(e.code==='permission-denied') showToast('Permission denied — update Firestore Rules in Firebase Console','err');
     })
-    .finally(()=>setTimeout(()=>{_writeLock=false;},2000)); }
+    ; }
 }
 function fsDeleteTask(id)   { const c=FS_TASKS(); if(c) c.doc(id).delete().catch(e=>console.warn("FD task:",e.code)); }
 function fsWriteUser(u)     {
@@ -2249,7 +2249,6 @@ function fsWriteMeta(data)  { const c=FS_META(); if(c) c.doc("app").set(data,{me
 // Batch-save all meetings + tasks (for bulk upload and new meeting)
 function fsWriteAllMeetingsAndTasks(meetings, tasks) {
   if (!_db) return;
-  _writeLock = true;
   const CHUNK = 400; // Firestore batch limit is 500
   const allWrites = [
     ...meetings.map(m => ({col:"mompro_meetings", id:m.id, data:m})),
@@ -2276,7 +2275,7 @@ function fsWriteAllMeetingsAndTasks(meetings, tasks) {
       const tip = tips[e.code] || ('Firestore error: ' + e.code + ' - ' + e.message);
       if (typeof showToast === 'function') showToast(tip, 'err');
     })
-  .finally(() => { setTimeout(() => { _writeLock = false; }, 3000); });
+  .finally(() => { });
 }
 
 function renderFirebase(){
