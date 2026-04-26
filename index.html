@@ -216,6 +216,12 @@ input[type=checkbox].task-cb{width:15px;height:15px;accent-color:var(--ac);curso
       <div class="login-tab" id="ltab-user" onclick="switchLoginTab('user')">👤 User Access</div>
     </div>
     <div class="login-body">
+      <!-- Firestore loading indicator (shows on new devices while FS syncs) -->
+      <div id="login-fs-loading" style="display:none;background:var(--al);border:1px solid var(--ac);border-radius:var(--rs);padding:7px 12px;font-size:12px;color:var(--ac);margin-bottom:10px;display:flex;align-items:center;gap:7px;">
+        <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" style="animation:spin 1s linear infinite;flex-shrink:0;"><path d="M8 1v3M8 12v3M1 8h3M12 8h3M3.22 3.22l2.12 2.12M10.66 10.66l2.12 2.12M3.22 12.78l2.12-2.12M10.66 5.34l2.12-2.12"/></svg>
+        <span>Syncing user data from server — login will be ready in a moment...</span>
+      </div>
+      <style>@keyframes spin{to{transform:rotate(360deg)}}</style>
       <!-- Staff login pane -->
       <div id="lpane-staff">
         <form onsubmit="event.preventDefault();doLogin();" autocomplete="on">
@@ -525,13 +531,47 @@ function doLogin(){
     }
     // User exists but no password set — tell admin
     if(storedPw === undefined){
+      if (!_fsUsersLoaded && typeof _db !== 'undefined' && _db) {
+        // Password may be in Firestore but not yet synced — retry after load
+        errEl.textContent = 'Connecting to server — retrying automatically...';
+        errEl._preFirestoreError = true;
+        errEl.style.display = 'block';
+        const _retryPw = (attempt) => {
+          if (_fsUsersLoaded) { doLogin(); }
+          else if (attempt < 20) { setTimeout(() => _retryPw(attempt + 1), 500); }
+          else { errEl.textContent = `Account found for "${matchUser.name}" but no password has been set yet. Ask the Super Admin to set one in Users & Roles.`; }
+        };
+        setTimeout(() => _retryPw(0), 500);
+        return;
+      }
       errEl.textContent = `Account found for "${matchUser.name}" but no password has been set yet. Ask the Super Admin to set one in Users & Roles.`;
       errEl.style.display='block';
       return;
     }
   }
 
-  errEl.textContent = 'Invalid username or password. Use your email address or full name to log in.';
+  // If Firestore hasn't loaded yet, users/passwords may not be available on this device
+  if (!_fsUsersLoaded && typeof _db !== 'undefined' && _db) {
+    errEl.textContent = 'Connecting to server — retrying automatically...';
+    errEl._preFirestoreError = true;
+    errEl.style.display = 'block';
+    // Auto-retry login once Firestore users have loaded (up to 10 seconds)
+    const _retryLogin = (attempt) => {
+      if (_fsUsersLoaded) {
+        doLogin();
+      } else if (attempt < 20) {
+        setTimeout(() => _retryLogin(attempt + 1), 500);
+      } else {
+        errEl.textContent = 'Could not connect to server. Check your internet connection and try again.';
+        errEl._preFirestoreError = false;
+      }
+    };
+    setTimeout(() => _retryLogin(0), 500);
+    return;
+  } else {
+    errEl.textContent = 'Invalid username or password. Use your email address or full name to log in.';
+    errEl._preFirestoreError = false;
+  }
   errEl.style.display='block';
 }
 
@@ -1956,6 +1996,7 @@ const _FB_CFG = {
 
 let _db = null, _authFs = null, _listenersStarted = false;
 let FB_STATUS = {};
+let _fsUsersLoaded = false; // true once Firestore users snapshot has arrived
 
 try {
   const _fbapp = firebase.apps.length ? firebase.app() : firebase.initializeApp(_FB_CFG);
@@ -2006,8 +2047,16 @@ function initFirestoreListeners() {
   if (fu) fu.onSnapshot(snap => {
     const fsUsers = snap.docs.map(d => d.data());
     if (!_firstUsersSnap && fsUsers.length === 0) {
-      // First snapshot with no data — Firestore is empty, keep localStorage data
+      // First snapshot with no data — Firestore is empty
       _firstUsersSnap = true;
+      _fsUsersLoaded = true;
+      // If we have local users, push them to Firestore so other devices can access them
+      if (USERS.length > 0) {
+        USERS.forEach(u => fsWriteUser(u));
+        console.log('[MoMPro] Seeded', USERS.length, 'users to Firestore from localStorage');
+      }
+      const lload = document.getElementById('login-fs-loading');
+      if (lload) lload.style.display = 'none';
       return;
     }
     _firstUsersSnap = true;
@@ -2021,8 +2070,20 @@ function initFirestoreListeners() {
         USERS.push(u);
       });
       try { localStorage.setItem(USERS_STORE_KEY, JSON.stringify(USERS)); } catch(e2) {}
+      try { localStorage.setItem(PWDS_STORE_KEY,  JSON.stringify(USER_PASSWORDS)); } catch(e2) {}
     }
+    _fsUsersLoaded = true;
     if (loggedInAs) { initLogin(); buildNav(); }
+    else {
+      initLogin(); // refresh user-access tab list
+      const errEl = document.getElementById('login-err');
+      if (errEl && errEl._preFirestoreError) {
+        errEl.style.display = 'none';
+        errEl._preFirestoreError = false;
+      }
+      const lload = document.getElementById('login-fs-loading');
+      if (lload) lload.style.display = 'none';
+    }
   }, e => console.warn("[MoMPro] Users listener:", e.code));
 
   // ── Meetings ───────────────────────────────────────────────────────────────
@@ -3970,6 +4031,12 @@ updateBell();
 // Start Firebase sync after UI is ready — failures won't block login
 setTimeout(() => {
   startFirebaseSync();
+  // On a new device (no localStorage users), show syncing indicator while waiting for Firestore
+  const hasLocalUsers = (typeof USERS !== 'undefined' && USERS.length > 0);
+  if (!hasLocalUsers && typeof _db !== 'undefined' && _db) {
+    const lload = document.getElementById('login-fs-loading');
+    if (lload) lload.style.display = 'flex';
+  }
 }, 100);
 </script>
 </body>
