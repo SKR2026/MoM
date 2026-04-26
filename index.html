@@ -1047,21 +1047,23 @@ function filterMeetings(q){
 function deleteMeeting(id){
   const m=MEETINGS.find(x=>x.id===id);
   if(!m)return;
-  const taskCount=TASKS.filter(t=>t.mid===id).length;
+  // Collect tasks BEFORE removing them from local array
+  const linkedTasks=TASKS.filter(t=>t.mid===id);
+  const taskCount=linkedTasks.length;
   const msg=`Delete meeting "${m.no} — ${m.title}"?`
     +(taskCount?`\n\nThis will also permanently delete ${taskCount} linked action item${taskCount>1?'s':''}. `:'')
     +'\n\nThis cannot be undone.';
   if(!confirm(msg))return;
-  // Remove meeting
+  // Delete from Firestore FIRST (before local state changes)
+  fsDeleteMeeting(id);
+  linkedTasks.forEach(t=>fsDeleteTask(t.id));
+  // Then remove from local state
   const mIdx=MEETINGS.findIndex(x=>x.id===id);
   if(mIdx>-1) MEETINGS.splice(mIdx,1);
-  // Remove all linked tasks
   TASKS=TASKS.filter(t=>t.mid!==id);
   AUDIT_LOG.unshift({time:new Date().toISOString().slice(0,16).replace('T',' '),user:document.getElementById('un')?.textContent||'Admin',action:`Deleted meeting ${m.no}: "${m.title}"${taskCount?' + '+taskCount+' task(s)':''}`,entity:id,type:'delete'});
   persistMeetings();
   persistTasks();
-  fsDeleteMeeting(id);
-  TASKS.filter(t=>t.mid===id).forEach(t=>fsDeleteTask(t.id));
   showToast(`Meeting "${m.no}" deleted${taskCount?' along with '+taskCount+' task(s)':''}.`,'warn');
   renderMeetings();
 }
