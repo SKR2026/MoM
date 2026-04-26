@@ -1287,7 +1287,11 @@ function renderTasks(){
     </button>
     <button class="btn bs" onclick="clearTaskSelection()">Clear</button>
   </div>`:''}
-  <div class="card" style="padding:0;"><div class="tw" id="ttbl">${taskRows(TASKS)}</div></div>`;
+  <div class="card" style="padding:0;"><div class="tw" id="ttbl">${(()=>{
+    const myUidInit=loggedInAs&&loggedInAs.id?loggedInAs.id:null;
+    const initTasks=currentRole==='assignee'&&myUidInit?TASKS.filter(t=>t.uid===myUidInit):TASKS;
+    return taskRows(initTasks);
+  })()}</div></div>`;
 }
 function filterTasks(s,el){
   document.querySelectorAll('#task-tabs .tab').forEach(t=>t.classList.remove('active'));
