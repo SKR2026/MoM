@@ -5,6 +5,10 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>MoM Pro — Minutes of Meeting Management</title>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<!-- Firebase — baked-in, works on ANY device -->
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
 <!-- MSAL loaded on-demand in getMSGraphToken() — not blocking -->
 <!-- SheetJS – for reading .xlsx files in bulk upload -->
 <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
@@ -353,10 +357,11 @@ function persistUsers(){
     localStorage.setItem(USERS_STORE_KEY, JSON.stringify(USERS));
     localStorage.setItem(PWDS_STORE_KEY,  JSON.stringify(USER_PASSWORDS));
   }catch(e){ console.warn('Could not persist users:', e); }
-  if(_fbDb) try{
-    _fbDb.ref('mompro/users').set(USERS);
-    _fbDb.ref('mompro/userPasswords').set(USER_PASSWORDS);
-  }catch(e){}
+  USERS.forEach(u => fsWriteUser(u));
+}
+function persistDeleteUser(id){
+  try{localStorage.setItem(USERS_STORE_KEY,JSON.stringify(USERS));}catch(e){}
+  fsDeleteUser(id);
 }
 
 function loadPersistedUsers(){
@@ -386,7 +391,6 @@ const TASKS_STORE_KEY    = 'mompro_tasks_v2';
 function persistMeetings(){
   try{ localStorage.setItem(MEETINGS_STORE_KEY, JSON.stringify(MEETINGS)); }
   catch(e){ console.warn('Could not persist meetings:', e); }
-  if(_fbDb) try{ _fbDb.ref('mompro/meetings').set(MEETINGS); }catch(e){}
 }
 
 function loadPersistedMeetings(){
@@ -402,7 +406,6 @@ function loadPersistedMeetings(){
 function persistTasks(){
   try{ localStorage.setItem(TASKS_STORE_KEY, JSON.stringify(TASKS)); }
   catch(e){ console.warn('Could not persist tasks:', e); }
-  if(_fbDb) try{ _fbDb.ref('mompro/tasks').set(TASKS); }catch(e){}
   setTimeout(updateBell, 0); // refresh live counts
 }
 
@@ -451,7 +454,7 @@ function startCompanyEdit(){
 
 function saveCompanyName(){
   const val = document.getElementById('lh-company-input').value.trim();
-  if(val){ companyName=val; try{localStorage.setItem('momCompanyName',val);}catch(e){} }
+  if(val){ companyName=val; try{localStorage.setItem('momCompanyName',val);}catch(e){} fsWriteMeta({companyName:val}); }
   document.getElementById('lh-company-display').textContent = companyName;
   document.getElementById('lh-company-display').style.display='';
   document.getElementById('lh-company-edit').style.display='none';
@@ -518,6 +521,7 @@ function doLogin(){
       currentRole = roleMap[matchUser.role] || matchUser.role;
       hideLoginScreen();
       applySession(matchUser.name, matchUser.dept, matchUser.ini, matchUser.col, matchUser.tc, true);
+      fbUpgradeAuth(matchUser.email||(matchUser.id+''));
       return;
     }
     // User exists but no password set — tell admin
@@ -535,12 +539,12 @@ function doLogin(){
 function loginAsUser(uid){
   const u=USERS.find(x=>x.id===uid);
   if(!u)return;
-  loggedInAs=u;  // store full user object so loggedInAs.id is available
-  // Map role to app role — preserve super-admin and admin roles
+  loggedInAs=u;
   const roleMap={'super-admin':'super-admin','admin':'admin','top-mgmt':'top-mgmt','manager':'manager','assignee':'assignee'};
   currentRole=roleMap[u.role]||'assignee';
   hideLoginScreen();
   applySession(u.name,u.dept,u.ini,u.col,u.tc,true);
+  fbUpgradeAuth(u.email||(u.id+''));
 }
 
 function simulateLinkAccess(){
@@ -971,6 +975,8 @@ function deleteMeeting(id){
   AUDIT_LOG.unshift({time:new Date().toISOString().slice(0,16).replace('T',' '),user:document.getElementById('un')?.textContent||'Admin',action:`Deleted meeting ${m.no}: "${m.title}"${taskCount?' + '+taskCount+' task(s)':''}`,entity:id,type:'delete'});
   persistMeetings();
   persistTasks();
+  fsDeleteMeeting(id);
+  TASKS.filter(t=>t.mid===id).forEach(t=>fsDeleteTask(t.id));
   showToast(`Meeting "${m.no}" deleted${taskCount?' along with '+taskCount+' task(s)':''}.`,'warn');
   renderMeetings();
 }
@@ -1103,6 +1109,8 @@ function saveEditMeeting(meetingId){
   AUDIT_LOG.unshift({time:new Date().toISOString().slice(0,16).replace('T',' '),user:document.getElementById('un')?.textContent||'Admin',action:`Edited meeting ${m.no}: "${title}"`,entity:meetingId,type:'update'});
   persistMeetings();
   persistTasks();
+  fsWriteMeeting(m);
+  TASKS.filter(t=>t.mid===meetingId).forEach(t=>fsWriteTask(t));
   closeModal();
   renderMeetings();
   showToast(`Meeting "${m.no}" updated.`,'ok');
@@ -1165,6 +1173,7 @@ function saveAddTask(meetingId){
   const assignee=gu(uid);
   AUDIT_LOG.unshift({time:new Date().toISOString().slice(0,16).replace('T',' '),user:document.getElementById('un')?.textContent||'Admin',action:`Added task "${title}" to ${m.no} — assigned to ${assignee.name}`,entity:newTask.id,type:'create'});
   persistTasks();
+  fsWriteTask(newTask);
   // Send grouped notification with deep-link
   sendGroupedTaskNotifications([newTask.id], 'assigned', m,
     `New action item <strong>${title}</strong> has been assigned to you from meeting <strong>${m.no}</strong>.`);
@@ -1261,7 +1270,8 @@ function deleteSelectedTasks(){
   TASKS=TASKS.filter(t=>!ids.includes(t.id));
   AUDIT_LOG.unshift({time:new Date().toISOString().slice(0,16).replace('T',' '),user:'Super Admin',action:`Bulk deleted ${ids.length} task${ids.length!==1?'s':''}: ${ids.join(', ')}`,entity:'BULK',type:'delete'});
   selectedTasks=new Set();
-  persistTasks();   // save after bulk delete
+  persistTasks();
+  ids.forEach(id=>fsDeleteTask(id));
   showToast(`${ids.length} task${ids.length!==1?'s':''} deleted successfully.`,'ok');
   renderTasks();
 }
@@ -1408,11 +1418,10 @@ function handleBulkFile(input){
         <thead><tr>${shownCols.map(c=>`<th>${c}</th>`).join('')}<th>Assignee Found</th></tr></thead>
         <tbody>
           ${rows.map(row=>{
-            const nm=(row.assignee_name||'').trim().toLowerCase();
-            const em=(row.assignee_email||'').trim().toLowerCase();
-            const found=USERS.find(u=>(nm&&u.name.toLowerCase().trim()===nm)||(em&&u.email&&u.email.toLowerCase().trim()===em))
-              ||USERS.find(u=>nm&&nm.length>=3&&(u.name.toLowerCase().startsWith(nm)||u.name.toLowerCase().split(' ').some(p=>p===nm)));
-            const ok=found?`<span class="bdg b-ok">${found.name}</span>`:`<span class="bdg b-er">Not found — check exact name/email</span>`;
+            const nm=(row.assignee_name||'').toLowerCase();
+            const em=(row.assignee_email||'').toLowerCase();
+            const found=USERS.find(u=>(nm&&u.name.toLowerCase()===nm)||(em&&u.email&&u.email.toLowerCase()===em));
+            const ok=found?`<span class="bdg b-ok">${found.name}</span>`:`<span class="bdg b-er">Not found</span>`;
             return `<tr>${shownCols.map(c=>`<td style="font-size:11px;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${row[c]||''}</td>`).join('')}<td>${ok}</td></tr>`;
           }).join('')}
         </tbody>
@@ -1472,7 +1481,7 @@ function processBulkUpload(){
           date:row.meeting_date||new Date().toISOString().slice(0,10),
           title:row.meeting_title||row['meeting title']||('Meeting '+mno),
           chairperson:(row.chairperson_name||'').trim()||'—',
-          attendees:[], // start empty; actual attendees listed via attendees column
+          attendees:USERS.slice(0,1).map(u=>u.id),
           externalAttendees:[],
           status:'active',
           venue:row.location||'TBD'
@@ -1494,18 +1503,11 @@ function processBulkUpload(){
       if(!row.action_item||!row.due_date){errors++;continue;}
 
       // Match assignee by name first, then email — no user_id needed
-      // Uses exact match first, then partial first-word match as fallback
       const nameVal=(row.assignee_name||'').trim().toLowerCase();
       const emailVal=(row.assignee_email||'').trim().toLowerCase();
       const assignee=USERS.find(u=>
-        (nameVal && u.name.toLowerCase().trim()===nameVal) ||
-        (emailVal && u.email && u.email.toLowerCase().trim()===emailVal)
-      ) || USERS.find(u=>
-        // Partial match: CSV 'Sushil' matches user 'Sushil Sharma'
-        (nameVal && nameVal.length>=3 && (
-          u.name.toLowerCase().startsWith(nameVal) ||
-          u.name.toLowerCase().split(' ').some(part=>part===nameVal)
-        ))
+        (nameVal && u.name.toLowerCase()===nameVal) ||
+        (emailVal && u.email && u.email.toLowerCase()===emailVal)
       );
       const mno=(row.meeting_no||'').trim();
       const resolvedMid=mno?meetingNoToId[mno]:null;
@@ -1544,8 +1546,10 @@ function processBulkUpload(){
 
     AUDIT_LOG.unshift({time:new Date().toISOString().slice(0,16).replace('T',' '),user:'Super Admin',action:`Bulk imported ${importedTasks} task(s) and ${importedMeetings} new meeting(s) from ${file.name}${errors?` (${errors} skipped)`:''}`,entity:'BULK',type:'import'});
 
-    persistMeetings();  // save imported meetings to localStorage
-    persistTasks();     // save imported tasks to localStorage
+    persistMeetings();
+    persistTasks();
+    MEETINGS.forEach(m=>fsWriteMeeting(m));
+    TASKS.forEach(t=>fsWriteTask(t));
 
     if(importedTasks===0){
       showToast('No tasks imported. Check columns match the template and required fields are filled.','warn');
@@ -1905,452 +1909,217 @@ function renderEmailLog(){
    SETTINGS
 ═══════════════════════════════════════════ */
 /* ═══════════════════════════════════════════
-   FIREBASE REAL INTEGRATION
+   FIREBASE — BAKED-IN FIRESTORE
+   Works on ANY device. Anonymous auth on load.
+   Real users upgrade auth on login.
 ═══════════════════════════════════════════ */
 
-// Persisted config in localStorage so it survives page reload
-const FB_CONFIG_KEY = 'mompro_firebase_config';
-let _fbApp = null, _fbAuth = null, _fbDb = null;
-let FB_STATUS = {};  // uid(number) → {online, lastSeen, authProvider, sessions, lastLogin}
+const _FB_CFG = {
+  apiKey:            "AIzaSyCYGV5HpF6-j_HBqix3EA-XFGmT8E698k8",
+  authDomain:        "skr-task.firebaseapp.com",
+  projectId:         "skr-task",
+  storageBucket:     "skr-task.firebasestorage.app",
+  messagingSenderId: "1011690659933",
+  appId:             "1:1011690659933:web:f57e43ee0267a475682db4"
+};
 
-function fbSavedConfig(){
-  try{ return JSON.parse(localStorage.getItem(FB_CONFIG_KEY)||'null'); }catch(e){ return null; }
-}
+let _db = null, _authFs = null, _listenersStarted = false;
+let FB_STATUS = {};
+
+try {
+  const _fbapp = firebase.apps.length ? firebase.app() : firebase.initializeApp(_FB_CFG);
+  _db     = firebase.firestore();
+  _authFs = firebase.auth();
+  console.log("[MoMPro] Firebase ready:", _FB_CFG.projectId);
+} catch(e) { console.warn("[MoMPro] Firebase init failed:", e.message); }
+
+const FS_MEETINGS = () => _db && _db.collection("mompro_meetings");
+const FS_TASKS    = () => _db && _db.collection("mompro_tasks");
+const FS_USERS    = () => _db && _db.collection("mompro_users");
+const FS_META     = () => _db && _db.collection("mompro_meta");
+const FS_ROLES    = () => _db && _db.collection("mompro_roles");
 
 function fbDot(online){
-  return `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${online?'var(--ok)':'var(--br2)'};margin-right:5px;${online?'box-shadow:0 0 0 3px rgba(22,163,74,.2)':''}"></span>`;
+  return '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:'+(online?'var(--ok)':'var(--br2)')+';margin-right:5px;">'+'</span>';
 }
 function fbStatusBadge(online){
-  return online ? '<span class="bdg b-ok">● Online</span>' : '<span class="bdg b-df">○ Offline</span>';
+  return online ? '<span class="bdg b-ok">&#9679; Online</span>' : '<span class="bdg b-df">&#9675; Offline</span>';
 }
 
-/* Load Firebase SDK scripts sequentially (database depends on app), then call cb() */
-function loadFirebaseSDK(cb){
-  if(window.firebase && window.firebase.auth && window.firebase.database){ cb(); return; }
-  const scripts=[
-    'https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js',
-    'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js',
-    'https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js'
-  ];
-  function loadNext(i){
-    if(i>=scripts.length){ cb(); return; }
-    // Skip if already loaded
-    if(document.querySelector(`script[src="${scripts[i]}"]`)){
-      loadNext(i+1); return;
-    }
-    const s=document.createElement('script');
-    s.src=scripts[i];
-    s.onload=()=>loadNext(i+1);
-    s.onerror=()=>{
-      showToast('Failed to load Firebase SDK script '+(i+1)+'. Check internet connection.','warn');
-    };
-    document.head.appendChild(s);
-  }
-  loadNext(0);
-}
+function initFirestoreListeners() {
+  if (_listenersStarted || !_db) return;
+  _listenersStarted = true;
 
-/* Initialise (or re-initialise) Firebase with given config object */
-function initFirebase(cfg){
-  if(!window.firebase){
-    console.error('Firebase SDK not loaded yet.');
-    return false;
-  }
-  if(!firebase.database){
-    console.error('Firebase Database SDK not loaded — check script URLs.');
-    showToast('Firebase Database SDK failed to load. Check internet connection.','warn');
-    return false;
-  }
-  try{
-    // Delete existing named app if re-initialising
-    if(_fbApp){ try{ _fbApp.delete(); }catch(e){ console.warn('App delete warning:',e.message); } }
-    _fbApp = firebase.initializeApp(cfg, 'mompro-'+Date.now());
-    _fbAuth = _fbApp.auth();
-    _fbDb   = _fbApp.database();
-    return true;
-  } catch(e){
-    console.error('Firebase init error:', e);
-    showToast('Firebase init failed: '+e.message,'warn');
-    return false;
-  }
-}
-
-/* Write this user's presence to Realtime DB */
-function fbSetPresence(uid, email){
-  if(!_fbDb || !email) return;
-  // Key by sanitised email so read and write always match
-  const key = email.replace(/[.#$\[\]]/g,'_');
-  const ref  = _fbDb.ref('presence/' + key);
-  const ts   = new Date().toISOString().slice(0,16).replace('T',' ');
-  ref.set({ online:true, lastSeen:'Active now', lastLogin:ts, email, uid });
-  ref.onDisconnect().update({ online:false, lastSeen:'Just now' });
-}
-
-/* Subscribe to all users' presence */
-function fbWatchPresence(){
-  if(!_fbDb) return;
-  _fbDb.ref('presence').on('value', snap=>{
-    const data = snap.val()||{};
-    // Keyed by sanitised email — match each app user
-    USERS.forEach(u=>{
-      const key   = u.email.replace(/[.#$\[\]]/g,'_');
-      const match = data[key] || Object.values(data).find(d=>d.email===u.email);
-      if(match){
-        FB_STATUS[u.id]={
-          online:      match.online||false,
-          lastSeen:    match.lastSeen||'—',
-          authProvider:match.authProvider||'email',
-          sessions:    match.online?1:0,
-          lastLogin:   match.lastLogin||'—'
-        };
-      }
+  // Users
+  const fu = FS_USERS();
+  if (fu) fu.onSnapshot(snap => {
+    if (!snap.docs.length) return;
+    USERS.length = 0;
+    snap.docs.forEach(d => {
+      const u = d.data();
+      u.id = Number(u.id);
+      if (u._pw !== undefined && u._pw !== null) USER_PASSWORDS[u.id] = u._pw;
+      const { _pw, ...clean } = u;
+      USERS.push(clean);
     });
-    const tbl = document.getElementById('fb-presence-tbody');
-    if(tbl) _renderPresenceRows(tbl);
-    _updateFbBanner();
-  });
-}
+    try { localStorage.setItem(USERS_STORE_KEY, JSON.stringify(USERS)); } catch(e2) {}
+    if (loggedInAs) { initLogin(); buildNav(); }
+  }, e => console.warn("[MoMPro] Users listener:", e.code));
 
-function _renderPresenceRows(tbody){
-  tbody.innerHTML = USERS.map(u=>{
-    const s = FB_STATUS[u.id]||{online:false,lastSeen:'—',authProvider:'—',sessions:0,lastLogin:'—'};
-    return `<tr>
-      <td><div style="display:flex;align-items:center;gap:8px;">${av(u,26)}<div>
-        <div style="font-weight:500;font-size:12px;">${u.name}</div>
-        <div style="font-size:10px;color:var(--t3);">${u.email}</div>
-      </div></div></td>
-      <td>${fbStatusBadge(s.online)}</td>
-      <td style="font-size:12px;color:${s.online?'var(--ok)':'var(--t3)'};">${fbDot(s.online)}${s.lastSeen}</td>
-      <td style="text-align:center;"><span style="background:${s.sessions>0?'var(--al)':'var(--bg3)'};color:${s.sessions>0?'var(--ac)':'var(--t3)'};font-size:11px;font-weight:600;padding:2px 8px;border-radius:10px;">${s.sessions} active</span></td>
-      <td><span class="bdg b-in" style="font-size:10px;text-transform:uppercase;">${s.authProvider}</span></td>
-      <td style="font-size:11px;color:var(--t3);font-family:var(--mo);">${s.lastLogin}</td>
-      <td style="display:flex;gap:5px;">
-        <button class="btn bs" onclick="fbCopyToken('${u.email}')">Token</button>
-        <button class="btn bs ber" onclick="fbRevokeSession('${u.email}','${u.name}')">Revoke</button>
-      </td>
-    </tr>`;
-  }).join('');
-}
+  // Meetings
+  const fm = FS_MEETINGS();
+  if (fm) fm.orderBy("date","asc").onSnapshot(snap => {
+    MEETINGS.length = 0;
+    snap.docs.forEach(d => MEETINGS.push(d.data()));
+    try { localStorage.setItem(MEETINGS_STORE_KEY, JSON.stringify(MEETINGS)); } catch(e2) {}
+    if (loggedInAs) { buildNav(); updateBell(); }
+  }, e => console.warn("[MoMPro] Meetings listener:", e.code));
 
-function _updateFbBanner(){
-  const banner = document.getElementById('fb-status-banner');
-  if(!banner) return;
-  const connected = !!_fbApp;
-  const onlineCount = USERS.filter(u=>FB_STATUS[u.id]?.online).length;
-  if(connected){
-    const cfg = fbSavedConfig();
-    banner.style.background='var(--ol)'; banner.style.borderColor='var(--ok)';
-    banner.innerHTML=`
-      <span style="font-size:20px;">🔥</span>
-      <div style="flex:1;">
-        <div style="font-size:13px;font-weight:600;color:var(--ok);">Firebase Connected — ${cfg?.projectId||'unknown'}</div>
-        <div style="font-size:11px;color:var(--t3);margin-top:2px;">Auth + Realtime DB active · ${onlineCount} user(s) online · Region: auto</div>
-      </div>
-      <span class="bdg b-ok">● Live</span>`;
-  } else {
-    banner.style.background='var(--wl)'; banner.style.borderColor='var(--wn)';
-    banner.innerHTML=`
-      <span style="font-size:20px;">⚠️</span>
-      <div style="flex:1;">
-        <div style="font-size:13px;font-weight:600;color:var(--wn);">Firebase not connected</div>
-        <div style="font-size:11px;color:var(--t3);margin-top:2px;">Enter your project credentials below and click Save & Connect.</div>
-      </div>
-      <span class="bdg b-wn">⚙ Not Connected</span>`;
-  }
-}
-
-/* Save config, load SDK, init Firebase, start presence */
-function fbSaveAndConnect(){
-  const cfg={
-    apiKey:       document.getElementById('fb-apiKey')?.value.trim(),
-    authDomain:   document.getElementById('fb-authDomain')?.value.trim(),
-    projectId:    document.getElementById('fb-projectId')?.value.trim(),
-    storageBucket:document.getElementById('fb-storageBucket')?.value.trim(),
-    messagingSenderId: document.getElementById('fb-senderId')?.value.trim(),
-    appId:        document.getElementById('fb-appId')?.value.trim(),
-    measurementId:document.getElementById('fb-measureId')?.value.trim(),
-    databaseURL:  document.getElementById('fb-dbUrl')?.value.trim()
-  };
-  // Basic validation
-  if(!cfg.apiKey||cfg.apiKey.length<10){showToast('API Key looks invalid — paste it from Firebase Console.','warn');return;}
-  if(!cfg.projectId||cfg.projectId.includes('your-')){showToast('Enter your real Project ID.','warn');return;}
-  const validDb = cfg.databaseURL &&
-    (cfg.databaseURL.includes('firebaseio.com') || cfg.databaseURL.includes('firebasedatabase.app'));
-  if(!validDb){
-    showToast('Database URL is required. It ends in .firebaseio.com (US) or .firebasedatabase.app (other regions). Copy it from Realtime Database → Data tab.','warn');
-    return;
-  }
-
-  localStorage.setItem(FB_CONFIG_KEY, JSON.stringify(cfg));
-  const btn=document.getElementById('fb-connect-btn');
-  if(btn){btn.textContent='Connecting…';btn.disabled=true;}
-
-  loadFirebaseSDK(()=>{
-    const ok = initFirebase(cfg);
-    if(!ok){
-      showToast('Firebase init failed — check credentials.','warn');
-      if(btn){btn.textContent='Save & Connect';btn.disabled=false;}
-      return;
-    }
-    // Test Auth by checking current user (won't error if no user signed in)
-    _fbAuth.onAuthStateChanged(user=>{
-      console.log('Firebase Auth ready. Current user:', user?.email||'none');
+  // Tasks
+  const ft = FS_TASKS();
+  if (ft) ft.onSnapshot(snap => {
+    TASKS = snap.docs.map(d => {
+      const t = d.data();
+      if (t.uid != null) t.uid = Number(t.uid);
+      return t;
     });
-    fbWatchPresence();
-    fbStartSync(); // start cross-device data sync
-    AUDIT_LOG.unshift({time:new Date().toISOString().slice(0,16).replace('T',' '),user:'Super Admin',action:`Firebase connected: project "${cfg.projectId}"`,entity:'SYSTEM',type:'config'});
-    if(btn){btn.textContent='✓ Connected';btn.style.background='var(--ok)';}
-    _updateFbBanner();
-    showToast(`Firebase connected to "${cfg.projectId}". Realtime DB presence active.`,'ok');
-  });
-}
+    try { localStorage.setItem(TASKS_STORE_KEY, JSON.stringify(TASKS)); } catch(e2) {}
+    updateBell();
+    if (loggedInAs) buildNav();
+  }, e => console.warn("[MoMPro] Tasks listener:", e.code));
 
-function fbTestConnection(){
-  if(!_fbApp){showToast('Not connected — fill in credentials and click Save & Connect first.','warn');return;}
-  const btn=document.getElementById('fb-test-btn');
-  if(btn){btn.textContent='Testing…';btn.disabled=true;}
-  const start=Date.now();
-  _fbDb.ref('.info/connected').once('value').then(snap=>{
-    const ms=Date.now()-start;
-    const connected=snap.val();
-    if(btn){btn.textContent='Test Connection';btn.disabled=false;}
-    if(connected){
-      showToast(`Firebase reachable — latency ${ms} ms.`,'ok');
-    } else {
-      showToast('Firebase SDK loaded but database unreachable. Check Database Rules and network.','warn');
-    }
-  }).catch(e=>{
-    if(btn){btn.textContent='Test Connection';btn.disabled=false;}
-    showToast('Connection test failed: '+e.message,'warn');
-  });
-}
-
-function fbCopyToken(email){
-  if(!_fbAuth){showToast('Firebase not connected.','warn');return;}
-  const user=_fbAuth.currentUser;
-  if(!user||user.email!==email){showToast('User '+email+' is not the currently signed-in session.','info');return;}
-  user.getIdToken().then(tok=>{
-    navigator.clipboard?.writeText(tok).then(()=>showToast('ID token copied to clipboard.','ok'))
-      .catch(()=>showToast('Token: '+tok.slice(0,40)+'…','info'));
-  }).catch(e=>showToast('Could not get token: '+e.message,'warn'));
-}
-
-function fbRevokeSession(email, name){
-  if(!_fbApp){showToast('Firebase not connected.','warn');return;}
-  if(!confirm(`Revoke all sessions for ${name} (${email})?\nThis requires Firebase Admin SDK on the backend — this UI will update presence only.`)) return;
-  const uid = USERS.find(u=>u.email===email)?.id;
-  if(uid && _fbDb){
-    _fbDb.ref('presence/'+uid).update({online:false,lastSeen:'Session revoked'});
-    AUDIT_LOG.unshift({time:new Date().toISOString().slice(0,16).replace('T',' '),user:'Super Admin',action:`Presence cleared for ${name} (${email}). Full token revocation requires Firebase Admin SDK.`,entity:'SYSTEM',type:'update'});
-    showToast(`Presence cleared for ${name}. Token revocation needs Firebase Admin SDK on backend.`,'info');
-  }
-}
-
-function fbDisconnect(){
-  if(!_fbApp){showToast('Not connected.','warn');return;}
-  if(!confirm('Disconnect from Firebase?')) return;
-  try{ _fbDb?.ref('presence').off(); _fbDb?.ref('mompro').off(); _fbApp.delete(); }catch(e){}
-  _fbApp=null; _fbAuth=null; _fbDb=null; _fbSyncActive=false;
-  _updateFbBanner();
-  showToast('Firebase disconnected.','info');
-}
-
-/* Sign a specific user into Firebase Auth and write their presence */
-async function fbSignInUser(email, password){
-  if(!_fbAuth){ showToast('Firebase not connected. Save & Connect first.','warn'); return; }
-  try{
-    const cred = await _fbAuth.signInWithEmailAndPassword(email, password);
-    fbSetPresence(cred.user.uid, email);
-    showToast('Signed in to Firebase as '+email,'ok');
-  }catch(e){
-    showToast('Firebase sign-in failed: '+e.message,'warn');
-  }
-}
-
-/* Create a Firebase Auth account for a new user */
-async function fbCreateUser(email, password, displayName){
-  if(!_fbAuth){ showToast('Firebase not connected. Save & Connect first.','warn'); return false; }
-  try{
-    const cred = await _fbAuth.createUserWithEmailAndPassword(email, password);
-    await cred.user.updateProfile({ displayName });
-    fbSetPresence(cred.user.uid, email);
-    showToast('Firebase Auth account created for '+email,'ok');
-    return true;
-  }catch(e){
-    // If account already exists that's fine — just sign in
-    if(e.code==='auth/email-already-in-use'){
-      showToast(email+' already has a Firebase account.','info');
-      return true;
-    }
-    showToast('Firebase create user failed: '+e.message,'warn');
-    return false;
-  }
-}
-
-/* Auto-connect on load if config was saved previously */
-(function fbAutoConnect(){
-  const cfg=fbSavedConfig();
-  // Only skip if no config, or clearly placeholder values
-  if(!cfg || !cfg.apiKey || cfg.apiKey==='AIzaSy••••••••••••••' || cfg.apiKey.includes('••')) return;
-  if(!cfg.projectId || cfg.projectId.includes('your-')) return;
-  const validDb = cfg.databaseURL &&
-    (cfg.databaseURL.includes('firebaseio.com') || cfg.databaseURL.includes('firebasedatabase.app'));
-  if(!validDb) return;
-  loadFirebaseSDK(()=>{
-    if(initFirebase(cfg)){
-      fbWatchPresence();
-      fbStartSync(); // start realtime cross-device sync
-      console.log('Firebase auto-connected to', cfg.projectId);
-    }
-  });
-})();
-
-/* ═══════════════════════════════════════════
-   FIREBASE CROSS-DEVICE DATA SYNC
-   Syncs MEETINGS, TASKS, USERS to Firebase Realtime DB
-   so data is accessible from any device.
-═══════════════════════════════════════════ */
-let _fbSyncActive = false;
-
-function fbWriteData(){
-  if(!_fbDb) return;
-  try{
-    _fbDb.ref('mompro/meetings').set(MEETINGS);
-    _fbDb.ref('mompro/tasks').set(TASKS);
-    _fbDb.ref('mompro/users').set(USERS);
-    _fbDb.ref('mompro/userPasswords').set(USER_PASSWORDS);
-    _fbDb.ref('mompro/meetingTypes').set(MEETING_TYPES);
-    _fbDb.ref('mompro/companyName').set(companyName||'');
-    _fbDb.ref('mompro/auditLog').set(AUDIT_LOG.slice(0,200));
-  }catch(e){ console.warn('FB write error:', e); }
-}
-
-function fbStartSync(){
-  if(_fbSyncActive || !_fbDb) return;
-  _fbSyncActive = true;
-  // Listen for changes from other devices and merge
-  _fbDb.ref('mompro').on('value', snap=>{
-    const d = snap.val();
-    if(!d) return;
-    if(Array.isArray(d.meetings) && d.meetings.length){
-      MEETINGS.length=0; d.meetings.forEach(m=>MEETINGS.push(m));
-      // save to localStorage as backup
-      try{ localStorage.setItem(MEETINGS_STORE_KEY, JSON.stringify(MEETINGS)); }catch(e){}
-    }
-    if(Array.isArray(d.tasks) && d.tasks.length){
-      TASKS = d.tasks.map(t=>({...t, uid: t.uid!=null ? Number(t.uid) : null}));
-      try{ localStorage.setItem(TASKS_STORE_KEY, JSON.stringify(TASKS)); }catch(e){}
-    }
-    if(Array.isArray(d.users) && d.users.length){
-      USERS.length=0; d.users.forEach(u=>USERS.push(u));
-      try{ localStorage.setItem(USERS_STORE_KEY, JSON.stringify(USERS)); }catch(e){}
-    }
-    if(d.userPasswords && typeof d.userPasswords==='object'){
-      Object.assign(USER_PASSWORDS, d.userPasswords);
-      try{ localStorage.setItem(PWDS_STORE_KEY, JSON.stringify(USER_PASSWORDS)); }catch(e){}
-    }
-    if(Array.isArray(d.meetingTypes) && d.meetingTypes.length){
-      MEETING_TYPES.length=0; d.meetingTypes.forEach(t=>MEETING_TYPES.push(t));
-      try{ localStorage.setItem('momMeetingTypes', JSON.stringify(MEETING_TYPES)); }catch(e){}
-    }
-    if(typeof d.companyName==='string' && d.companyName){
-      companyName=d.companyName;
-      try{ localStorage.setItem('momCompanyName', companyName); }catch(e){}
+  // Meta
+  const fmeta = FS_META();
+  if (fmeta) fmeta.doc("app").onSnapshot(doc => {
+    if (!doc.exists) return;
+    const d = doc.data();
+    if (d.companyName) {
+      companyName = d.companyName;
+      try { localStorage.setItem("momCompanyName", companyName); } catch(e2) {}
       initCompanyName();
     }
-    if(Array.isArray(d.auditLog) && d.auditLog.length){
-      AUDIT_LOG.length=0; d.auditLog.forEach(a=>AUDIT_LOG.push(a));
+    if (Array.isArray(d.meetingTypes) && d.meetingTypes.length) {
+      MEETING_TYPES.length = 0;
+      d.meetingTypes.forEach(t => MEETING_TYPES.push(t));
     }
-    // Refresh current view if already logged in
-    if(loggedInAs) buildNav();
-  }, e=>{ console.warn('FB sync listener error:', e); });
-  showToast('☁️ Firebase sync active — data shared across devices','ok');
+  }, e => console.warn("[MoMPro] Meta listener:", e.code));
 }
 
+function startFirebaseSync() {
+  if (!_authFs) return;
+  _authFs.onAuthStateChanged(user => {
+    if (user) {
+      console.log("[MoMPro] Auth ready. UID:", user.uid, "| anon:", user.isAnonymous);
+      initFirestoreListeners();
+    } else {
+      _authFs.signInAnonymously()
+        .then(c => { console.log("[MoMPro] Anon auth OK:", c.user.uid); initFirestoreListeners(); })
+        .catch(e => { console.warn("[MoMPro] Anon auth failed:", e.code); try{initFirestoreListeners();}catch(_){} });
+    }
+  });
+}
+
+function fbUpgradeAuth(emailOrId) {
+  if (!_authFs || !emailOrId) return;
+  const email = String(emailOrId).includes("@") ? emailOrId : (emailOrId + "@mompro.internal");
+  const pass  = "mp_" + String(emailOrId).replace(/[^a-zA-Z0-9]/g,"_") + "_2025";
+  function _writeRole(uid) {
+    const u = loggedInAs && typeof loggedInAs==="object" ? loggedInAs : null;
+    const role = u ? (u.role||currentRole) : currentRole;
+    const fr = FS_ROLES();
+    if (fr && uid) fr.doc(uid).set({role,uid,email,ts:Date.now()}).catch(e=>console.warn("[MoMPro] Role:",e.code));
+  }
+  _authFs.signInWithEmailAndPassword(email,pass)
+    .then(c=>{_writeRole(c.user.uid);console.log("[MoMPro] Auth upgraded:",c.user.uid);})
+    .catch(err=>{
+      if(["auth/user-not-found","auth/wrong-password","auth/invalid-credential"].includes(err.code)){
+        _authFs.createUserWithEmailAndPassword(email,pass)
+          .then(c=>{_writeRole(c.user.uid);console.log("[MoMPro] Auth created:",c.user.uid);})
+          .catch(e2=>console.warn("[MoMPro] Auth create:",e2.code));
+      } else {console.warn("[MoMPro] Auth upgrade:",err.code);}
+    });
+}
+
+function fsWriteMeeting(m)  { const c=FS_MEETINGS(); if(c) c.doc(m.id).set(m).catch(e=>console.warn("FW meeting:",e.code)); }
+function fsDeleteMeeting(id){ const c=FS_MEETINGS(); if(c) c.doc(id).delete().catch(e=>console.warn("FD meeting:",e.code)); }
+function fsWriteTask(t)     { const c=FS_TASKS(); if(c) c.doc(t.id).set(t).catch(e=>console.warn("FW task:",e.code)); }
+function fsDeleteTask(id)   { const c=FS_TASKS(); if(c) c.doc(id).delete().catch(e=>console.warn("FD task:",e.code)); }
+function fsWriteUser(u)     {
+  const c=FS_USERS(); const pw=USER_PASSWORDS[u.id];
+  if(c) c.doc(String(u.id)).set({...u,_pw:pw!==undefined?pw:null}).catch(e=>console.warn("FW user:",e.code));
+}
+function fsDeleteUser(id)   { const c=FS_USERS(); if(c) c.doc(String(id)).delete().catch(e=>console.warn("FD user:",e.code)); }
+function fsWriteMeta(data)  { const c=FS_META(); if(c) c.doc("app").set(data,{merge:true}).catch(e=>console.warn("FW meta:",e.code)); }
+
 function renderFirebase(){
-  const cfg=fbSavedConfig()||{};
-  document.getElementById('content').innerHTML=`
-  <div style="max-width:780px;">
-    <div class="alert aw" style="margin-bottom:14px;">Super Admin only — changes affect all users.</div>
+  const isLive = !!(_db && _listenersStarted);
+  const RULES = [
+    "rules_version = '2';",
+    "service cloud.firestore {",
+    "  match /databases/{database}/documents {",
+    "    function isAuth()    { return request.auth != null; }",
+    "    function role()      { return get(/databases/$(database)/documents/mompro_roles/$(request.auth.uid)).data.role; }",
+    "    function isAdmin()   { return isAuth() && role() in ['super-admin','admin','developer']; }",
+    "    function isManager() { return isAuth() && role() in ['super-admin','admin','developer','top-mgmt','manager']; }",
+    "    match /mompro_roles/{uid}   { allow read: if isAuth(); allow write: if isAuth() && request.auth.uid == uid; }",
+    "    match /mompro_meetings/{id} { allow read: if isAuth(); allow write: if isManager(); }",
+    "    match /mompro_tasks/{id}    { allow read: if isAuth(); allow update: if isAuth() && (isManager() || request.auth.uid == resource.data.assigneeUid); allow create,delete: if isManager(); }",
+    "    match /mompro_users/{id}    { allow read: if isAuth(); allow write: if isAdmin() || request.auth.uid == id; }",
+    "    match /mompro_meta/{id}     { allow read: if isAuth(); allow write: if isAdmin(); }",
+    "    match /{col}/{id}           { allow read,write: if isAdmin(); }",
+    "  }",
+    "}"
+  ].join('\n');
 
-    <!-- Dynamic connection banner -->
-    <div id="fb-status-banner" style="border-radius:var(--r);padding:12px 18px;margin-bottom:18px;display:flex;align-items:center;gap:12px;border:1px solid;"></div>
-
-    <!-- Live Account Status -->
-    <div class="card" style="padding:0;margin-bottom:18px;">
-      <div style="padding:13px 18px;border-bottom:1px solid var(--br);display:flex;align-items:center;justify-content:space-between;">
-        <div class="ctit">🔥 Firebase Account Presence</div>
-        <div style="display:flex;gap:8px;align-items:center;">
-          <span id="fb-online-count" style="font-size:11px;color:var(--t3);">— / ${USERS.length} online</span>
-          <button class="btn bs" onclick="fbWatchPresence();showToast('Presence listener refreshed.','info')">↻ Refresh</button>
-        </div>
+  document.getElementById('content').innerHTML = `
+  <div style="max-width:700px;">
+    <div class="card" style="margin-bottom:18px;padding:16px 20px;">
+      <div class="ch" style="margin-bottom:10px;">
+        <div class="ctit">Firebase / Firestore Status</div>
+        <span style="font-size:11px;font-weight:600;padding:4px 10px;border-radius:10px;border:1px solid;
+          background:${isLive?'var(--ol)':'var(--wl)'};color:${isLive?'var(--ok)':'var(--wn)'};">
+          ${isLive?'Live':'Connecting...'}
+        </span>
       </div>
-      <div class="tw"><table>
-        <thead><tr><th>User</th><th>Status</th><th>Last Seen</th><th>Sessions</th><th>Auth Provider</th><th>Last Login</th><th>Actions</th></tr></thead>
-        <tbody id="fb-presence-tbody"></tbody>
-      </table></div>
+      <div style="font-size:12px;color:var(--t2);margin-bottom:10px;">
+        Project: <code style="font-family:var(--mo);color:var(--ac);">${_FB_CFG.projectId}</code>
+        &nbsp;|&nbsp; Collections: <code style="font-family:var(--mo);color:var(--ac);">mompro_*</code>
+      </div>
+      <div class="alert ${isLive?'ai':'aw'}">
+        ${isLive
+          ? '<b>Connected - all devices share data in real time.</b> Meetings, tasks and users sync via Firestore automatically.'
+          : '<b>Connecting to Firestore...</b> Data will sync once connected. Check internet if this persists.'}
+      </div>
     </div>
-
-    <!-- Firebase SDK Config form -->
+    <div class="card" style="margin-bottom:18px;">
+      <div class="ch"><div class="ctit">Users (${USERS.length})</div></div>
+      ${USERS.length
+        ? '<div class="tw"><table><thead><tr><th>Name</th><th>Dept</th><th>Role</th><th>Email</th></tr></thead><tbody>'
+          + USERS.map(u=>`<tr>
+            <td><div style="display:flex;align-items:center;gap:8px;">${av(u,24)}<span style="font-weight:500;font-size:12px;">${u.name}</span></div></td>
+            <td style="font-size:12px;">${u.dept||''}</td>
+            <td><span class="bdg ${u.role==='super-admin'?'b-er':u.role==='admin'?'b-wn':u.role==='manager'?'b-ok':'b-df'}">${u.role}</span></td>
+            <td style="font-size:11px;color:var(--t3);font-family:var(--mo);">${u.email||''}</td>
+          </tr>`).join('')
+          + '</tbody></table></div>'
+        : '<div style="color:var(--t3);font-size:13px;">No users yet.</div>'}
+    </div>
     <div class="card">
       <div class="ch">
-        <div class="ctit">Firebase SDK Configuration</div>
-        <button class="btn bs ber" onclick="fbDisconnect()">Disconnect</button>
+        <div class="ctit">Firestore Security Rules</div>
+        <button class="btn bs bp" onclick="
+          const el=document.getElementById('fs-rules-pre');
+          navigator.clipboard.writeText(el.textContent)
+            .then(()=>showToast('Rules copied - paste in Firebase Console > Firestore > Rules','ok'))
+            .catch(()=>showToast('Select and copy the text manually','warn'))
+        ">Copy Rules</button>
       </div>
-      <div style="background:var(--bg3);border-radius:var(--rs);padding:10px 14px;font-size:11px;color:var(--t2);margin-bottom:14px;line-height:1.7;">
-        📋 Get these values from <b>Firebase Console → Project Settings → Your apps → SDK setup</b>.
-        The <b>Database URL</b> is under <b>Realtime Database → Data tab</b>. For US it ends in <code style="font-family:var(--mo)">.firebaseio.com</code>, for all other regions it ends in <code style="font-family:var(--mo)">.firebasedatabase.app</code>. Copy the full URL exactly as shown.
-        <br><br>
-        ☁️ <b>Once connected, all meetings, tasks, and users sync automatically across devices in real time.</b> Any device opening the app with the same Firebase config will see live data. Credentials are saved in <code style="font-family:var(--mo)">localStorage</code> — do not use in production without a secure backend proxy.
+      <div style="background:var(--bg3);border-radius:var(--rs);padding:8px 12px;font-size:11px;color:var(--t2);margin-bottom:10px;line-height:1.7;">
+        Deploy in <b>Firebase Console &rarr; Firestore Database &rarr; Rules</b>, then click <b>Publish</b>.
       </div>
-      <div class="fgrid">
-        <div class="fg"><label>API KEY *</label>
-          <input id="fb-apiKey" placeholder="AIzaSyXXXXXXXXXXXXXXXXXXXXXXXXXXXXX" value="${cfg.apiKey||''}">
-        </div>
-        <div class="fg"><label>AUTH DOMAIN *</label>
-          <input id="fb-authDomain" placeholder="your-project.firebaseapp.com" value="${cfg.authDomain||''}">
-        </div>
-        <div class="fg"><label>PROJECT ID *</label>
-          <input id="fb-projectId" placeholder="your-project-id" value="${cfg.projectId||''}">
-        </div>
-        <div class="fg"><label>STORAGE BUCKET</label>
-          <input id="fb-storageBucket" placeholder="your-project.appspot.com" value="${cfg.storageBucket||''}">
-        </div>
-        <div class="fg"><label>MESSAGING SENDER ID</label>
-          <input id="fb-senderId" placeholder="123456789012" value="${cfg.messagingSenderId||''}">
-        </div>
-        <div class="fg"><label>APP ID *</label>
-          <input id="fb-appId" placeholder="1:123456:web:abcdef123456" value="${cfg.appId||''}">
-        </div>
-        <div class="fg full"><label>REALTIME DATABASE URL * <span style="font-weight:400;color:var(--t3)">(required for presence)</span></label>
-          <input id="fb-dbUrl" placeholder="https://your-project-default-rtdb.firebaseio.com  or  …firebasedatabase.app" value="${cfg.databaseURL||''}">
-        </div>
-        <div class="fg full"><label>MEASUREMENT ID <span style="font-weight:400;color:var(--t3)">(optional — Analytics)</span></label>
-          <input id="fb-measureId" placeholder="G-XXXXXXXXXX" value="${cfg.measurementId||''}">
-        </div>
-      </div>
-      <div style="display:flex;gap:9px;margin-top:4px;flex-wrap:wrap;">
-        <button id="fb-test-btn" class="btn" onclick="fbTestConnection()">Test Connection</button>
-        <button id="fb-connect-btn" class="btn bp" onclick="fbSaveAndConnect()">💾 Save &amp; Connect</button>
-        <button class="btn" onclick="localStorage.removeItem('mompro_firebase_config');showToast('Saved credentials cleared.','info')">Clear Saved Credentials</button>
-      </div>
-      <div style="margin-top:14px;padding:12px 14px;background:var(--bg3);border-radius:var(--rs);">
-        <div style="font-size:11px;font-weight:600;color:var(--t2);margin-bottom:8px;">TEST USER SIGN-IN (verify Firebase Auth credentials work)</div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;">
-          <input id="fb-test-email" type="email" placeholder="user@yourcompany.com" style="flex:1;min-width:180px;font-size:12px;">
-          <input id="fb-test-pass" type="password" placeholder="password" style="width:140px;font-size:12px;">
-          <button class="btn bs bp" onclick="fbSignInUser(document.getElementById('fb-test-email').value.trim(),document.getElementById('fb-test-pass').value)">Sign In</button>
-        </div>
-        <div style="font-size:10px;color:var(--t3);margin-top:5px;">Signs into Firebase Auth and writes presence. User must already exist in Firebase Authentication console.</div>
-      </div>
+      <pre id="fs-rules-pre" style="background:#0d1117;color:#e5e7eb;border-radius:var(--rs);padding:14px;font-family:var(--mo);font-size:11px;line-height:1.8;overflow-x:auto;white-space:pre;margin:0;">${RULES}</pre>
     </div>
   </div>`;
-
-  // Populate banner and presence table immediately
-  _updateFbBanner();
-  const tbody=document.getElementById('fb-presence-tbody');
-  if(tbody) _renderPresenceRows(tbody);
-  const cnt=document.getElementById('fb-online-count');
-  if(cnt) cnt.textContent=`${USERS.filter(u=>FB_STATUS[u.id]?.online).length} / ${USERS.length} online`;
 }
 
 /* ═══════════════════════════════════════════
@@ -3001,7 +2770,8 @@ function deleteUserRow(uid){
   if(idx>-1)USERS.splice(idx,1);
   delete USER_PASSWORDS[uid];   // remove password entry too
   AUDIT_LOG.unshift({time:new Date().toISOString().slice(0,16).replace('T',' '),user:'Super Admin',action:`Deleted user: ${u.name} (${u.email})`,entity:'SYSTEM',type:'delete'});
-  persistUsers();   // save deletion to localStorage
+  persistUsers();
+  fsDeleteUser(uid);
   showToast(`${u.name} removed.`,'warn');
   renderUsers();
 }
@@ -3571,8 +3341,10 @@ function saveMeeting(){
     tasksSaved++;
   });
 
-  persistMeetings();  // save to localStorage so meetings survive reload
-  persistTasks();     // save action items to localStorage too
+  persistMeetings();
+  persistTasks();
+  fsWriteMeeting(newMeeting);
+  TASKS.filter(t=>t.mid===newMeetingId).forEach(t=>fsWriteTask(t));
 
   // Send one grouped email per assignee for all action items
   const newTaskIds = TASKS.filter(t=>t.mid===newMeetingId).map(t=>t.id);
@@ -3691,7 +3463,8 @@ function saveTaskStatus(id){
   _logAndNotify(t, oldStatus, newStatus, cmt, userName);
   const azConfigured = typeof azureSavedConfig==='function' && azureSavedConfig()?.msClientId;
   if(!azConfigured) showToast(`Status updated to "${newStatus}".`,'ok');
-  persistTasks();   // save updated status to localStorage
+  persistTasks();
+  fsWriteTask(t);
   closeModal();
   renderTasks();
 }
@@ -3715,7 +3488,8 @@ function saveTask(id){
     _logAndNotify(t, oldStatus, t.status, cmt, userName);
     const azConfigured = typeof azureSavedConfig==='function' && azureSavedConfig()?.msClientId;
     if(!azConfigured) showToast('Task saved.','ok');
-    persistTasks();   // save updated task to localStorage
+    persistTasks();
+    if(t) fsWriteTask(t);
   }
   closeModal();
 }
@@ -4020,32 +3794,15 @@ function renderDevSystem(){
 /* ═══════════════════════════════════════════
    INIT
 ═══════════════════════════════════════════ */
-loadPersistedUsers();   // restore saved users before anything else renders
-loadPersistedMeetings(); // restore saved meetings before rendering
-loadPersistedTasks();    // restore saved tasks before rendering
+loadPersistedUsers();
+loadPersistedMeetings();
+loadPersistedTasks();
 buildNav();
 navigate('dashboard');
+startFirebaseSync(); // boot Firestore - works on any device
 // Check for deep-link (assignee clicked email link) — if found, skip login
 initCompanyName();
 updateBell(); // initial badge counts
-
-// ── Cross-device notice ─────────────────────────────────────────────────────
-// If no users exist AND Firebase is not yet connected, the app opened on a
-// fresh device (no localStorage). Show a helpful banner on the login screen.
-(function checkCrossDevice(){
-  const hasFbConfig = !!(fbSavedConfig()?.apiKey);
-  if(USERS.length===0 && !hasFbConfig){
-    // Inject a notice above the login card
-    const overlay = document.getElementById('login-overlay');
-    if(overlay){
-      const notice = document.createElement('div');
-      notice.style.cssText = 'position:fixed;top:0;left:0;right:0;background:#1a4a6b;color:#bae6fd;font-size:12px;padding:8px 16px;text-align:center;z-index:9999;display:flex;align-items:center;justify-content:center;gap:8px;';
-      notice.innerHTML = '<span style="font-size:16px;">☁️</span><span><strong>New device detected.</strong> To access shared data, please configure Firebase in <em>Settings → Firebase Config</em> after logging in with your admin credentials.</span>';
-      document.body.insertBefore(notice, document.body.firstChild);
-    }
-  }
-})();
-
 if(!handleDeepLink()){
   // Normal flow — show login screen
   initLogin();
