@@ -344,6 +344,30 @@ let aiItemCount=2;
 /* ═══════════════════════════════════════════
    AUTH
 ═══════════════════════════════════════════ */
+/* ── Departments ─────────────────────────────────────────────────────────────
+   Editable list — persisted to localStorage + Firestore meta
+─────────────────────────────────────────────────────────────────────────── */
+const DEPT_STORE_KEY = 'mompro_departments_v1';
+let DEPARTMENTS = ['Operations','Finance','IT','HR','Executive','Marketing','Legal','Procurement'];
+
+function loadPersistedDepartments(){
+  try{
+    const saved = JSON.parse(localStorage.getItem(DEPT_STORE_KEY) || 'null');
+    if(saved && Array.isArray(saved) && saved.length > 0){
+      DEPARTMENTS = saved;
+    }
+  }catch(e){}
+}
+
+function persistDepartments(){
+  try{ localStorage.setItem(DEPT_STORE_KEY, JSON.stringify(DEPARTMENTS)); }catch(e){}
+  fsWriteMeta({ departments: DEPARTMENTS });
+}
+
+function deptOptions(selected){
+  return DEPARTMENTS.map(d=>`<option value="${d}"${selected===d?' selected':''}>${d}</option>`).join('');
+}
+
 const AUTH_CREDENTIALS={
   superadmin:{password:'admin@123',role:'super-admin',display:'Super Admin',desc:'Administrator',ini:'SA',col:'#bae6fd',tc:'#0284c7'},
   admin:     {password:'admin@456',role:'admin',      display:'Admin',       desc:'Admin',          ini:'AD',col:'#bbf7d0',tc:'#15803d'},
@@ -1301,34 +1325,70 @@ function saveAddTask(meetingId){
 ═══════════════════════════════════════════ */
 function renderTasks(){
   selectedTasks=new Set();
-  const isSA=currentRole==='super-admin';
+  const canSeeAll = ['super-admin','admin','top-mgmt','manager','developer'].includes(currentRole);
+  const isSA = ['super-admin','admin','developer'].includes(currentRole);
+  const myUid = loggedInAs&&loggedInAs.id ? Number(loggedInAs.id) : null;
+  const deptLabel = currentRole==='manager' ? 'Dept Tasks' : 'All Tasks';
+
+  // Build tabs
+  const statusTabs = [
+    {id:'in-progress',label:'In Progress'},
+    {id:'overdue',label:'Overdue'},
+    {id:'pending',label:'Pending'},
+    {id:'completed',label:'Completed'}
+  ];
+  let tabDefs;
+  if(canSeeAll){
+    tabDefs = [
+      {id:'my-tasks', label:'My Tasks'},
+      {id:'all',      label:deptLabel},
+      ...statusTabs
+    ];
+  } else {
+    tabDefs = [{id:'all',label:'All'}, ...statusTabs];
+  }
+  const tabsHtml = tabDefs.map((t,i)=>
+    `<div class="tab${i===0?' active':''}" data-tab="${t.id}" onclick="filterTasks('${t.id}',this)">${t.label}</div>`
+  ).join('');
+
+  // Initial data: canSeeAll → My Tasks; assignee → own tasks
+  const initTasks = canSeeAll && myUid
+    ? TASKS.filter(t=>Number(t.uid)===myUid)
+    : getVisibleTasks();
+
   document.getElementById('content').innerHTML=`
-  <div class="tabs" id="task-tabs">
-    ${['All','In Progress','Overdue','Pending','Completed'].map((l,i)=>`<div class="tab${i===0?' active':''}" onclick="filterTasks('${l.toLowerCase().replace(' ','-')}',this)">${l}</div>`).join('')}
-  </div>
+  <div class="tabs" id="task-tabs">${tabsHtml}</div>
   ${isSA?`<div id="task-sel-bar" class="task-sel-bar" style="display:none;">
     <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M13 4L6 11 3 8"/></svg>
     <span id="sel-count">0 tasks selected</span>
     <button class="btn ber bs" style="margin-left:auto;" onclick="deleteSelectedTasks()">
       <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M2 4h12M5 4V2h6v2M6 7v5M10 7v5M3 4l1 9a1 1 0 001 1h6a1 1 0 001-1l1-9"/></svg>
-      Delete Selected
-    </button>
+      Delete Selected</button>
     <button class="btn bs" onclick="clearTaskSelection()">Clear</button>
   </div>`:''}
-  <div class="card" style="padding:0;"><div class="tw" id="ttbl">${(()=>{
-    const initTasks=getVisibleTasks();
-    return taskRows(initTasks);
-  })()}</div></div>`;
+  <div class="card" style="padding:0;"><div class="tw" id="ttbl">${taskRows(initTasks)}</div></div>`;
 }
+
 function filterTasks(s,el){
   document.querySelectorAll('#task-tabs .tab').forEach(t=>t.classList.remove('active'));
   el.classList.add('active');
   selectedTasks=new Set();
   updateSelBar();
-  const myT=getVisibleTasks();
-  const f=s==='all'?myT:myT.filter(t=>t.status===s);
+  const myUid = loggedInAs&&loggedInAs.id ? Number(loggedInAs.id) : null;
+  let f;
+  if(s==='my-tasks'){
+    // Only tasks assigned to the logged-in user regardless of role
+    f = myUid ? TASKS.filter(t=>Number(t.uid)===myUid) : [];
+  } else if(s==='all'){
+    // Role-scoped: dept for manager, everything for SA/admin/top-mgmt
+    f = getVisibleTasks();
+  } else {
+    // Status filter applied on role-scoped set
+    f = getVisibleTasks().filter(t=>t.status===s);
+  }
   document.getElementById('ttbl').innerHTML=taskRows(f);
 }
+
 function taskRows(data){
   const isSA=currentRole==='super-admin';
   const cbHeader=isSA?`<th style="width:32px;padding:9px 6px 9px 12px;"><input type="checkbox" class="task-cb" id="cb-all" onclick="toggleSelectAll(this)" title="Select all"></th>`:'';
@@ -2214,6 +2274,10 @@ function initFirestoreListeners() {
       MEETING_TYPES.length = 0;
       d.meetingTypes.forEach(t => MEETING_TYPES.push(t));
     }
+    if (Array.isArray(d.departments) && d.departments.length) {
+      DEPARTMENTS = d.departments;
+      try { localStorage.setItem(DEPT_STORE_KEY, JSON.stringify(DEPARTMENTS)); } catch(e2) {}
+    }
   }, e => console.warn("[MoMPro] Meta listener:", e.code));
 }
 
@@ -2976,7 +3040,7 @@ function renderUsers(){
           <td><input id="uemail-${u.id}" value="${u.email}" type="email" style="width:180px;font-size:11px;"></td>
           <td>
             <select id="udept-${u.id}" style="font-size:11px;width:120px;">
-              ${['Operations','Finance','IT','HR','Executive','Marketing','Legal','Procurement'].map(d=>`<option ${u.dept===d?'selected':''}>${d}</option>`).join('')}
+              ${deptOptions(u.dept)}
             </select>
           </td>
           <td>
@@ -3073,7 +3137,7 @@ function renderAddUserModal(){
     </div>
     <div class="fg"><label>DEPARTMENT</label>
       <select id="nu-dept">
-        ${['Operations','Finance','IT','HR','Executive','Marketing','Legal','Procurement'].map(d=>`<option>${d}</option>`).join('')}
+        ${deptOptions('')}
       </select>
     </div>
     <div class="fg"><label>ROLE</label>
@@ -3208,12 +3272,13 @@ function renderEscCfg(){
 
 function renderCompanySettings(){
   var cur=companyName||'Your Company Name';
-  document.getElementById('content').innerHTML='<div style="max-width:520px;">'
+  document.getElementById('content').innerHTML=
+    '<div style="max-width:560px;display:flex;flex-direction:column;gap:18px;">'
     +'<div class="card">'
     +'<div class="ch"><div class="ctit">Company Information</div></div>'
     +'<p style="font-size:12px;color:var(--t2);margin-bottom:16px;">This name appears on all exported PDF and Excel documents.</p>'
     +'<div class="fg"><label>COMPANY NAME</label>'
-    +'<input id="co-name-input" value="'+cur+'" placeholder="e.g. Polyplastics India Pvt Ltd" style="font-size:14px;padding:10px 12px;">'
+    +'<input id="co-name-input" value="'+cur.replace(/"/g,'&quot;')+'" placeholder="e.g. Polyplastics India Pvt Ltd" style="font-size:14px;padding:10px 12px;">'
     +'</div>'
     +'<div style="display:flex;gap:9px;margin-top:6px;">'
     +'<button class="btn bp" onclick="saveCompanyFromSettings()">Save Company Name</button>'
@@ -3224,11 +3289,84 @@ function renderCompanySettings(){
     +'<span id="co-preview" style="font-size:16px;font-weight:700;color:var(--tx);">'+cur+'</span>'
     +'<span style="font-size:11px;color:var(--t3);"> &mdash; Minutes of Meeting</span>'
     +'</div>'
-    +'</div></div>';
+    +'</div>'
+    +buildDeptCard()
+    +'</div>';
   document.getElementById('co-name-input').addEventListener('input',function(){
     document.getElementById('co-preview').textContent=this.value||'Your Company Name';
   });
 }
+
+function buildDeptCard(){
+  return '<div class="card" id="dept-card">'
+    +'<div class="ch">'
+    +'<div class="ctit">Departments</div>'
+    +'<span style="font-size:11px;color:var(--t3);">'+DEPARTMENTS.length+' departments</span>'
+    +'</div>'
+    +'<p style="font-size:12px;color:var(--t2);margin-bottom:14px;">Add, rename or delete departments. Used in user profiles and manager task visibility.</p>'
+    +'<div id="dept-list">'
+    +DEPARTMENTS.map(function(d,i){
+      var userCount=USERS.filter(function(u){return u.dept===d;}).length;
+      return '<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--br);" id="dept-row-'+i+'">'
+        +'<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" style="flex-shrink:0;color:var(--t3);"><rect x="2" y="3" width="12" height="10" rx="1"/><path d="M7 13v3M5 16h6"/></svg>'
+        +'<input value="'+d.replace(/"/g,'&quot;')+'" data-idx="'+i+'" style="flex:1;font-size:13px;padding:5px 8px;" '
+        +'onchange="renameDept(this)" onkeydown="if(event.key===\'Enter\')this.blur()">'
+        +'<span style="font-size:10px;color:var(--t3);min-width:40px;text-align:right;">'+userCount+' user'+(userCount!==1?'s':'')+'</span>'
+        +'<button class="btn bs ber" onclick="deleteDept('+i+')" title="'+(userCount>0?'Reassign users first':'Delete department')+'">✕</button>'
+        +'</div>';
+    }).join('')
+    +'</div>'
+    +'<div style="display:flex;gap:8px;margin-top:14px;">'
+    +'<input id="dept-new-input" placeholder="New department name…" style="flex:1;" onkeydown="if(event.key===\'Enter\')addDept()">'
+    +'<button class="btn bok" onclick="addDept()">+ Add</button>'
+    +'</div>'
+    +'</div>';
+}
+
+function renameDept(input){
+  var idx=parseInt(input.dataset.idx);
+  var val=input.value.trim();
+  if(!val){showToast('Department name cannot be empty','warn');input.value=DEPARTMENTS[idx];return;}
+  var oldName=DEPARTMENTS[idx];
+  if(val===oldName) return;
+  if(DEPARTMENTS.map(function(d){return d.toLowerCase();}).includes(val.toLowerCase())){
+    showToast('"'+val+'" already exists','warn');input.value=oldName;return;
+  }
+  USERS.forEach(function(u){ if(u.dept===oldName){ u.dept=val; fsWriteUser(u); } });
+  DEPARTMENTS[idx]=val;
+  persistDepartments();
+  persistUsers();
+  showToast('Renamed "'+oldName+'" to "'+val+'"','ok');
+  document.getElementById('dept-card').outerHTML=buildDeptCard();
+}
+
+function addDept(){
+  var inp=document.getElementById('dept-new-input');
+  var val=(inp?inp.value:'').trim();
+  if(!val){showToast('Enter a department name','warn');return;}
+  if(DEPARTMENTS.map(function(d){return d.toLowerCase();}).includes(val.toLowerCase())){
+    showToast('"'+val+'" already exists','warn');return;
+  }
+  DEPARTMENTS.push(val);
+  persistDepartments();
+  showToast('"'+val+'" added','ok');
+  document.getElementById('dept-card').outerHTML=buildDeptCard();
+}
+
+function deleteDept(idx){
+  var name=DEPARTMENTS[idx];
+  var usersInDept=USERS.filter(function(u){return u.dept===name;});
+  if(usersInDept.length>0){
+    showToast('"'+name+'" has '+usersInDept.length+' user(s) — reassign them first in Users & Roles','warn');
+    return;
+  }
+  if(!confirm('Delete department "'+name+'"? This cannot be undone.')) return;
+  DEPARTMENTS.splice(idx,1);
+  persistDepartments();
+  showToast('"'+name+'" deleted','ok');
+  document.getElementById('dept-card').outerHTML=buildDeptCard();
+}
+
 
 function saveCompanyFromSettings(){
   var val=document.getElementById('co-name-input').value.trim();
@@ -4288,6 +4426,7 @@ function renderDevSystem(){
 /* ═══════════════════════════════════════════
    INIT
 ═══════════════════════════════════════════ */
+loadPersistedDepartments();
 loadPersistedUsers();
 loadPersistedMeetings();
 loadPersistedTasks();
