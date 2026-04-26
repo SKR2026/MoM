@@ -353,6 +353,10 @@ function persistUsers(){
     localStorage.setItem(USERS_STORE_KEY, JSON.stringify(USERS));
     localStorage.setItem(PWDS_STORE_KEY,  JSON.stringify(USER_PASSWORDS));
   }catch(e){ console.warn('Could not persist users:', e); }
+  if(_fbDb) try{
+    _fbDb.ref('mompro/users').set(USERS);
+    _fbDb.ref('mompro/userPasswords').set(USER_PASSWORDS);
+  }catch(e){}
 }
 
 function loadPersistedUsers(){
@@ -382,6 +386,7 @@ const TASKS_STORE_KEY    = 'mompro_tasks_v2';
 function persistMeetings(){
   try{ localStorage.setItem(MEETINGS_STORE_KEY, JSON.stringify(MEETINGS)); }
   catch(e){ console.warn('Could not persist meetings:', e); }
+  if(_fbDb) try{ _fbDb.ref('mompro/meetings').set(MEETINGS); }catch(e){}
 }
 
 function loadPersistedMeetings(){
@@ -397,6 +402,7 @@ function loadPersistedMeetings(){
 function persistTasks(){
   try{ localStorage.setItem(TASKS_STORE_KEY, JSON.stringify(TASKS)); }
   catch(e){ console.warn('Could not persist tasks:', e); }
+  if(_fbDb) try{ _fbDb.ref('mompro/tasks').set(TASKS); }catch(e){}
   setTimeout(updateBell, 0); // refresh live counts
 }
 
@@ -507,7 +513,7 @@ function doLogin(){
     const storedPw = USER_PASSWORDS[Number(matchUser.id)];
     if(storedPw !== undefined && storedPw === pVal){
       errEl.style.display='none';
-      loggedInAs = 'user-' + matchUser.id;
+      loggedInAs = matchUser;  // store full user object so loggedInAs.id works everywhere
       const roleMap = {'super-admin':'super-admin','admin':'admin','top-mgmt':'top-mgmt','manager':'manager','assignee':'assignee'};
       currentRole = roleMap[matchUser.role] || matchUser.role;
       hideLoginScreen();
@@ -529,7 +535,7 @@ function doLogin(){
 function loginAsUser(uid){
   const u=USERS.find(x=>x.id===uid);
   if(!u)return;
-  loggedInAs='user';
+  loggedInAs=u;  // store full user object so loggedInAs.id is available
   // Map role to app role — preserve super-admin and admin roles
   const roleMap={'super-admin':'super-admin','admin':'admin','top-mgmt':'top-mgmt','manager':'manager','assignee':'assignee'};
   currentRole=roleMap[u.role]||'assignee';
@@ -845,7 +851,8 @@ function switchRole(r){
    DASHBOARD
 ═══════════════════════════════════════════ */
 function renderDashboard(){
-  const myTasks=currentRole==='assignee'?TASKS.filter(t=>t.uid===1):TASKS;
+  const myUidDash=loggedInAs&&loggedInAs.id?loggedInAs.id:null;
+  const myTasks=currentRole==='assignee'&&myUidDash?TASKS.filter(t=>t.uid===myUidDash):TASKS;
   const comp=myTasks.filter(t=>t.status==='completed').length;
   const over=myTasks.filter(t=>t.status==='overdue').length;
   const inp=myTasks.filter(t=>t.status==='in-progress').length;
@@ -1192,7 +1199,8 @@ function filterTasks(s,el){
   el.classList.add('active');
   selectedTasks=new Set();
   updateSelBar();
-  const myT=currentRole==='assignee'?TASKS.filter(t=>t.uid===1):TASKS;
+  const myUidFt=loggedInAs&&loggedInAs.id?loggedInAs.id:null;
+  const myT=currentRole==='assignee'&&myUidFt?TASKS.filter(t=>t.uid===myUidFt):TASKS;
   const f=s==='all'?myT:myT.filter(t=>t.status===s);
   document.getElementById('ttbl').innerHTML=taskRows(f);
 }
@@ -2080,6 +2088,7 @@ function fbSaveAndConnect(){
       console.log('Firebase Auth ready. Current user:', user?.email||'none');
     });
     fbWatchPresence();
+    fbStartSync(); // start cross-device data sync
     AUDIT_LOG.unshift({time:new Date().toISOString().slice(0,16).replace('T',' '),user:'Super Admin',action:`Firebase connected: project "${cfg.projectId}"`,entity:'SYSTEM',type:'config'});
     if(btn){btn.textContent='✓ Connected';btn.style.background='var(--ok)';}
     _updateFbBanner();
@@ -2131,8 +2140,8 @@ function fbRevokeSession(email, name){
 function fbDisconnect(){
   if(!_fbApp){showToast('Not connected.','warn');return;}
   if(!confirm('Disconnect from Firebase?')) return;
-  try{ _fbDb?.ref('presence').off(); _fbApp.delete(); }catch(e){}
-  _fbApp=null; _fbAuth=null; _fbDb=null;
+  try{ _fbDb?.ref('presence').off(); _fbDb?.ref('mompro').off(); _fbApp.delete(); }catch(e){}
+  _fbApp=null; _fbAuth=null; _fbDb=null; _fbSyncActive=false;
   _updateFbBanner();
   showToast('Firebase disconnected.','info');
 }
@@ -2181,10 +2190,73 @@ async function fbCreateUser(email, password, displayName){
   loadFirebaseSDK(()=>{
     if(initFirebase(cfg)){
       fbWatchPresence();
+      fbStartSync(); // start realtime cross-device sync
       console.log('Firebase auto-connected to', cfg.projectId);
     }
   });
 })();
+
+/* ═══════════════════════════════════════════
+   FIREBASE CROSS-DEVICE DATA SYNC
+   Syncs MEETINGS, TASKS, USERS to Firebase Realtime DB
+   so data is accessible from any device.
+═══════════════════════════════════════════ */
+let _fbSyncActive = false;
+
+function fbWriteData(){
+  if(!_fbDb) return;
+  try{
+    _fbDb.ref('mompro/meetings').set(MEETINGS);
+    _fbDb.ref('mompro/tasks').set(TASKS);
+    _fbDb.ref('mompro/users').set(USERS);
+    _fbDb.ref('mompro/userPasswords').set(USER_PASSWORDS);
+    _fbDb.ref('mompro/meetingTypes').set(MEETING_TYPES);
+    _fbDb.ref('mompro/companyName').set(companyName||'');
+    _fbDb.ref('mompro/auditLog').set(AUDIT_LOG.slice(0,200));
+  }catch(e){ console.warn('FB write error:', e); }
+}
+
+function fbStartSync(){
+  if(_fbSyncActive || !_fbDb) return;
+  _fbSyncActive = true;
+  // Listen for changes from other devices and merge
+  _fbDb.ref('mompro').on('value', snap=>{
+    const d = snap.val();
+    if(!d) return;
+    if(Array.isArray(d.meetings) && d.meetings.length){
+      MEETINGS.length=0; d.meetings.forEach(m=>MEETINGS.push(m));
+      // save to localStorage as backup
+      try{ localStorage.setItem(MEETINGS_STORE_KEY, JSON.stringify(MEETINGS)); }catch(e){}
+    }
+    if(Array.isArray(d.tasks) && d.tasks.length){
+      TASKS = d.tasks.map(t=>({...t, uid: t.uid!=null ? Number(t.uid) : null}));
+      try{ localStorage.setItem(TASKS_STORE_KEY, JSON.stringify(TASKS)); }catch(e){}
+    }
+    if(Array.isArray(d.users) && d.users.length){
+      USERS.length=0; d.users.forEach(u=>USERS.push(u));
+      try{ localStorage.setItem(USERS_STORE_KEY, JSON.stringify(USERS)); }catch(e){}
+    }
+    if(d.userPasswords && typeof d.userPasswords==='object'){
+      Object.assign(USER_PASSWORDS, d.userPasswords);
+      try{ localStorage.setItem(PWDS_STORE_KEY, JSON.stringify(USER_PASSWORDS)); }catch(e){}
+    }
+    if(Array.isArray(d.meetingTypes) && d.meetingTypes.length){
+      MEETING_TYPES.length=0; d.meetingTypes.forEach(t=>MEETING_TYPES.push(t));
+      try{ localStorage.setItem('momMeetingTypes', JSON.stringify(MEETING_TYPES)); }catch(e){}
+    }
+    if(typeof d.companyName==='string' && d.companyName){
+      companyName=d.companyName;
+      try{ localStorage.setItem('momCompanyName', companyName); }catch(e){}
+      initCompanyName();
+    }
+    if(Array.isArray(d.auditLog) && d.auditLog.length){
+      AUDIT_LOG.length=0; d.auditLog.forEach(a=>AUDIT_LOG.push(a));
+    }
+    // Refresh current view if already logged in
+    if(loggedInAs) buildNav();
+  }, e=>{ console.warn('FB sync listener error:', e); });
+  showToast('☁️ Firebase sync active — data shared across devices','ok');
+}
 
 function renderFirebase(){
   const cfg=fbSavedConfig()||{};
@@ -2219,7 +2291,8 @@ function renderFirebase(){
       <div style="background:var(--bg3);border-radius:var(--rs);padding:10px 14px;font-size:11px;color:var(--t2);margin-bottom:14px;line-height:1.7;">
         📋 Get these values from <b>Firebase Console → Project Settings → Your apps → SDK setup</b>.
         The <b>Database URL</b> is under <b>Realtime Database → Data tab</b>. For US it ends in <code style="font-family:var(--mo)">.firebaseio.com</code>, for all other regions it ends in <code style="font-family:var(--mo)">.firebasedatabase.app</code>. Copy the full URL exactly as shown.
-        Credentials are saved in <code style="font-family:var(--mo)">localStorage</code> — do not use in production without a secure backend proxy.
+        <br><br>
+        ☁️ <b>Once connected, all meetings, tasks, and users sync automatically across devices in real time.</b> Any device opening the app with the same Firebase config will see live data. Credentials are saved in <code style="font-family:var(--mo)">localStorage</code> — do not use in production without a secure backend proxy.
       </div>
       <div class="fgrid">
         <div class="fg"><label>API KEY *</label>
@@ -3376,7 +3449,7 @@ function renderNewMeetingModal(){
     ${[1,2].map(i=>`<div style="background:var(--bg3);border-radius:8px;padding:12px;margin-bottom:9px;">
       <div class="fgrid">
         <div class="fg full"><label>ACTION ITEM ${i}</label><input placeholder="Describe the action required…"></div>
-        <div class="fg"><label>ASSIGNEE</label><select>${USERS.map(u=>`<option value="${u.id}">${u.name}</option>`).join('')}</select></div>
+        <div class="fg"><label>ASSIGNEE</label><select>${USERS.map(u=>`<option>${u.name}</option>`).join('')}</select></div>
         <div class="fg"><label>DUE DATE</label><input type="date"></div>
         <div class="fg"><label>PRIORITY</label><select><option>high</option><option selected>medium</option><option>low</option></select></div>
       </div>
@@ -3432,7 +3505,7 @@ function addAIItem(){
   aiItemCount++;
   const d=document.createElement('div');
   d.style.cssText='background:var(--bg3);border-radius:8px;padding:12px;margin-bottom:9px;';
-  d.innerHTML=`<div class="fgrid"><div class="fg full"><label>ACTION ITEM ${aiItemCount}</label><input placeholder="Describe the action required…"></div><div class="fg"><label>ASSIGNEE</label><select>${USERS.map(u=>`<option value="${u.id}">${u.name}</option>`).join('')}</select></div><div class="fg"><label>DUE DATE</label><input type="date"></div><div class="fg"><label>PRIORITY</label><select><option>high</option><option selected>medium</option><option>low</option></select></div></div>`;
+  d.innerHTML=`<div class="fgrid"><div class="fg full"><label>ACTION ITEM ${aiItemCount}</label><input placeholder="Describe the action required…"></div><div class="fg"><label>ASSIGNEE</label><select>${USERS.map(u=>`<option>${u.name}</option>`).join('')}</select></div><div class="fg"><label>DUE DATE</label><input type="date"></div><div class="fg"><label>PRIORITY</label><select><option>high</option><option selected>medium</option><option>low</option></select></div></div>`;
   document.getElementById('ai-items').appendChild(d);
 }
 
@@ -3467,16 +3540,17 @@ function saveMeeting(){
   aiDivs.forEach(function(div){
     const inputs=div.querySelectorAll('input,select');
     const aiTitle=(inputs[0]?.value||'').trim();
-    const assigneeUid=parseInt(inputs[1]?.value, 10);
+    const assigneeName=(inputs[1]?.value||'').trim();
     const dueDate=(inputs[2]?.value||'').trim();
     const priority=(inputs[3]?.value||'medium').trim();
     if(!aiTitle) return;
+    const assigneeUser=USERS.find(function(u){return u.name===assigneeName;});
     TASKS.push({
       id:'T'+Date.now()+Math.random().toString(36).slice(2,6),
       mid:newMeetingId,
       mno:no,
       title:aiTitle,
-      uid:isNaN(assigneeUid)?null:assigneeUid,
+      uid:assigneeUser?assigneeUser.id:(USERS[0]?.id||null),
       due:dueDate||date,
       priority:priority,
       status:'pending',
