@@ -1408,10 +1408,11 @@ function handleBulkFile(input){
         <thead><tr>${shownCols.map(c=>`<th>${c}</th>`).join('')}<th>Assignee Found</th></tr></thead>
         <tbody>
           ${rows.map(row=>{
-            const nm=(row.assignee_name||'').toLowerCase();
-            const em=(row.assignee_email||'').toLowerCase();
-            const found=USERS.find(u=>(nm&&u.name.toLowerCase()===nm)||(em&&u.email&&u.email.toLowerCase()===em));
-            const ok=found?`<span class="bdg b-ok">${found.name}</span>`:`<span class="bdg b-er">Not found</span>`;
+            const nm=(row.assignee_name||'').trim().toLowerCase();
+            const em=(row.assignee_email||'').trim().toLowerCase();
+            const found=USERS.find(u=>(nm&&u.name.toLowerCase().trim()===nm)||(em&&u.email&&u.email.toLowerCase().trim()===em))
+              ||USERS.find(u=>nm&&nm.length>=3&&(u.name.toLowerCase().startsWith(nm)||u.name.toLowerCase().split(' ').some(p=>p===nm)));
+            const ok=found?`<span class="bdg b-ok">${found.name}</span>`:`<span class="bdg b-er">Not found — check exact name/email</span>`;
             return `<tr>${shownCols.map(c=>`<td style="font-size:11px;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${row[c]||''}</td>`).join('')}<td>${ok}</td></tr>`;
           }).join('')}
         </tbody>
@@ -1471,7 +1472,7 @@ function processBulkUpload(){
           date:row.meeting_date||new Date().toISOString().slice(0,10),
           title:row.meeting_title||row['meeting title']||('Meeting '+mno),
           chairperson:(row.chairperson_name||'').trim()||'—',
-          attendees:USERS.slice(0,1).map(u=>u.id),
+          attendees:[], // start empty; actual attendees listed via attendees column
           externalAttendees:[],
           status:'active',
           venue:row.location||'TBD'
@@ -1493,11 +1494,18 @@ function processBulkUpload(){
       if(!row.action_item||!row.due_date){errors++;continue;}
 
       // Match assignee by name first, then email — no user_id needed
+      // Uses exact match first, then partial first-word match as fallback
       const nameVal=(row.assignee_name||'').trim().toLowerCase();
       const emailVal=(row.assignee_email||'').trim().toLowerCase();
       const assignee=USERS.find(u=>
-        (nameVal && u.name.toLowerCase()===nameVal) ||
-        (emailVal && u.email && u.email.toLowerCase()===emailVal)
+        (nameVal && u.name.toLowerCase().trim()===nameVal) ||
+        (emailVal && u.email && u.email.toLowerCase().trim()===emailVal)
+      ) || USERS.find(u=>
+        // Partial match: CSV 'Sushil' matches user 'Sushil Sharma'
+        (nameVal && nameVal.length>=3 && (
+          u.name.toLowerCase().startsWith(nameVal) ||
+          u.name.toLowerCase().split(' ').some(part=>part===nameVal)
+        ))
       );
       const mno=(row.meeting_no||'').trim();
       const resolvedMid=mno?meetingNoToId[mno]:null;
@@ -4020,6 +4028,24 @@ navigate('dashboard');
 // Check for deep-link (assignee clicked email link) — if found, skip login
 initCompanyName();
 updateBell(); // initial badge counts
+
+// ── Cross-device notice ─────────────────────────────────────────────────────
+// If no users exist AND Firebase is not yet connected, the app opened on a
+// fresh device (no localStorage). Show a helpful banner on the login screen.
+(function checkCrossDevice(){
+  const hasFbConfig = !!(fbSavedConfig()?.apiKey);
+  if(USERS.length===0 && !hasFbConfig){
+    // Inject a notice above the login card
+    const overlay = document.getElementById('login-overlay');
+    if(overlay){
+      const notice = document.createElement('div');
+      notice.style.cssText = 'position:fixed;top:0;left:0;right:0;background:#1a4a6b;color:#bae6fd;font-size:12px;padding:8px 16px;text-align:center;z-index:9999;display:flex;align-items:center;justify-content:center;gap:8px;';
+      notice.innerHTML = '<span style="font-size:16px;">☁️</span><span><strong>New device detected.</strong> To access shared data, please configure Firebase in <em>Settings → Firebase Config</em> after logging in with your admin credentials.</span>';
+      document.body.insertBefore(notice, document.body.firstChild);
+    }
+  }
+})();
+
 if(!handleDeepLink()){
   // Normal flow — show login screen
   initLogin();
