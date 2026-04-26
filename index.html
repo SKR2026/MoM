@@ -1908,52 +1908,134 @@ let FB_STATUS = {};  // kept for user presence display
 
 function renderFirebase(){
   const isLive = !!(_db && _listenersStarted);
+
+  const RULES_TEXT = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Role helper — reads from mompro_roles/{uid} written on login
+    function isAuth() { return request.auth != null; }
+    function role() {
+      return get(/databases/$(database)/documents/mompro_roles/$(request.auth.uid)).data.role;
+    }
+    function isAdmin()   { return isAuth() && role() in ['super-admin','admin','developer']; }
+    function isMgmt()    { return isAuth() && role() in ['super-admin','admin','developer','top-mgmt']; }
+    function isManager() { return isAuth() && role() in ['super-admin','admin','developer','top-mgmt','manager']; }
+
+    // Role docs — written by app on login; anyone authenticated can read their own
+    match /mompro_roles/{uid} {
+      allow read:  if isAuth();
+      allow write: if isAuth() && request.auth.uid == uid;
+    }
+
+    // Meetings — all authenticated users read; manager+ create/edit/delete
+    match /mompro_meetings/{id} {
+      allow read:  if isAuth();
+      allow write: if isManager();
+    }
+
+    // Tasks — all authenticated users read;
+    //   assignee can update their own (status/progress); manager+ full control
+    match /mompro_tasks/{id} {
+      allow read:   if isAuth();
+      allow update: if isAuth() && (isManager() || request.auth.uid == resource.data.assigneeUid);
+      allow create, delete: if isManager();
+    }
+
+    // Users — all authenticated users read; admin writes; user writes own doc
+    match /mompro_users/{id} {
+      allow read:  if isAuth();
+      allow write: if isAdmin() || request.auth.uid == id;
+    }
+
+    // Audit log — admin reads only; nobody writes directly (app writes via admin SDK)
+    match /mompro_audit/{id} {
+      allow read:  if isAdmin();
+      allow write: if isAdmin();
+    }
+
+    // App meta (company name, meeting types) — all read; admin writes
+    match /mompro_meta/{id} {
+      allow read:  if isAuth();
+      allow write: if isAdmin();
+    }
+
+    // Catch-all for any other mompro_* collections — admin full control
+    match /{collection}/{id} {
+      allow read, write: if isAdmin();
+    }
+  }
+}`;
+
   document.getElementById('content').innerHTML=`
-  <div style="max-width:680px;">
+  <div style="max-width:720px;">
+
+    <!-- Status card -->
     <div class="card" style="margin-bottom:18px;padding:16px 20px;">
       <div class="ch" style="margin-bottom:10px;">
         <div class="ctit">🔥 Firebase / Firestore Status</div>
-        <span style="font-size:11px;font-weight:600;padding:4px 10px;border-radius:10px;border:1px solid;background:${isLive?'var(--ol)':'var(--wl)'};color:${isLive?'var(--ok)':'var(--wn)'};">
-          ${isLive?'🔥 Live':'⚠ Connecting…'}
+        <span style="font-size:11px;font-weight:600;padding:4px 10px;border-radius:10px;border:1px solid;
+          background:\${isLive?'var(--ol)':'var(--wl)'};color:\${isLive?'var(--ok)':'var(--wn)'};">
+          \${isLive?'🔥 Live':'⚠ Connecting…'}
         </span>
       </div>
       <div style="font-size:12px;color:var(--t2);margin-bottom:10px;">
-        Project: <code style="font-family:var(--mo);color:var(--ac);">${_FB_CFG.projectId}</code>
-        &nbsp;·&nbsp; Auth Domain: <code style="font-family:var(--mo);color:var(--ac);">${_FB_CFG.authDomain}</code>
+        Project: <code style="font-family:var(--mo);color:var(--ac);">\${_FB_CFG.projectId}</code>
+        &nbsp;·&nbsp; Auth: <code style="font-family:var(--mo);color:var(--ac);">Email + Anonymous</code>
+        &nbsp;·&nbsp; Collections: <code style="font-family:var(--mo);color:var(--ac);">mompro_*</code>
       </div>
-      <div class="alert ${isLive?'ai':'aw'}">
-        ${isLive
+      <div class="alert \${isLive?'ai':'aw'}">
+        \${isLive
           ? '<b>Connected — all devices share data in real time via Firestore.</b> Meetings, tasks and users sync automatically.'
-          : '<b>Connecting to Firestore…</b> Data will sync once the connection is ready. Check your internet connection if this persists.'}
+          : '<b>Connecting to Firestore…</b> Data will sync once connected. Check internet connection if this persists.'}
       </div>
     </div>
+
+    <!-- How role security works -->
     <div class="card" style="margin-bottom:18px;">
-      <div class="ch"><div class="ctit">Users (${USERS.length})</div></div>
-      ${USERS.length ? '<div class="tw"><table><thead><tr><th>Name</th><th>Dept</th><th>Role</th><th>Email</th></tr></thead><tbody>'
-        + USERS.map(u=>'<tr><td><div style="display:flex;align-items:center;gap:8px;">'+av(u,24)+'<span style="font-weight:500;font-size:12px;">'+u.name+'</span></div></td>'
-          +'<td style="font-size:12px;">'+u.dept+'</td>'
-          +'<td><span class="bdg b-df">'+u.role+'</span></td>'
-          +'<td style="font-size:11px;color:var(--t3);font-family:var(--mo);">'+u.email+'</td></tr>').join('')
-        + '</tbody></table></div>'
+      <div class="ch"><div class="ctit">How Role-Based Security Works</div></div>
+      <div style="font-size:12px;color:var(--t2);line-height:1.9;">
+        <div style="display:grid;grid-template-columns:auto 1fr;gap:4px 12px;align-items:baseline;">
+          <span class="bdg b-ok">1</span><span>User logs in → app calls <code style="font-family:var(--mo);font-size:11px;">fbUpgradeAuth()</code> → Firebase email auth created</span>
+          <span class="bdg b-ok">2</span><span>Auth UID written to <code style="font-family:var(--mo);font-size:11px;">mompro_roles/{uid}</code> with app role (super-admin / manager / assignee…)</span>
+          <span class="bdg b-ok">3</span><span>Firestore rules read <code style="font-family:var(--mo);font-size:11px;">mompro_roles/{uid}.role</code> to decide read/write permissions per collection</span>
+          <span class="bdg b-ok">4</span><span>Anonymous users (page load before login) can only read — writes are blocked until real login</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Users online -->
+    <div class="card" style="margin-bottom:18px;">
+      <div class="ch"><div class="ctit">Users (\${USERS.length})</div></div>
+      \${USERS.length
+        ? '<div class="tw"><table><thead><tr><th>Name</th><th>Dept</th><th>Role</th><th>Email</th></tr></thead><tbody>'
+          + USERS.map(u=>'<tr>'
+            +'<td><div style="display:flex;align-items:center;gap:8px;">'+av(u,24)+'<span style="font-weight:500;font-size:12px;">'+u.name+'</span></div></td>'
+            +'<td style="font-size:12px;">'+u.dept+'</td>'
+            +'<td><span class="bdg \${u.role==="super-admin"?"b-er":u.role==="admin"?"b-wn":u.role==="manager"?"b-ok":"b-df"}">'+u.role+'</span></td>'
+            +'<td style="font-size:11px;color:var(--t3);font-family:var(--mo);">'+u.email+'</td>'
+            +'</tr>').join('')
+          +'</tbody></table></div>'
         : '<div style="color:var(--t3);font-size:13px;">No users yet — add users in Settings → Users &amp; Roles.</div>'}
     </div>
+
+    <!-- Security rules -->
     <div class="card">
-      <div class="ch"><div class="ctit">Required Firestore Security Rules</div></div>
-      <div class="code" style="font-size:11px;line-height:1.8;">
-        rules_version = '2';<br>
-        service cloud.firestore {<br>
-        &nbsp;&nbsp;match /databases/{database}/documents {<br>
-        &nbsp;&nbsp;&nbsp;&nbsp;match /{document=**} {<br>
-        &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;allow read, write: if request.auth != null;<br>
-        &nbsp;&nbsp;&nbsp;&nbsp;}<br>
-        &nbsp;&nbsp;}<br>
-        }
+      <div class="ch">
+        <div class="ctit">Firestore Security Rules</div>
+        <button class="btn bs bp" onclick="
+          navigator.clipboard.writeText(document.getElementById('fs-rules-text').textContent)
+            .then(()=>showToast('Rules copied to clipboard','ok'))
+            .catch(()=>showToast('Select and copy the text manually','warn'))
+        ">📋 Copy Rules</button>
       </div>
-      <div style="font-size:11px;color:var(--t3);margin-top:8px;">
-        Deploy in <b>Firebase Console → Firestore → Rules</b>. Allows anonymous and real users to read and write.
+      <div style="background:var(--bg3);border-radius:var(--rs);padding:8px 12px;font-size:11px;color:var(--t2);margin-bottom:10px;line-height:1.7;">
+        📋 Deploy these in <b>Firebase Console → Firestore Database → Rules</b> tab, then click <b>Publish</b>.
+        <br>These rules enforce role-based access using the <code style="font-family:var(--mo)">mompro_roles</code> collection written automatically on every login.
       </div>
+      <pre id="fs-rules-text" style="background:#0d1117;color:#e5e7eb;border-radius:var(--rs);padding:16px;font-family:var(--mo);font-size:11px;line-height:1.8;overflow-x:auto;white-space:pre;margin:0;">\${RULES_TEXT.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</pre>
     </div>
-  </div>`;
+  </div>\`;
 }
 /* ═══════════════════════════════════════════
    AZURE AD / MICROSOFT GRAPH EMAIL
@@ -3716,12 +3798,24 @@ function fbUpgradeAuth(emailOrId) {
   if (!_authFs || !emailOrId) return;
   const email = String(emailOrId).includes("@") ? emailOrId : (emailOrId + "@mompro.internal");
   const pass  = "mp_" + String(emailOrId).replace(/[^a-zA-Z0-9]/g, "_") + "_2025";
+
+  function _writeRoleDoc(uid) {
+    // Write role to mompro_roles/{uid} so Firestore security rules can look it up
+    const user = loggedInAs && typeof loggedInAs === 'object' ? loggedInAs : null;
+    const role = user ? (user.role || currentRole) : currentRole;
+    if (_db && uid) {
+      _db.collection("mompro_roles").doc(uid).set({ role, uid, email, ts: Date.now() })
+        .then(() => console.log("[MoMPro] Role doc written:", role, "UID:", uid))
+        .catch(e => console.warn("[MoMPro] Role doc write failed:", e.code));
+    }
+  }
+
   _authFs.signInWithEmailAndPassword(email, pass)
-    .then(c => console.log("[MoMPro] Auth upgraded. UID:", c.user.uid))
+    .then(c => { console.log("[MoMPro] Auth upgraded. UID:", c.user.uid); _writeRoleDoc(c.user.uid); })
     .catch(err => {
       if (["auth/user-not-found","auth/wrong-password","auth/invalid-credential"].includes(err.code)) {
         _authFs.createUserWithEmailAndPassword(email, pass)
-          .then(c => console.log("[MoMPro] Auth created. UID:", c.user.uid))
+          .then(c => { console.log("[MoMPro] Auth created. UID:", c.user.uid); _writeRoleDoc(c.user.uid); })
           .catch(e2 => console.warn("[MoMPro] Auth create:", e2.code));
       } else { console.warn("[MoMPro] Auth upgrade:", err.code); }
     });
