@@ -1108,21 +1108,9 @@ function saveAddTask(meetingId){
   const assignee=gu(uid);
   AUDIT_LOG.unshift({time:new Date().toISOString().slice(0,16).replace('T',' '),user:document.getElementById('un')?.textContent||'Admin',action:`Added task "${title}" to ${m.no} — assigned to ${assignee.name}`,entity:newTask.id,type:'create'});
   persistTasks();
-  // Send notification email
-  const subject=`[MoM Pro] New Action Item — ${m.no}`;
-  const html=`<div style="font-family:sans-serif;max-width:600px;">
-    <h2 style="color:#0a2540;">New Action Item Assigned</h2>
-    <p>Hi ${assignee.name||'there'},</p>
-    <p>A new action item has been assigned to you from meeting <strong>${m.no} — ${m.title}</strong>:</p>
-    <table style="width:100%;border-collapse:collapse;font-size:13px;margin:16px 0;">
-      <tr><td style="padding:6px 10px;background:#f4f3ef;font-weight:600;width:100px;">Task</td><td style="padding:6px 10px;border-bottom:1px solid #eee;">${title}</td></tr>
-      <tr><td style="padding:6px 10px;background:#f4f3ef;font-weight:600;">Due Date</td><td style="padding:6px 10px;border-bottom:1px solid #eee;">${due}</td></tr>
-      <tr><td style="padding:6px 10px;background:#f4f3ef;font-weight:600;">Priority</td><td style="padding:6px 10px;">${priority}</td></tr>
-    </table>
-    ${notes?`<p><em>Notes: ${notes}</em></p>`:''}
-    <p style="margin-top:20px;font-size:12px;color:#888;">Sent via MoM Pro</p>
-  </div>`;
-  if(assignee?.email) sendNotificationEmail(assignee.email, subject, html);
+  // Send grouped notification with deep-link
+  sendGroupedTaskNotifications([newTask.id], 'assigned', m,
+    `New action item <strong>${title}</strong> has been assigned to you from meeting <strong>${m.no}</strong>.`);
   closeModal();
   renderMeetings();
   showToast(`Task added and ${assignee.name} notified.`,'ok');
@@ -1161,7 +1149,8 @@ function filterTasks(s,el){
 function taskRows(data){
   const isSA=currentRole==='super-admin';
   const cbHeader=isSA?`<th style="width:32px;padding:9px 6px 9px 12px;"><input type="checkbox" class="task-cb" id="cb-all" onclick="toggleSelectAll(this)" title="Select all"></th>`:'';
-  const rows=data.map(t=>{const u=gu(t.uid);const cbCell=isSA?`<td style="padding:10px 6px 10px 12px;"><input type="checkbox" class="task-cb task-row-cb" value="${t.id}" onchange="toggleTaskSelect('${t.id}',this)"></td>`:'';return`<tr>
+  const rows=data.map(t=>{const u=gu(t.uid);const cbCell=isSA?`<td style="padding:10px 6px 10px 12px;"><input type="checkbox" class="task-cb task-row-cb" value="${t.id}" onchange="toggleTaskSelect('${t.id}',this)"></td>`:'';const dlHighlight=window._deepLinkTasks&&window._deepLinkTasks.includes(t.id)?'background:var(--al);outline:2px solid var(--ac);outline-offset:-2px;':'';
+    return`<tr id="trow-${t.id}" style="${dlHighlight}">
     ${cbCell}
     <td style="font-weight:500;max-width:180px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${t.title}">${t.title}</td>
     <td><span style="font-family:var(--mo);font-size:10px;color:var(--ac);">${t.mno}</span></td>
@@ -2131,6 +2120,215 @@ async function sendGraphMail(accessToken, { toEmail, subject, htmlBody }) {
   }
 }
 
+/* ═══════════════════════════════════════════
+   DEEP-LINK & GROUPED TASK EMAIL HELPERS
+═══════════════════════════════════════════ */
+
+/**
+ * buildTaskLink(userId, taskIds[])
+ * Returns a URL like: https://app.url/?assignee=2&tasks=T001,T002
+ * The assignee can click it to land on their task view directly.
+ */
+function buildTaskLink(userId, taskIds){
+  const base = window.location.href.split('?')[0].split('#')[0];
+  const ids  = Array.isArray(taskIds) ? taskIds.join(',') : taskIds;
+  return `${base}?assignee=${userId}&tasks=${encodeURIComponent(ids)}`;
+}
+
+/**
+ * buildTaskEmailHtml({ user, tasks, meeting, context, extraNote })
+ * Builds a polished single-email HTML digest for all tasks of one assignee.
+ * context: 'assigned' | 'updated' | 'escalation' | 'reminder'
+ */
+function buildTaskEmailHtml({ user, tasks, meeting, context, extraNote }){
+  const cn = companyName || 'MoM Pro';
+  const link = buildTaskLink(user.id, tasks.map(t=>t.id));
+
+  const ctxHeaders = {
+    assigned:   { icon:'📋', title:'New Action Items Assigned to You',     color:'#0284c7', bg:'#e0f2fe' },
+    updated:    { icon:'🔄', title:'Task Status Update',                    color:'#16a34a', bg:'#dcfce7' },
+    escalation: { icon:'⚠️', title:'Escalation Alert — Tasks Require Attention', color:'#dc2626', bg:'#fee2e2' },
+    reminder:   { icon:'⏰', title:'Task Reminder',                          color:'#d97706', bg:'#fef3c7' },
+  };
+  const ctx = ctxHeaders[context] || ctxHeaders.assigned;
+
+  const taskRows = tasks.map((t,i) => {
+    const m = MEETINGS.find(x=>x.id===t.mid)||{no:t.mno||'—',title:'—'};
+    const statusColor = {completed:'#16a34a','in-progress':'#0284c7',overdue:'#dc2626',pending:'#6b7280'}[t.status]||'#6b7280';
+    const priBg = {high:'#fee2e2',medium:'#fef3c7',low:'#f3f4f6'}[t.priority]||'#f3f4f6';
+    const priColor = {high:'#dc2626',medium:'#d97706',low:'#6b7280'}[t.priority]||'#6b7280';
+    return `
+    <tr style="border-bottom:1px solid #e5e7eb;">
+      <td style="padding:10px 8px;font-size:13px;font-weight:600;color:#0a2540;vertical-align:top;">
+        ${i+1}. ${t.title}
+        <div style="font-size:11px;font-weight:400;color:#6b7280;margin-top:2px;">Meeting: ${m.no} — ${m.title}</div>
+      </td>
+      <td style="padding:10px 8px;font-size:12px;color:#374151;white-space:nowrap;vertical-align:top;">${t.due}</td>
+      <td style="padding:10px 8px;vertical-align:top;">
+        <span style="display:inline-block;padding:2px 8px;border-radius:12px;font-size:11px;font-weight:600;background:${priBg};color:${priColor};">${t.priority.toUpperCase()}</span>
+      </td>
+      <td style="padding:10px 8px;vertical-align:top;">
+        <span style="display:inline-block;padding:2px 8px;border-radius:12px;font-size:11px;font-weight:600;color:${statusColor};background:${statusColor}18;">${t.status.replace('-',' ').replace(/\b\w/g,c=>c.toUpperCase())}</span>
+      </td>
+      <td style="padding:10px 8px;font-size:12px;color:#6b7280;vertical-align:top;">${t.pct}%</td>
+    </tr>`;
+  }).join('');
+
+  return `<!DOCTYPE html>
+<html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#f3f4f6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
+<div style="max-width:620px;margin:24px auto;background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 4px 16px rgba(0,0,0,0.08);">
+
+  <!-- Header -->
+  <div style="background:#000f20;padding:24px 32px;border-bottom:3px solid ${ctx.color};">
+    <div style="font-size:20px;font-weight:700;color:#ffffff;letter-spacing:-0.5px;">${cn}</div>
+    <div style="font-size:11px;color:#60a5fa;margin-top:3px;text-transform:uppercase;letter-spacing:1px;">Minutes of Meeting — Task Notification</div>
+  </div>
+
+  <!-- Context banner -->
+  <div style="background:${ctx.bg};border-left:4px solid ${ctx.color};padding:14px 32px;display:flex;align-items:center;gap:12px;">
+    <span style="font-size:22px;">${ctx.icon}</span>
+    <div>
+      <div style="font-size:14px;font-weight:600;color:${ctx.color};">${ctx.title}</div>
+      <div style="font-size:12px;color:#4b5563;margin-top:2px;">Hi <strong>${user.name}</strong> — you have ${tasks.length} action item${tasks.length>1?'s':''} requiring your attention.</div>
+    </div>
+  </div>
+
+  <!-- Body -->
+  <div style="padding:24px 32px;">
+    ${meeting ? `<div style="margin-bottom:18px;padding:12px 16px;background:#f9fafb;border-radius:8px;border:1px solid #e5e7eb;">
+      <div style="font-size:11px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;">Meeting</div>
+      <div style="font-size:14px;font-weight:600;color:#0a2540;">${meeting.no} — ${meeting.title}</div>
+      <div style="font-size:12px;color:#6b7280;margin-top:2px;">${meeting.date} · ${meeting.venue||'—'}</div>
+    </div>` : ''}
+
+    ${extraNote ? `<div style="margin-bottom:16px;padding:10px 14px;background:#fef9c3;border-radius:6px;border:1px solid #fde68a;font-size:12px;color:#92400e;">${extraNote}</div>` : ''}
+
+    <!-- Tasks table -->
+    <table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:20px;">
+      <thead>
+        <tr style="background:#f9fafb;border-bottom:2px solid #e5e7eb;">
+          <th style="padding:8px;text-align:left;font-size:10px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:.5px;">Action Item</th>
+          <th style="padding:8px;text-align:left;font-size:10px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:.5px;">Due Date</th>
+          <th style="padding:8px;text-align:left;font-size:10px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:.5px;">Priority</th>
+          <th style="padding:8px;text-align:left;font-size:10px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:.5px;">Status</th>
+          <th style="padding:8px;text-align:left;font-size:10px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:.5px;">Progress</th>
+        </tr>
+      </thead>
+      <tbody>${taskRows}</tbody>
+    </table>
+
+    <!-- CTA Button -->
+    <div style="text-align:center;margin:24px 0 8px;">
+      <a href="${link}" style="display:inline-block;background:${ctx.color};color:#ffffff;text-decoration:none;padding:13px 32px;border-radius:8px;font-size:14px;font-weight:600;letter-spacing:.2px;">
+        View &amp; Update My Tasks →
+      </a>
+    </div>
+    <div style="text-align:center;font-size:11px;color:#9ca3af;margin-top:8px;">
+      Or copy this link: <a href="${link}" style="color:#0284c7;word-break:break-all;">${link}</a>
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <div style="background:#f9fafb;border-top:1px solid #e5e7eb;padding:14px 32px;display:flex;justify-content:space-between;align-items:center;">
+    <div style="font-size:11px;color:#9ca3af;">Sent by MoM Pro · ${cn}</div>
+    <div style="font-size:11px;color:#9ca3af;">${new Date().toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'})}</div>
+  </div>
+</div>
+</body></html>`;
+}
+
+/**
+ * sendGroupedTaskNotifications(taskIds, context, meeting, extraNote)
+ * Groups taskIds by assignee and sends ONE email per assignee
+ * containing all their tasks + a deep-link to view & update.
+ * context: 'assigned' | 'updated' | 'escalation' | 'reminder'
+ */
+async function sendGroupedTaskNotifications(taskIds, context='assigned', meeting=null, extraNote=''){
+  // Group tasks by assignee uid
+  const byUser = {};
+  taskIds.forEach(id=>{
+    const t = TASKS.find(x=>x.id===id);
+    if(!t) return;
+    if(!byUser[t.uid]) byUser[t.uid]=[];
+    byUser[t.uid].push(t);
+  });
+
+  const ctxSubjects = {
+    assigned:   ids=>`[MoM Pro] ${ids.length} New Action Item${ids.length>1?'s':''} Assigned to You`,
+    updated:    ids=>`[MoM Pro] Task Update — ${ids.length} Item${ids.length>1?'s':''} Updated`,
+    escalation: ids=>`[MoM Pro] ⚠ Escalation Alert — ${ids.length} Task${ids.length>1?'s':''} Overdue`,
+    reminder:   ids=>`[MoM Pro] ⏰ Reminder — ${ids.length} Task${ids.length>1?'s':''} Pending`,
+  };
+
+  const ts = new Date().toISOString().slice(0,16).replace('T',' ');
+  const az = typeof azureSavedConfig==='function' ? azureSavedConfig() : null;
+
+  for(const [uid, tasks] of Object.entries(byUser)){
+    const user = gu(Number(uid));
+    if(!user || !user.email || !user.email.includes('@')) continue;
+    const subject = (ctxSubjects[context] || ctxSubjects.assigned)(tasks);
+    const html    = buildTaskEmailHtml({ user, tasks, meeting, context, extraNote });
+    EMAIL_LOG.unshift({time:ts, to:user.email, subject, status: az?.msClientId ? 'sent' : 'simulated', trigger: context});
+    if(az && az.msClientId && az.msTenantId){
+      await sendNotificationEmail(user.email, subject, html);
+    } else {
+      showToast(`📧 Digest queued for ${user.name} (${tasks.length} task${tasks.length>1?'s':''}). Connect Office 365 to send live.`,'info');
+    }
+  }
+}
+
+/**
+ * handleDeepLink()
+ * Called on app init — checks URL params ?assignee=uid&tasks=T001,T002
+ * Auto-logs in the assignee and opens their task view with highlighted tasks.
+ */
+function handleDeepLink(){
+  const params = new URLSearchParams(window.location.search);
+  const assigneeId = parseInt(params.get('assignee'));
+  const taskParam  = params.get('tasks')||'';
+  if(!assigneeId) return false;
+
+  const user = USERS.find(u=>u.id===assigneeId);
+  if(!user){ console.warn('Deep-link: user not found', assigneeId); return false; }
+
+  // Auto-login as the assignee (read-only role)
+  currentRole = user.role || 'assignee';
+  loggedInAs  = user;
+  document.getElementById('un').textContent = user.name;
+  document.getElementById('ur').textContent = (user.role||'assignee').replace(/-/g,' ').replace(/\b\w/g,c=>c.toUpperCase());
+  document.getElementById('ua').innerHTML = av(user, 28);
+  document.getElementById('role-sw').style.display='none';
+
+  // Hide login overlay
+  const ov = document.getElementById('login-overlay');
+  if(ov) ov.style.display='none';
+
+  // Store highlighted task ids for renderTasks to use
+  window._deepLinkTasks = taskParam ? taskParam.split(',').filter(Boolean) : [];
+
+  // Navigate to tasks page
+  buildNav();
+  navigate('tasks');
+
+  // If a single task, open its modal directly after a tick
+  if(window._deepLinkTasks.length === 1){
+    setTimeout(()=>openModal('task', window._deepLinkTasks[0]), 300);
+  } else if(window._deepLinkTasks.length > 1){
+    // Scroll to / highlight the tasks after render
+    setTimeout(()=>{
+      window._deepLinkTasks.forEach(tid=>{
+        const row=document.getElementById('trow-'+tid);
+        if(row){ row.style.background='var(--al)'; row.style.outline='2px solid var(--ac)'; row.scrollIntoView({block:'center',behavior:'smooth'}); }
+      });
+    }, 400);
+  }
+
+  // Clean up URL without reload
+  history.replaceState(null,'', window.location.pathname);
+  return true;
+}
+
 /**
  * sendNotificationEmail(to, subject, html)
  * High-level wrapper — used throughout the app whenever an email is needed.
@@ -2867,9 +3065,17 @@ function saveMeeting(){
 
   persistMeetings();  // save to localStorage so meetings survive reload
   persistTasks();     // save action items to localStorage too
+
+  // Send one grouped email per assignee for all action items
+  const newTaskIds = TASKS.filter(t=>t.mid===newMeetingId).map(t=>t.id);
+  if(newTaskIds.length){
+    sendGroupedTaskNotifications(newTaskIds, 'assigned', newMeeting,
+      `You have been assigned action items from meeting <strong>${no} &mdash; ${title}</strong> (${date}, ${venue||'TBD'}).`);
+  }
+
   closeModal();
   navigate('meetings');
-  showToast('Meeting "'+title+'" saved'+(tasksSaved?' with '+tasksSaved+' action item'+(tasksSaved>1?'s':''):'')+'.'  ,'ok');
+  showToast('Meeting "'+title+'" saved'+(tasksSaved?' with '+tasksSaved+' action item'+(tasksSaved>1?'s':'')+'':'')+'.','ok');
 }
 
 function renderTaskModal(taskId){
@@ -2952,19 +3158,10 @@ function _logAndNotify(t, oldStatus, newStatus, cmt, userName){
     entity: t.id,
     type: 'update'
   });
-  const assignee = USERS.find(u=>u.id===t.uid);
-  const toEmail  = assignee?.email || '';
-  const subject  = `[MoM Pro] Task ${t.id} updated to: ${newStatus}`;
-  const body     = `<p>Hi ${assignee?.name||'Team'},</p><p>Task <strong>${t.title}</strong> status: <strong>${oldStatus} → ${newStatus}</strong> (${t.pct}%)</p>${cmt?`<p><em>Comment: ${cmt}</em></p>`:''}<p>Updated by: ${userName}</p>`;
-  const az = typeof azureSavedConfig==='function' ? azureSavedConfig() : null;
-  const ts = new Date().toISOString().slice(0,16).replace('T',' ');
-  if(az && az.msClientId && az.msTenantId && toEmail){
-    sendNotificationEmail(toEmail, subject, body);
-    EMAIL_LOG.unshift({time:ts, to:toEmail, subject, status:'sent', trigger:'Status update'});
-  } else {
-    EMAIL_LOG.unshift({time:ts, to:toEmail||'(no email)', subject, status:'simulated', trigger:'Status update'});
-    showToast(`📧 Notification logged for ${toEmail||'assignee'}. Connect Office 365 to send live email.`,'ok');
-  }
+  const extraNote = cmt
+    ? `<strong>${userName}</strong> updated status <strong>${oldStatus} → ${newStatus}</strong> and commented: <em>${cmt}</em>`
+    : `<strong>${userName}</strong> updated status from <strong>${oldStatus}</strong> to <strong>${newStatus}</strong> (${t.pct}% complete).`;
+  sendGroupedTaskNotifications([t.id], 'updated', null, extraNote);
 }
 
 function saveTaskStatus(id){
@@ -3120,21 +3317,9 @@ async function notifyEscalation(taskId) {
     showToast('No email address found for assignee.', 'warn');
     return;
   }
-  const subject = `Escalation Alert — ${t.title} is overdue`;
-  const html = `<div style="font-family:sans-serif;max-width:600px;">
-    <h2 style="color:#dc2626;">⚠ Escalation Alert</h2>
-    <p>Hi ${u.name||'there'},</p>
-    <p>The following task assigned to you is overdue and has been escalated:</p>
-    <table style="width:100%;border-collapse:collapse;font-size:13px;margin:16px 0;">
-      <tr><td style="padding:6px 10px;background:#f4f3ef;font-weight:600;width:120px;">Task</td><td style="padding:6px 10px;border-bottom:1px solid #eee;">${t.title}</td></tr>
-      <tr><td style="padding:6px 10px;background:#f4f3ef;font-weight:600;">Due Date</td><td style="padding:6px 10px;border-bottom:1px solid #eee;color:#dc2626;">${t.due}</td></tr>
-      <tr><td style="padding:6px 10px;background:#f4f3ef;font-weight:600;">Status</td><td style="padding:6px 10px;border-bottom:1px solid #eee;">${t.status}</td></tr>
-      <tr><td style="padding:6px 10px;background:#f4f3ef;font-weight:600;">Escalation Level</td><td style="padding:6px 10px;">${t.esc}</td></tr>
-    </table>
-    <p>Please update the task status as soon as possible to avoid further escalation.</p>
-    <p style="margin-top:20px;font-size:12px;color:#888;">Sent via MoM Pro</p>
-  </div>`;
-  await sendNotificationEmail(u.email, subject, html);
+  const escLabels = ['','L1 — Manager','L2 — Dept Head','L3 — Executive'];
+  const extraNote = `This task is overdue and has been escalated to <strong>${escLabels[t.esc]||'L'+t.esc}</strong>. Please update the status immediately to avoid further escalation.`;
+  await sendGroupedTaskNotifications([taskId], 'escalation', null, extraNote);
 }
 
 function exportMoMPDF(meetingId){
@@ -3332,12 +3517,15 @@ loadPersistedMeetings(); // restore saved meetings before rendering
 loadPersistedTasks();    // restore saved tasks before rendering
 buildNav();
 navigate('dashboard');
-// Show login screen on load
-initLogin();
+// Check for deep-link (assignee clicked email link) — if found, skip login
 initCompanyName();
-showLoginScreen();
-// Hide role switcher initially (shown after admin/dev login)
-document.getElementById('role-sw').style.display='none';
+if(!handleDeepLink()){
+  // Normal flow — show login screen
+  initLogin();
+  showLoginScreen();
+  // Hide role switcher initially (shown after admin/dev login)
+  document.getElementById('role-sw').style.display='none';
+}
 </script>
 </body>
 </html>
