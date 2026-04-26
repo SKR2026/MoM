@@ -449,6 +449,9 @@ function loadPersistedTasks(){
       saved.forEach(t => {
         // Ensure uid is a number (or null) to match USERS[].id after JSON round-trip
         if(t.uid !== null && t.uid !== undefined) t.uid = Number(t.uid);
+        // Normalise legacy status values
+        if(t.status === 'done') t.status = 'completed';
+        if(t.status === 'escalated') t.status = 'overdue';
         TASKS.push(t);
       });
     }
@@ -1004,7 +1007,7 @@ function speedometer(pct, comp, tot){
     font-size="36" font-weight="800" font-family="var(--fn)" fill="${clr}"
     letter-spacing="-2" style="filter:drop-shadow(0 0 8px ${clr}66)">${pct}%</text>
   <text id="speedo-sub" x="${cx}" y="${cy-12}" text-anchor="middle"
-    font-size="11" font-family="var(--fn)" fill="var(--t3)">${comp} / ${tot} done</text>`;
+    font-size="11" font-family="var(--fn)" fill="var(--t3)">${comp} / ${tot} completed</text>`;
 
   return `<svg id="speedo-svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" style="overflow:visible;">
   <defs>
@@ -1073,7 +1076,7 @@ function updateSpeedometer(){
     const pctEl = svg.querySelector('#speedo-pct');
     if(pctEl){ pctEl.textContent=pct+'%'; pctEl.setAttribute('fill',clr); pctEl.style.filter=`drop-shadow(0 0 8px ${clr}66)`; }
     const subEl = svg.querySelector('#speedo-sub');
-    if(subEl) subEl.textContent=`${comp} / ${tot} done`;
+    if(subEl) subEl.textContent=`${comp} / ${tot} completed`;
     const sub2 = document.getElementById('speedo-subtitle');
     if(sub2) sub2.textContent=`${comp} of ${tot} tasks completed`;
   }
@@ -1427,8 +1430,8 @@ function renderEditMeetingModal(meetingId){
               <select id="emt-status-${t.id}">
                 <option value="pending" ${t.status==='pending'?'selected':''}>Pending</option>
                 <option value="in-progress" ${t.status==='in-progress'?'selected':''}>In Progress</option>
-                <option value="done" ${t.status==='done'?'selected':''}>Done</option>
-                <option value="escalated" ${t.status==='escalated'?'selected':''}>Escalated</option>
+                <option value="completed" ${t.status==='completed'||t.status==='done'?'selected':''}>Completed</option>
+                <option value="overdue" ${t.status==='overdue'?'selected':''}>Overdue</option>
               </select>
             </div>
           </div>
@@ -1471,7 +1474,13 @@ function saveEditMeeting(meetingId){
     if(uidEl) t.uid=parseInt(uidEl.value, 10);
     if(dueEl) t.due=toISODate(dueEl.value)||t.due;
     if(priEl) t.priority=priEl.value||t.priority;
-    if(statusEl) t.status=statusEl.value||t.status;
+    if(statusEl){
+      let sv=statusEl.value||t.status;
+      // Normalise legacy values
+      if(sv==='done') sv='completed';
+      if(sv==='escalated') sv='overdue';
+      t.status=sv;
+    }
   });
   AUDIT_LOG.unshift({time:new Date().toISOString().slice(0,16).replace('T',' '),user:document.getElementById('un')?.textContent||'Admin',action:`Edited meeting ${m.no}: "${title}"`,entity:meetingId,type:'update'});
   persistMeetings();
@@ -2152,7 +2161,7 @@ function renderReports(){
     <div class="sc">
       <div class="sl-">Completion Rate</div>
       <div class="sv" style="color:var(--ok);">${completionRate}%</div>
-      <div class="sc2">${statCounts.completed} of ${totalTasks} done</div>
+      <div class="sc2">${statCounts.completed} of ${totalTasks} completed</div>
     </div>
     <div class="sc">
       <div class="sl-">Overdue Tasks</div>
@@ -2186,7 +2195,7 @@ function renderReports(){
       <div class="ch">
         <div class="ctit">Monthly Task Trend</div>
         <div style="display:flex;gap:8px;align-items:center;font-size:10px;">
-          <span style="display:inline-flex;align-items:center;gap:3px;"><span style="width:10px;height:10px;background:#16a34a;border-radius:2px;display:inline-block;"></span>Done</span>
+          <span style="display:inline-flex;align-items:center;gap:3px;"><span style="width:10px;height:10px;background:#16a34a;border-radius:2px;display:inline-block;"></span>Completed</span>
           <span style="display:inline-flex;align-items:center;gap:3px;"><span style="width:10px;height:10px;background:#dc2626;border-radius:2px;display:inline-block;"></span>Overdue</span>
           <span style="display:inline-flex;align-items:center;gap:3px;"><span style="width:10px;height:10px;background:var(--br2);border-radius:2px;display:inline-block;opacity:.7;"></span>Pending</span>
         </div>
@@ -2254,7 +2263,7 @@ function renderReports(){
           </div>
           <div style="text-align:right;min-width:60px;">
             <div style="font-weight:700;font-size:13px;color:${u.pct===100?'var(--ok)':u.pct>=70?'var(--ac)':u.pct>=40?'var(--wn)':'var(--er)'};">${u.pct}%</div>
-            <div style="font-size:10px;color:var(--t3);">${u.done}/${u.total} done</div>
+            <div style="font-size:10px;color:var(--t3);">${u.done}/${u.total} completed</div>
             ${u.over>0?`<div style="font-size:9px;color:var(--er);">${u.over} overdue</div>`:''}
           </div>
         </div>`).join('')}
@@ -2464,6 +2473,8 @@ function initFirestoreListeners() {
       TASKS = snap.docs.map(d => {
         const t = d.data();
         if (t.uid != null) t.uid = Number(t.uid);
+        if (t.status === 'done') t.status = 'completed';
+        if (t.status === 'escalated') t.status = 'overdue';
         return t;
       });
       try { localStorage.setItem(TASKS_STORE_KEY, JSON.stringify(TASKS)); } catch(e2) {}
@@ -2476,6 +2487,8 @@ function initFirestoreListeners() {
       if (change.type === 'added' || change.type === 'modified') {
         const t = change.doc.data();
         if (t.uid != null) t.uid = Number(t.uid);
+        if (t.status === 'done') t.status = 'completed';
+        if (t.status === 'escalated') t.status = 'overdue';
         const idx = TASKS.findIndex(x => x.id === t.id);
         if (idx > -1) TASKS[idx] = t; else TASKS.push(t);
       } else if (change.type === 'removed') {
