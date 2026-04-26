@@ -699,9 +699,10 @@ function doLogout(){
    NOTIFICATION BELL — live counts, no hardcoding
 ───────────────────────────────────────────────── */
 function updateBell(){
-  const overdue   = TASKS.filter(t=>t.status==='overdue').length;
-  const escalated = TASKS.filter(t=>t.esc>0).length;
-  const pending   = TASKS.filter(t=>t.status==='pending').length;
+  const visibleTasks = getVisibleTasks();
+  const overdue   = visibleTasks.filter(t=>t.status==='overdue').length;
+  const escalated = visibleTasks.filter(t=>t.esc>0).length;
+  const pending   = visibleTasks.filter(t=>t.status==='pending').length;
   const total     = overdue + escalated;
   const dot = document.getElementById('bell-dot');
   if(dot) dot.style.display = total>0 ? 'block' : 'none';
@@ -710,9 +711,10 @@ function updateBell(){
 }
 
 function showBellSummary(){
-  const overdue   = TASKS.filter(t=>t.status==='overdue');
-  const escalated = TASKS.filter(t=>t.esc>0);
-  const pending   = TASKS.filter(t=>t.status==='pending');
+  const _vis = getVisibleTasks();
+  const overdue   = _vis.filter(t=>t.status==='overdue');
+  const escalated = _vis.filter(t=>t.esc>0);
+  const pending   = _vis.filter(t=>t.status==='pending');
   if(!overdue.length && !escalated.length && !pending.length){
     showToast('✅ No alerts — all tasks on track.','ok');
     return;
@@ -775,8 +777,7 @@ function buildNav(){
           ${(()=>{
             let count=0;
             if(i.id==='tasks'){
-              const myUid=loggedInAs&&loggedInAs.id?loggedInAs.id:null;
-              count=TASKS.filter(t=>myUid?t.uid===myUid&&t.status!=='completed':t.status!=='completed').length;
+              count=getVisibleTasks().filter(t=>t.status!=='completed').length;
             } else if(i.id==='escalations'){
               count=TASKS.filter(t=>t.esc>0).length;
             }
@@ -829,6 +830,34 @@ function refreshCurrentPage() {
 /* ═══════════════════════════════════════════
    HELPERS
 ═══════════════════════════════════════════ */
+/* ─── Role-based task visibility ─────────────────────────────────────────────
+   super-admin / admin / top-mgmt / developer → all tasks
+   manager                                    → tasks of users in same dept
+   assignee                                   → only own tasks
+─────────────────────────────────────────────────────────────────────────── */
+function getVisibleTasks(allTasks){
+  allTasks = allTasks || TASKS;
+  const role = currentRole;
+  const uid  = loggedInAs && loggedInAs.id ? Number(loggedInAs.id) : null;
+
+  if(role === 'super-admin' || role === 'admin' || role === 'top-mgmt' || role === 'developer'){
+    return allTasks; // see everything
+  }
+  if(role === 'manager'){
+    // Manager sees tasks belonging to users in the same department
+    const dept = loggedInAs && loggedInAs.dept ? loggedInAs.dept.trim().toLowerCase() : null;
+    if(!dept) return uid ? allTasks.filter(t => t.uid === uid) : allTasks;
+    const teamIds = new Set(
+      USERS.filter(u => u.dept && u.dept.trim().toLowerCase() === dept).map(u => Number(u.id))
+    );
+    return allTasks.filter(t => t.uid == null || teamIds.has(Number(t.uid)));
+  }
+  // assignee — own tasks only
+  if(uid == null) return [];
+  return allTasks.filter(t => Number(t.uid) === uid);
+}
+
+
 function gu(id){if(id===null||id===undefined)return{ini:'?',col:'#eee',tc:'#666',name:'Unassigned',dept:'',email:''};const numId=Number(id);return USERS.find(u=>u.id===numId)||{ini:'?',col:'#eee',tc:'#666',name:'Unknown',dept:'',email:''}}
 function av(u,sz=28){return`<div class="av" style="width:${sz}px;height:${sz}px;font-size:${Math.round(sz*.36)}px;background:${u.col};color:${u.tc};">${u.ini}</div>`}
 function sb(s){const m={completed:'b-ok','in-progress':'b-in',overdue:'b-er',pending:'b-df',active:'b-ok'};const l={completed:'Completed','in-progress':'In Progress',overdue:'Overdue',pending:'Pending',active:'Active'};return`<span class="bdg ${m[s]||'b-df'}">${l[s]||s}</span>`}
@@ -940,15 +969,14 @@ function switchRole(r){
    DASHBOARD
 ═══════════════════════════════════════════ */
 function renderDashboard(){
-  const myUidDash=loggedInAs&&loggedInAs.id?loggedInAs.id:null;
-  const myTasks=currentRole==='assignee'&&myUidDash?TASKS.filter(t=>t.uid===myUidDash):TASKS;
+  const myTasks=getVisibleTasks();
   const comp=myTasks.filter(t=>t.status==='completed').length;
   const over=myTasks.filter(t=>t.status==='overdue').length;
   const inp=myTasks.filter(t=>t.status==='in-progress').length;
   const tot=myTasks.length;
   const pct=tot?Math.round(comp/tot*100):0;
   document.getElementById('content').innerHTML=`
-  ${currentRole==='assignee'?`<div class="alert ai" style="margin-bottom:16px;">Viewing as ${loggedInAs&&loggedInAs.name?loggedInAs.name:'Assignee'} — showing only your tasks.</div>`:''}
+  ${currentRole==='assignee'?`<div class="alert ai" style="margin-bottom:16px;">Viewing as ${loggedInAs&&loggedInAs.name?loggedInAs.name:'Assignee'} — showing only your assigned tasks.</div>`:currentRole==='manager'?`<div class="alert ai" style="margin-bottom:16px;">Showing tasks for your team (${loggedInAs&&loggedInAs.dept?loggedInAs.dept:'your department'}).</div>`:''}
   <div class="g4" style="margin-bottom:20px;">
     <div class="sc"><div class="sl-">Total Tasks</div><div class="sv">${tot}</div><div class="sc2">Across ${MEETINGS.length} meetings</div><div class="sbar"><div class="sbf" style="width:100%;background:var(--ac)"></div></div></div>
     <div class="sc"><div class="sl-">Completed</div><div class="sv" style="color:var(--ok)">${comp}</div><div class="sc2">${pct}% rate</div><div class="sbar"><div class="sbf" style="width:${pct}%;background:var(--ok)"></div></div></div>
@@ -1288,8 +1316,7 @@ function renderTasks(){
     <button class="btn bs" onclick="clearTaskSelection()">Clear</button>
   </div>`:''}
   <div class="card" style="padding:0;"><div class="tw" id="ttbl">${(()=>{
-    const myUidInit=loggedInAs&&loggedInAs.id?loggedInAs.id:null;
-    const initTasks=currentRole==='assignee'&&myUidInit?TASKS.filter(t=>t.uid===myUidInit):TASKS;
+    const initTasks=getVisibleTasks();
     return taskRows(initTasks);
   })()}</div></div>`;
 }
@@ -1298,8 +1325,7 @@ function filterTasks(s,el){
   el.classList.add('active');
   selectedTasks=new Set();
   updateSelBar();
-  const myUidFt=loggedInAs&&loggedInAs.id?loggedInAs.id:null;
-  const myT=currentRole==='assignee'&&myUidFt?TASKS.filter(t=>t.uid===myUidFt):TASKS;
+  const myT=getVisibleTasks();
   const f=s==='all'?myT:myT.filter(t=>t.status===s);
   document.getElementById('ttbl').innerHTML=taskRows(f);
 }
@@ -1370,7 +1396,7 @@ function deleteSelectedTasks(){
    ESCALATIONS
 ═══════════════════════════════════════════ */
 function renderEscalations(){
-  const esc=TASKS.filter(t=>t.esc>0);
+  const esc=getVisibleTasks().filter(t=>t.esc>0);
   document.getElementById('content').innerHTML=`
   <div class="card" style="margin-bottom:18px;">
     <div class="ctit" style="margin-bottom:14px;">Escalation Policy</div>
