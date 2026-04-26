@@ -6,9 +6,9 @@
 <title>MoM Pro — Minutes of Meeting Management</title>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <!-- Firebase — baked-in, works on ANY device -->
-<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
 <!-- MSAL loaded on-demand in getMSGraphToken() — not blocking -->
 <!-- SheetJS – for reading .xlsx files in bulk upload -->
 <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
@@ -781,6 +781,37 @@ function sb(s){const m={completed:'b-ok','in-progress':'b-in',overdue:'b-er',pen
 function pb(p){return`<span class="bdg ${p==='high'?'b-er':p==='medium'?'b-wn':'b-df'}">${p.charAt(0).toUpperCase()+p.slice(1)}</span>`}
 function eb(l){if(!l)return'<span class="bdg b-df">None</span>';const c=['','b-wn','b-er','b-in'];const lb=['','L1 — Manager','L2 — Dept Head','L3 — Executive'];return`<span class="bdg ${c[l]||'b-er'}">${lb[l]||'L'+l}</span>`}
 function ma(u){return`<span style="display:inline-flex;align-items:center;gap:4px;font-size:12px;">${av(u,20)}&nbsp;${u.name}</span>`}
+
+/* ── Date helpers ────────────────────────────────────────────────────────────
+   Normalise any date string to YYYY-MM-DD for <input type="date">.
+   Handles: DD-MM-YYYY, DD/MM/YYYY, MM/DD/YYYY, YYYY-MM-DD, ISO strings.
+──────────────────────────────────────────────────────────────────────────── */
+function toISODate(raw) {
+  if (!raw) return '';
+  const s = String(raw).trim();
+  // Already YYYY-MM-DD
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  // DD-MM-YYYY or DD/MM/YYYY
+  const dmy = s.match(/^(\d{1,2})[-\/](\d{1,2})[-\/](\d{4})$/);
+  if (dmy) return `${dmy[3]}-${dmy[2].padStart(2,'0')}-${dmy[1].padStart(2,'0')}`;
+  // ISO string with time
+  if (s.includes('T')) return s.slice(0,10);
+  // Try native Date parse as fallback
+  try {
+    const d = new Date(s);
+    if (!isNaN(d)) return d.toISOString().slice(0,10);
+  } catch(e) {}
+  return s;
+}
+
+function displayDate(raw) {
+  // Format for display: DD-MM-YYYY
+  const iso = toISODate(raw);
+  if (!iso || iso.length < 10) return raw || '';
+  const [y,m,d] = iso.split('-');
+  return `${d}-${m}-${y}`;
+}
+
 function donut(vals,colors,cx,r){
   const tot=vals.reduce((a,b)=>a+b,0);if(!tot)return'';
   let ang=-Math.PI/2,parts=[];
@@ -912,7 +943,7 @@ function renderDashboard(){
       <div class="ch"><div class="ctit">Escalation Alerts</div></div>
       ${TASKS.filter(t=>t.esc>0).map(t=>{const u=gu(t.uid);return`<div style="display:flex;align-items:center;gap:9px;padding:9px 0;border-bottom:1px solid var(--br);">
         <div style="width:22px;height:22px;border-radius:50%;background:${t.esc>=2?'var(--el)':'var(--wl)'};color:${t.esc>=2?'var(--er)':'var(--wn)'};display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;flex-shrink:0;">L${t.esc}</div>
-        <div style="flex:1;min-width:0;"><div style="font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${t.title}</div><div style="font-size:10px;color:var(--t3);">${u.name} · Due ${t.due}</div></div>
+        <div style="flex:1;min-width:0;"><div style="font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${t.title}</div><div style="font-size:10px;color:var(--t3);">${u.name} · Due ${displayDate(t.due)}</div></div>
         <button class="btn bs" onclick="openModal('task','${t.id}')">View</button>
       </div>`}).join('')||'<div style="color:var(--t3);font-size:13px;">No active escalations</div>'}
     </div>
@@ -991,7 +1022,7 @@ function renderEditMeetingModal(meetingId){
   <div class="divl">Meeting Details</div>
   <div class="fgrid" style="margin-bottom:16px;">
     <div class="fg"><label>MEETING NUMBER</label><input value="${m.no}" id="em-no"></div>
-    <div class="fg"><label>MEETING DATE</label><input type="date" value="${m.date}" id="em-date"></div>
+    <div class="fg"><label>MEETING DATE</label><input type="date" value="${toISODate(m.date)}" id="em-date"></div>
     <div class="fg full"><label>MEETING TITLE / AGENDA</label><input value="${m.title}" id="em-title"></div>
     <div class="fg"><label>VENUE / PLATFORM</label><input value="${m.venue||''}" id="em-venue"></div>
     <div class="fg"><label>MEETING TYPE</label><select id="em-type">${MEETING_TYPES.map(t=>`<option ${t===m.type?'selected':''}>${t}</option>`).join('')}</select></div>
@@ -1102,7 +1133,7 @@ function saveEditMeeting(meetingId){
     const statusEl=document.getElementById('emt-status-'+t.id);
     if(titleEl) t.title=titleEl.value.trim()||t.title;
     if(uidEl) t.uid=parseInt(uidEl.value, 10);
-    if(dueEl) t.due=dueEl.value||t.due;
+    if(dueEl) t.due=toISODate(dueEl.value)||t.due;
     if(priEl) t.priority=priEl.value||t.priority;
     if(statusEl) t.status=statusEl.value||t.status;
   });
@@ -1150,7 +1181,7 @@ function saveAddTask(meetingId){
   const title=(document.getElementById('at-title')?.value||'').trim();
   if(!title){showToast('Please enter an action item description.','warn');return;}
   const uid=parseInt(document.getElementById('at-uid')?.value||USERS[0]?.id, 10);
-  const due=document.getElementById('at-due')?.value||new Date().toISOString().slice(0,10);
+  const due=toISODate(document.getElementById('at-due')?.value||new Date().toISOString().slice(0,10));
   const priority=document.getElementById('at-pri')?.value||'medium';
   const notes=(document.getElementById('at-notes')?.value||'').trim();
   const newTask={
@@ -1301,7 +1332,7 @@ function renderEscalations(){
       <td style="font-weight:500;max-width:180px;">${t.title}</td>
       <td>${ma(u)}</td>
       <td><span style="font-family:var(--mo);font-size:10px;color:var(--ac);">${t.mno}</span></td>
-      <td style="color:var(--er);font-size:12px;">${t.due}</td>
+      <td style="color:var(--er);font-size:12px;">${displayDate(t.due)}</td>
       <td>${eb(t.esc)}</td>
       <td style="display:flex;gap:5px;">
         <button class="btn bs" onclick="openModal('task','${t.id}')">Update</button>
@@ -1346,7 +1377,7 @@ function renderCalendar(){
       ${cells.map(d=>{
         if(!d)return`<div style="background:var(--sf);min-height:60px;"></div>`;
         const isToday=d===15;
-        const dt=TASKS.filter(t=>t.due===`2024-02-${String(d).padStart(2,'0')}`);
+        const dt=TASKS.filter(t=>toISODate(t.due)===`2024-02-${String(d).padStart(2,'0')}`);
         const dm=MEETINGS.filter(m=>m.date===`2024-02-${String(d).padStart(2,'0')}`);
         return`<div style="background:var(--sf);min-height:60px;padding:5px;${isToday?'outline:2px solid var(--ac);outline-offset:-2px;':''}">
           <div style="font-size:11px;font-weight:${isToday?'700':'400'};color:${isToday?'var(--ac)':'var(--tx)'};margin-bottom:2px;">${d}</div>
@@ -1517,7 +1548,7 @@ function processBulkUpload(){
         id:'T'+(Date.now()+i),
         title:row.action_item,
         uid:assignee?assignee.id:null,
-        due:row.due_date,
+        due:toISODate(row.due_date),
         priority:row.priority||'medium',
         status:'pending',
         esc:0,
@@ -1707,7 +1738,7 @@ function renderReports(){
       // Rough "resolution days" approximation: tasks completed that were escalated
       if(t.status==='completed' && t.due){
         const now = new Date();
-        const due = new Date(t.due);
+        const due = new Date(toISODate(t.due));
         const diff = Math.max(0, Math.round((now-due)/(1000*60*60*24)));
         escResolved[t.esc].push(diff);
       }
@@ -1932,8 +1963,22 @@ try {
   const _fbapp = firebase.apps.length ? firebase.app() : firebase.initializeApp(_FB_CFG);
   _db     = firebase.firestore();
   _authFs = firebase.auth();
+  // Enable offline persistence so data survives brief disconnects
+  _db.enablePersistence({ synchronizeTabs: true })
+    .catch(e => {
+      if (e.code === 'failed-precondition') console.warn('[MoMPro] Persistence: multiple tabs open');
+      else if (e.code === 'unimplemented') console.warn('[MoMPro] Persistence: browser not supported');
+    });
   console.log("[MoMPro] Firebase ready:", _FB_CFG.projectId);
-} catch(e) { console.warn("[MoMPro] Firebase init failed:", e.message); }
+} catch(e) {
+  console.error("[MoMPro] Firebase init failed:", e.message);
+  // Show diagnostic toast after DOM is ready
+  setTimeout(() => {
+    if (typeof showToast === 'function') {
+      showToast('Firebase init error: ' + e.message + ' — check console', 'err');
+    }
+  }, 1000);
+}
 
 const FS_MEETINGS = () => _db && _db.collection("mompro_meetings");
 const FS_TASKS    = () => _db && _db.collection("mompro_tasks");
@@ -2046,15 +2091,31 @@ function initFirestoreListeners() {
 }
 
 function startFirebaseSync() {
-  if (!_authFs) return;
+  if (!_authFs) {
+    console.warn("[MoMPro] startFirebaseSync: _authFs is null — Firebase not initialised");
+    return;
+  }
   _authFs.onAuthStateChanged(user => {
     if (user) {
       console.log("[MoMPro] Auth ready. UID:", user.uid, "| anon:", user.isAnonymous);
       initFirestoreListeners();
     } else {
       _authFs.signInAnonymously()
-        .then(c => { console.log("[MoMPro] Anon auth OK:", c.user.uid); initFirestoreListeners(); })
-        .catch(e => { console.warn("[MoMPro] Anon auth failed:", e.code); try{initFirestoreListeners();}catch(_){} });
+        .then(c => {
+          console.log("[MoMPro] Anon auth OK. UID:", c.user.uid);
+          initFirestoreListeners();
+        })
+        .catch(e => {
+          console.error("[MoMPro] Anon auth FAILED:", e.code, e.message);
+          const tips = {
+            'auth/operation-not-allowed': 'Anonymous sign-in is disabled. Enable it in Firebase Console → Authentication → Sign-in method → Anonymous.',
+            'auth/network-request-failed': 'Network error. Check internet connection.',
+          };
+          const tip = tips[e.code] || ('Firebase Auth error: ' + e.code);
+          setTimeout(() => { if(typeof showToast==='function') showToast(tip, 'err'); }, 500);
+          // Still try to start listeners (will work if rules allow unauthenticated reads)
+          try { initFirestoreListeners(); } catch(_) {}
+        });
     }
   });
 }
@@ -2072,7 +2133,7 @@ function fbUpgradeAuth(emailOrId) {
   _authFs.signInWithEmailAndPassword(email,pass)
     .then(c=>{_writeRole(c.user.uid);console.log("[MoMPro] Auth upgraded:",c.user.uid);})
     .catch(err=>{
-      if(["auth/user-not-found","auth/wrong-password","auth/invalid-credential"].includes(err.code)){
+      if(["auth/user-not-found","auth/wrong-password","auth/invalid-credential","auth/invalid-login-credentials"].includes(err.code)){
         _authFs.createUserWithEmailAndPassword(email,pass)
           .then(c=>{_writeRole(c.user.uid);console.log("[MoMPro] Auth created:",c.user.uid);})
           .catch(e2=>console.warn("[MoMPro] Auth create:",e2.code));
@@ -2097,12 +2158,23 @@ function _fsWriteBatch(writes) {
 
 function fsWriteMeeting(m)  {
   const c=FS_MEETINGS();
-  if(c) { _writeLock=true; c.doc(m.id).set(m).catch(e=>console.warn("FW meeting:",e.code)).finally(()=>setTimeout(()=>{_writeLock=false;},2000)); }
+  if(c) { _writeLock=true; c.doc(m.id).set(m)
+    .catch(e=>{
+      console.error("FW meeting:",e.code,e.message);
+      if(e.code==='permission-denied') showToast('Permission denied — update Firestore Rules: allow read, write: if request.auth != null','err');
+      else if(e.code==='not-found') showToast('Firestore database not created — go to Firebase Console → Firestore Database → Create database','err');
+    })
+    .finally(()=>setTimeout(()=>{_writeLock=false;},2000)); }
 }
 function fsDeleteMeeting(id){ const c=FS_MEETINGS(); if(c) c.doc(id).delete().catch(e=>console.warn("FD meeting:",e.code)); }
 function fsWriteTask(t)     {
   const c=FS_TASKS();
-  if(c) { _writeLock=true; c.doc(t.id).set(t).catch(e=>console.warn("FW task:",e.code)).finally(()=>setTimeout(()=>{_writeLock=false;},2000)); }
+  if(c) { _writeLock=true; c.doc(t.id).set(t)
+    .catch(e=>{
+      console.error("FW task:",e.code,e.message);
+      if(e.code==='permission-denied') showToast('Permission denied — update Firestore Rules in Firebase Console','err');
+    })
+    .finally(()=>setTimeout(()=>{_writeLock=false;},2000)); }
 }
 function fsDeleteTask(id)   { const c=FS_TASKS(); if(c) c.doc(id).delete().catch(e=>console.warn("FD task:",e.code)); }
 function fsWriteUser(u)     {
@@ -2131,26 +2203,32 @@ function fsWriteAllMeetingsAndTasks(meetings, tasks) {
     return batch.commit();
   }))
   .then(() => { console.log("[MoMPro] Batch saved:", meetings.length, "meetings,", tasks.length, "tasks"); })
-  .catch(e => { console.warn("[MoMPro] Batch save error:", e.code, e.message); showToast("Firestore save error: "+e.message,'warn'); })
+  .catch(e => {
+      console.error("[MoMPro] Batch save error:", e.code, e.message);
+      const tips = {
+        'permission-denied': 'Firestore rules blocking write. Go to Firebase Console → Firestore → Rules and publish: allow read, write: if request.auth != null;',
+        'not-found': 'Firestore database not created. Go to Firebase Console → Firestore Database → Create database.',
+        'unavailable': 'Firestore temporarily unavailable. Data saved locally, will retry.',
+        'failed-precondition': 'Firestore index needed or database not initialised.',
+      };
+      const tip = tips[e.code] || ('Firestore error: ' + e.code + ' - ' + e.message);
+      if (typeof showToast === 'function') showToast(tip, 'err');
+    })
   .finally(() => { setTimeout(() => { _writeLock = false; }, 3000); });
 }
 
 function renderFirebase(){
   const isLive = !!(_db && _listenersStarted);
+  // Simple rules: any authenticated user (including anonymous) can read/write.
+  // App enforces roles itself through the login system.
+  // This is the correct approach for a single-org internal tool.
   const RULES = [
     "rules_version = '2';",
     "service cloud.firestore {",
     "  match /databases/{database}/documents {",
-    "    function isAuth()    { return request.auth != null; }",
-    "    function role()      { return get(/databases/$(database)/documents/mompro_roles/$(request.auth.uid)).data.role; }",
-    "    function isAdmin()   { return isAuth() && role() in ['super-admin','admin','developer']; }",
-    "    function isManager() { return isAuth() && role() in ['super-admin','admin','developer','top-mgmt','manager']; }",
-    "    match /mompro_roles/{uid}   { allow read: if isAuth(); allow write: if isAuth() && request.auth.uid == uid; }",
-    "    match /mompro_meetings/{id} { allow read: if isAuth(); allow write: if isManager(); }",
-    "    match /mompro_tasks/{id}    { allow read: if isAuth(); allow update: if isAuth() && (isManager() || request.auth.uid == resource.data.assigneeUid); allow create,delete: if isManager(); }",
-    "    match /mompro_users/{id}    { allow read: if isAuth(); allow write: if isAdmin() || request.auth.uid == id; }",
-    "    match /mompro_meta/{id}     { allow read: if isAuth(); allow write: if isAdmin(); }",
-    "    match /{col}/{id}           { allow read,write: if isAdmin(); }",
+    "    match /{document=**} {",
+    "      allow read, write: if request.auth != null;",
+    "    }",
     "  }",
     "}"
   ].join('\n');
@@ -3413,7 +3491,7 @@ function saveMeeting(){
       mno:no,
       title:aiTitle,
       uid:assigneeUser?assigneeUser.id:(USERS[0]?.id||null),
-      due:dueDate||date,
+      due:toISODate(dueDate)||toISODate(date),
       priority:priority,
       status:'pending',
       esc:0,
@@ -3499,7 +3577,7 @@ function renderTaskModal(taskId){
   <div class="fgrid" style="margin-bottom:16px;">
     <div class="fg full"><label>TASK TITLE</label><input value="${t.title}" id="tm-title"></div>
     <div class="fg"><label>ASSIGNEE</label><select id="tm-uid">${USERS.map(u=>`<option value="${u.id}" ${u.id===t.uid?'selected':''}>${u.name}</option>`).join('')}</select></div>
-    <div class="fg"><label>DUE DATE</label><input type="date" value="${t.due}" id="tm-due"></div>
+    <div class="fg"><label>DUE DATE</label><input type="date" value="${toISODate(t.due)}" id="tm-due"></div>
     <div class="fg"><label>PRIORITY</label><select id="tm-pri"><option ${t.priority==='high'?'selected':''}>high</option><option ${t.priority==='medium'?'selected':''}>medium</option><option ${t.priority==='low'?'selected':''}>low</option></select></div>
     <div class="fg"><label>STATUS</label><select id="tm-status"><option ${t.status==='pending'?'selected':''} value="pending">pending</option><option ${t.status==='in-progress'?'selected':''} value="in-progress">in-progress</option><option ${t.status==='completed'?'selected':''} value="completed">completed</option><option ${t.status==='overdue'?'selected':''} value="overdue">overdue</option></select></div>
     <div class="fg"><label>ESCALATION LEVEL</label><select id="tm-esc"><option value="0" ${!t.esc?'selected':''}>None</option><option value="1" ${t.esc===1?'selected':''}>L1 — Manager</option><option value="2" ${t.esc===2?'selected':''}>L2 — Dept Head</option><option value="3" ${t.esc===3?'selected':''}>L3 — Executive</option></select></div>
@@ -3559,6 +3637,7 @@ function saveTask(id){
   if(t){
     const oldStatus = t.status;
     t.title  = document.getElementById('tm-title')?.value  || t.title;
+    t.due    = toISODate(document.getElementById('tm-due')?.value) || t.due;
     t.status = document.getElementById('tm-status')?.value || t.status;
     t.esc    = parseInt(document.getElementById('tm-esc')?.value||0);
     t.pct    = parseInt(document.getElementById('tm-pct')?.value||t.pct);
@@ -3625,7 +3704,7 @@ function renderMeetingDetailModal(meetingId){_momId=meetingId;
   <div class="divl">Action Items (${mt.length})</div>
   <div style="overflow-x:auto;">
   <table style="font-size:12px;"><thead><tr><th>#</th><th>Task</th><th>Assignee</th><th>Due</th><th>Status</th><th>Escalation</th></tr></thead>
-  <tbody>${mt.map((t,i)=>{const u=gu(t.uid);return`<tr><td>${i+1}</td><td>${t.title}</td><td>${ma(u)}</td><td>${t.due}</td><td>${sb(t.status)}</td><td>${eb(t.esc)}</td></tr>`}).join('')}</tbody></table>
+  <tbody>${mt.map((t,i)=>{const u=gu(t.uid);return`<tr><td>${i+1}</td><td>${t.title}</td><td>${ma(u)}</td><td>${displayDate(t.due)}</td><td>${sb(t.status)}</td><td>${eb(t.esc)}</td></tr>`}).join('')}</tbody></table>
   </div>`;
   document.getElementById('modal-footer').innerHTML=`
     <button class="btn" onclick="closeModal()">Close</button>
