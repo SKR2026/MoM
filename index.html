@@ -5,9 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>MoM Pro — Minutes of Meeting Management</title>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
-<!-- Microsoft MSAL – Azure AD / Microsoft Graph token acquisition -->
-<script src="https://unpkg.com/@azure/msal-browser@2.38.3/lib/msal-browser.min.js"
-  onerror="console.error('MSAL failed on unpkg, trying jsDelivr…');var s=document.createElement('script');s.src='https://cdn.jsdelivr.net/npm/@azure/msal-browser@2.38.3/lib/msal-browser.min.js';document.head.appendChild(s);"></script>
+<!-- MSAL loaded on-demand in getMSGraphToken() — not blocking -->
 <!-- SheetJS – for reading .xlsx files in bulk upload -->
 <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
 <style>
@@ -316,66 +314,18 @@ input[type=checkbox].task-cb{width:15px;height:15px;accent-color:var(--ac);curso
 /* ═══════════════════════════════════════════
    DATA
 ═══════════════════════════════════════════ */
-const USERS=[
-  {id:1,name:'Rajesh Kumar',role:'assignee',dept:'Operations',email:'r.kumar@corp.com',ini:'RK',col:'#dcfce7',tc:'#16a34a'},
-  {id:2,name:'Priya Sharma',role:'assignee',dept:'Finance',email:'p.sharma@corp.com',ini:'PS',col:'#fce7f3',tc:'#db2777'},
-  {id:3,name:'Amit Singh',role:'manager',dept:'IT',email:'a.singh@corp.com',ini:'AS',col:'#ede9fe',tc:'#7c3aed'},
-  {id:4,name:'Sunita Devi',role:'assignee',dept:'HR',email:'s.devi@corp.com',ini:'SD',col:'#fef3c7',tc:'#d97706'},
-  {id:5,name:'Vikram Patel',role:'top-mgmt',dept:'Executive',email:'v.patel@corp.com',ini:'VP',col:'#fee2e2',tc:'#dc2626'},
-];
-const MEETINGS=[
-  {id:'MOM-001',no:'MTG-2024-01',date:'2024-01-15',title:'Q1 Planning Review',chairperson:'Vikram Patel',attendees:[1,2,3,5],externalAttendees:[{name:'David Wilson',org:'Deloitte Advisory',email:'d.wilson@deloitte.com'}],status:'completed',venue:'Boardroom A'},
-  {id:'MOM-002',no:'MTG-2024-02',date:'2024-01-22',title:'IT Infrastructure Update',chairperson:'Amit Singh',attendees:[3,4],externalAttendees:[],status:'completed',venue:'Conference Room 2'},
-  {id:'MOM-003',no:'MTG-2024-03',date:'2024-02-05',title:'HR Policy Alignment',chairperson:'Vikram Patel',attendees:[2,4,5],externalAttendees:[{name:'Meera Joshi',org:'HR Consultants Pvt Ltd',email:'m.joshi@hrconsult.in'},{name:'Rahul Verma',org:'Legal Advisors LLP',email:'r.verma@legal.com'}],status:'active',venue:'Virtual (Teams)'},
-  {id:'MOM-004',no:'MTG-2024-04',date:'2024-02-19',title:'Finance Audit Prep',chairperson:'Rajesh Kumar',attendees:[1,2,5],externalAttendees:[],status:'active',venue:'Boardroom B'},
-];
+const USERS=[];
+const MEETINGS=[];
 let MEETING_TYPES=(function(){
   try{var s=localStorage.getItem('momMeetingTypes');if(s){var p=JSON.parse(s);if(Array.isArray(p)&&p.length)return p;}}catch(e){}
   return ['Management Review','Project Update','Audit & Compliance','Strategy Planning','Operations','Board Meeting','Statutory Meeting'];
 })();
 function saveMeetingTypes(){try{localStorage.setItem('momMeetingTypes',JSON.stringify(MEETING_TYPES));}catch(e){}}
 
-let TASKS=[
-  {id:'T001',mid:'MOM-001',mno:'MTG-2024-01',title:'Prepare Q1 budget report',uid:1,due:'2024-02-01',status:'overdue',priority:'high',pct:60,esc:2,notes:'Escalated to dept head. Finance team to provide consolidated data.'},
-  {id:'T002',mid:'MOM-001',mno:'MTG-2024-01',title:'Server upgrade procurement',uid:3,due:'2024-02-15',status:'in-progress',priority:'high',pct:40,esc:0,notes:''},
-  {id:'T003',mid:'MOM-002',mno:'MTG-2024-02',title:'Revise leave policy document',uid:4,due:'2024-02-10',status:'overdue',priority:'medium',pct:20,esc:1,notes:''},
-  {id:'T004',mid:'MOM-002',mno:'MTG-2024-02',title:'Network security audit',uid:3,due:'2024-03-01',status:'in-progress',priority:'high',pct:70,esc:0,notes:''},
-  {id:'T005',mid:'MOM-003',mno:'MTG-2024-03',title:'Draft employee handbook',uid:2,due:'2024-02-28',status:'completed',priority:'medium',pct:100,esc:0,notes:''},
-  {id:'T006',mid:'MOM-003',mno:'MTG-2024-03',title:'ROI analysis submission',uid:1,due:'2024-03-05',status:'pending',priority:'low',pct:10,esc:0,notes:''},
-  {id:'T007',mid:'MOM-004',mno:'MTG-2024-04',title:'Vendor shortlisting report',uid:2,due:'2024-02-25',status:'in-progress',priority:'medium',pct:55,esc:0,notes:''},
-];
-const COMMENTS={
-  'T001':[
-    {uid:1,time:'Feb 11 · 10:22 AM',text:'Working on this. Finance team needs to provide consolidated data by EOD.'},
-    {uid:3,time:'Feb 11 · 11:05 AM',text:'@Rajesh — please prioritise. This is blocking the board deck. Need by Friday.'},
-    {uid:5,time:'Feb 12 · 9:00 AM',text:'Escalated to L2. @Amit please ensure this gets resolved this week.'},
-  ],
-  'T005':[
-    {uid:2,time:'Feb 25 · 4:30 PM',text:'First draft complete. Shared with HR head for review.'},
-    {uid:4,time:'Feb 26 · 9:10 AM',text:'Reviewed. Minor changes needed in section 3 on leave encashment.'},
-    {uid:2,time:'Feb 28 · 2:00 PM',text:'Updated and finalised. Marking complete.'},
-  ],
-};
-const AUDIT_LOG=[
-  {time:'2024-02-12 09:14',user:'Super Admin',action:'Escalated T001 to L2',entity:'T001',type:'escalation'},
-  {time:'2024-02-11 15:32',user:'Rajesh Kumar',action:'Updated progress to 60%',entity:'T001',type:'update'},
-  {time:'2024-02-10 11:00',user:'Super Admin',action:'Sent reminder to Sunita Devi',entity:'T003',type:'notification'},
-  {time:'2024-02-09 09:00',user:'System',action:'Auto-escalated T003 to L1 (3 days overdue)',entity:'T003',type:'escalation'},
-  {time:'2024-02-08 14:20',user:'Priya Sharma',action:'Marked T005 as completed',entity:'T005',type:'update'},
-  {time:'2024-02-07 10:05',user:'Super Admin',action:'Bulk imported 12 tasks from tasks_jan_2024.xlsx',entity:'BULK',type:'import'},
-  {time:'2024-02-06 16:45',user:'Amit Singh',action:'Updated T004 progress to 70%',entity:'T004',type:'update'},
-  {time:'2024-02-05 09:30',user:'Super Admin',action:'Created meeting MTG-2024-03',entity:'MOM-003',type:'create'},
-  {time:'2024-02-04 11:00',user:'System',action:'Auto-escalated T001 to L1',entity:'T001',type:'escalation'},
-  {time:'2024-02-03 14:00',user:'Super Admin',action:'Firebase configuration updated',entity:'SYSTEM',type:'config'},
-];
-const EMAIL_LOG=[
-  {time:'2024-02-12 09:15',to:'r.kumar@corp.com',subject:'[MoM Pro] Escalation Notice — T001',status:'delivered',trigger:'Escalation L2'},
-  {time:'2024-02-11 08:00',to:'r.kumar@corp.com',subject:'[MoM Pro] Daily Reminder — T001 overdue',status:'delivered',trigger:'Daily reminder'},
-  {time:'2024-02-10 11:02',to:'s.devi@corp.com',subject:'[MoM Pro] Reminder — T003 due today',status:'delivered',trigger:'Due date reminder'},
-  {time:'2024-02-09 08:00',to:'s.devi@corp.com',subject:'[MoM Pro] Escalation Notice — T003',status:'delivered',trigger:'Escalation L1'},
-  {time:'2024-02-05 09:31',to:'p.sharma@corp.com, s.devi@corp.com',subject:'[MoM Pro] MoM Published — MTG-2024-03',status:'delivered',trigger:'MoM created'},
-  {time:'2024-02-01 08:00',to:'r.kumar@corp.com',subject:'[MoM Pro] Task Due Today — T001',status:'bounced',trigger:'Due date reminder'},
-];
+let TASKS=[];
+const COMMENTS={};
+const AUDIT_LOG=[];
+const EMAIL_LOG=[];
 let currentRole='super-admin';
 let darkMode=false;
 let aiItemCount=2;
@@ -395,8 +345,8 @@ const USER_PASSWORDS = {};
    USERS and USER_PASSWORDS are persisted in localStorage so that users
    added through the UI survive page reloads.
 ─────────────────────────────────────────────────────────────────────────── */
-const USERS_STORE_KEY = 'mompro_users_v1';
-const PWDS_STORE_KEY  = 'mompro_passwords_v1';
+const USERS_STORE_KEY = 'mompro_users_v2';
+const PWDS_STORE_KEY  = 'mompro_passwords_v2';
 
 function persistUsers(){
   try{
@@ -425,8 +375,8 @@ function loadPersistedUsers(){
    MEETINGS and TASKS are persisted in localStorage so that meetings and
    action items created through the UI survive page reloads.
 ─────────────────────────────────────────────────────────────────────────── */
-const MEETINGS_STORE_KEY = 'mompro_meetings_v1';
-const TASKS_STORE_KEY    = 'mompro_tasks_v1';
+const MEETINGS_STORE_KEY = 'mompro_meetings_v2';
+const TASKS_STORE_KEY    = 'mompro_tasks_v2';
 
 function persistMeetings(){
   try{ localStorage.setItem(MEETINGS_STORE_KEY, JSON.stringify(MEETINGS)); }
@@ -2236,6 +2186,43 @@ function azureSavedConfig(){
 
 // MSAL singleton cache — prevents "interaction_in_progress" errors
 const _msalInstances = {};
+let _msalLoading = null; // shared promise so concurrent callers don't double-load
+
+/**
+ * loadMSAL()
+ * Lazily loads the MSAL browser library from CDN on first use.
+ * Tries jsDelivr first (more reliable), then unpkg as fallback.
+ * Returns a promise that resolves when msal is available on window.
+ */
+function loadMSAL() {
+  if (typeof msal !== 'undefined') return Promise.resolve();
+  if (_msalLoading) return _msalLoading;
+
+  _msalLoading = new Promise((resolve, reject) => {
+    const cdns = [
+      'https://cdn.jsdelivr.net/npm/@azure/msal-browser@2.38.3/lib/msal-browser.min.js',
+      'https://unpkg.com/@azure/msal-browser@2.38.3/lib/msal-browser.min.js',
+    ];
+    let idx = 0;
+    function tryNext() {
+      if (idx >= cdns.length) {
+        _msalLoading = null;
+        reject(new Error('MSAL failed to load from all CDNs. Check your internet connection.'));
+        return;
+      }
+      const s = document.createElement('script');
+      s.src = cdns[idx++];
+      s.onload = () => {
+        if (typeof msal !== 'undefined') { resolve(); }
+        else { tryNext(); }
+      };
+      s.onerror = () => tryNext();
+      document.head.appendChild(s);
+    }
+    tryNext();
+  });
+  return _msalLoading;
+}
 
 /**
  * getMSGraphToken({ msClientId, msTenantId })
@@ -2243,9 +2230,7 @@ const _msalInstances = {};
  * No client secret required — user signs in via Microsoft popup once.
  */
 async function getMSGraphToken(cfg) {
-  if (typeof msal === 'undefined') {
-    throw new Error('MSAL library failed to load. Check internet connection and refresh the page.');
-  }
+  await loadMSAL(); // lazy-load — no-op if already loaded
   if (!cfg.msClientId || !cfg.msTenantId) {
     throw new Error('Azure App (Client) ID and Tenant ID are required.');
   }
@@ -2527,10 +2512,7 @@ async function sendNotificationEmail(to, subject, html) {
     showToast('Email not sent: app must be served over http/https for Microsoft sign-in.', 'warn');
     return;
   }
-  if (typeof msal === 'undefined') {
-    showToast('Email not sent: MSAL library failed to load. Refresh the page.', 'warn');
-    return;
-  }
+  // MSAL is loaded lazily inside getMSGraphToken() — no pre-check needed.
   try {
     const token = await getMSGraphToken({ msClientId: az.msClientId, msTenantId: az.msTenantId });
     // Send to the assignee
@@ -3071,17 +3053,167 @@ function addMeetingType(){
 
 function renderNotifCfg(){
   document.getElementById('content').innerHTML=`
-  <div style="max-width:620px;"><div class="card">
-    <div class="ch"><div class="ctit">Notification Schedule</div></div>
-    ${[['Task assigned','On assignment','Immediate'],['Upcoming reminder','3 days before due','Daily'],['Overdue alert','On due date','Daily'],['Escalation notice','Per escalation policy','Immediate'],['MoM published','After meeting saved','Immediate'],['Weekly summary','Every Monday','Weekly']].map(([n,t,f])=>`
-    <div style="display:flex;align-items:center;padding:11px 0;border-bottom:1px solid var(--br);gap:10px;">
-      <div style="flex:1;"><div style="font-size:13px;font-weight:500;">${n}</div><div style="font-size:11px;color:var(--t3);">${t}</div></div>
-      <select style="width:130px;font-size:11px;">${['Immediate','Daily','Every 2 days','Weekly'].map(o=>`<option ${o===f?'selected':''}>${o}</option>`).join('')}</select>
-      <div class="tgl on"></div>
-    </div>`).join('')}
-    <button class="btn bp" style="margin-top:14px;" onclick="showToast('Notification settings saved','ok')">Save Settings</button>
-  </div></div>`;
+  <div style="max-width:700px;">
+
+    <!-- ── Scheduled Alerts ─────────────────────────────── -->
+    <div class="card" style="margin-bottom:18px;">
+      <div class="ch"><div class="ctit">Scheduled Alert Rules</div></div>
+      <p style="font-size:12px;color:var(--t2);margin-bottom:14px;">Automatic emails sent per the schedule below whenever the condition is met.</p>
+      ${[
+        ['Task assigned',      'Immediately when a task is created or assigned',          'Immediate'],
+        ['Upcoming reminder',  '3 days before due date',                                  'Daily'],
+        ['Overdue alert',      'When a task passes its due date without completion',       'Daily'],
+        ['Escalation notice',  'When task escalation level changes',                      'Immediate'],
+        ['MoM published',      'After a new meeting is saved',                            'Immediate'],
+        ['Weekly digest',      'Summary of all open tasks per assignee',                  'Weekly'],
+      ].map(([n,t,f])=>`
+      <div style="display:flex;align-items:center;padding:11px 0;border-bottom:1px solid var(--br);gap:12px;">
+        <div style="flex:1;">
+          <div style="font-size:13px;font-weight:500;">${n}</div>
+          <div style="font-size:11px;color:var(--t3);margin-top:1px;">${t}</div>
+        </div>
+        <select style="width:130px;font-size:11px;">${['Immediate','Daily','Every 2 days','Weekly'].map(o=>`<option ${o===f?'selected':''}>${o}</option>`).join('')}</select>
+        <div class="tgl on" onclick="this.classList.toggle('on')" title="Toggle"></div>
+      </div>`).join('')}
+      <button class="btn bp" style="margin-top:14px;" onclick="showToast('Alert schedule saved','ok')">Save Alert Schedule</button>
+    </div>
+
+    <!-- ── Send Digest Now ──────────────────────────────── -->
+    <div class="card">
+      <div class="ch">
+        <div class="ctit">📤 Send Digest Now</div>
+        <span style="font-size:11px;color:var(--t3);">Ad-hoc · one email per assignee</span>
+      </div>
+      <p style="font-size:12px;color:var(--t2);margin-bottom:16px;">
+        Send a task digest email immediately to one or all assignees. Each person receives a single email listing their tasks with a direct update link.
+      </p>
+
+      <div class="fgrid" style="margin-bottom:14px;">
+        <div class="fg">
+          <label>RECIPIENT(S)</label>
+          <select id="dg-user" onchange="previewDigest()">
+            <option value="all">— All assignees with tasks —</option>
+            ${USERS.filter(u=>TASKS.some(t=>t.uid===u.id)).map(u=>`<option value="${u.id}">${u.name} (${TASKS.filter(t=>t.uid===u.id).length} tasks)</option>`).join('')}
+          </select>
+        </div>
+        <div class="fg">
+          <label>FILTER TASKS BY STATUS</label>
+          <select id="dg-filter" onchange="previewDigest()">
+            <option value="all">All tasks</option>
+            <option value="pending">Pending only</option>
+            <option value="in-progress">In-progress only</option>
+            <option value="overdue">Overdue only</option>
+            <option value="open">All open (excl. completed)</option>
+          </select>
+        </div>
+        <div class="fg full">
+          <label>CUSTOM NOTE (optional — appears at top of email)</label>
+          <input id="dg-note" placeholder="e.g. Please update your tasks before the board meeting on Friday.">
+        </div>
+      </div>
+
+      <!-- Preview panel -->
+      <div id="dg-preview" style="background:var(--bg3);border-radius:var(--rs);padding:12px 16px;margin-bottom:14px;font-size:12px;min-height:44px;">
+        <span style="color:var(--t3);">Adjust filters above to preview who will be notified.</span>
+      </div>
+
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+        <button class="btn bp" onclick="sendDigestNow()" id="dg-send-btn">📤 Send Digest Now</button>
+        <button class="btn" onclick="previewDigest()">↻ Refresh Preview</button>
+        <span id="dg-status" style="font-size:12px;color:var(--t3);"></span>
+      </div>
+    </div>
+
+  </div>`;
+
+  // Trigger preview on load
+  previewDigest();
 }
+
+/* ── Digest helpers ─────────────────────────────────────────────────────── */
+
+function _digestGetTasks(userId, filterStatus){
+  let pool = userId==='all' ? TASKS : TASKS.filter(t=>t.uid===parseInt(userId));
+  if(filterStatus==='open')        pool = pool.filter(t=>t.status!=='completed');
+  else if(filterStatus!=='all')    pool = pool.filter(t=>t.status===filterStatus);
+  return pool;
+}
+
+function previewDigest(){
+  const userId   = document.getElementById('dg-user')?.value   || 'all';
+  const filter   = document.getElementById('dg-filter')?.value || 'all';
+  const preview  = document.getElementById('dg-preview');
+  if(!preview) return;
+
+  const tasks    = _digestGetTasks(userId, filter);
+  if(!tasks.length){
+    preview.innerHTML=`<span style="color:var(--wn);">⚠ No tasks match this filter — no emails will be sent.</span>`;
+    return;
+  }
+
+  // Group by user
+  const byUser={};
+  tasks.forEach(t=>{
+    if(!byUser[t.uid]) byUser[t.uid]=[];
+    byUser[t.uid].push(t);
+  });
+  const userCount = Object.keys(byUser).length;
+  const rows = Object.entries(byUser).map(([uid,ut])=>{
+    const u=gu(Number(uid));
+    const statCounts={completed:0,'in-progress':0,overdue:0,pending:0};
+    ut.forEach(t=>{ if(statCounts[t.status]!==undefined)statCounts[t.status]++; });
+    return `<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--br);font-size:12px;">
+      ${av(u,22)}
+      <div style="flex:1;"><span style="font-weight:500;">${u.name}</span> <span style="color:var(--t3);">(${u.email})</span></div>
+      <span class="bdg b-df">${ut.length} task${ut.length!==1?'s':''}</span>
+      ${statCounts.overdue>0?`<span class="bdg b-er">${statCounts.overdue} overdue</span>`:''}
+    </div>`;
+  }).join('');
+
+  preview.innerHTML=`
+    <div style="font-weight:600;font-size:12px;margin-bottom:8px;color:var(--tx);">
+      📬 ${userCount} email${userCount!==1?'s':''} will be sent · ${tasks.length} total task${tasks.length!==1?'s':''} included
+    </div>
+    ${rows}`;
+}
+
+async function sendDigestNow(){
+  const userId   = document.getElementById('dg-user')?.value   || 'all';
+  const filter   = document.getElementById('dg-filter')?.value || 'all';
+  const note     = (document.getElementById('dg-note')?.value||'').trim();
+  const statusEl = document.getElementById('dg-status');
+  const btnEl    = document.getElementById('dg-send-btn');
+
+  const tasks = _digestGetTasks(userId, filter);
+  if(!tasks.length){ showToast('No tasks match this filter — nothing to send.','warn'); return; }
+
+  const taskIds = tasks.map(t=>t.id);
+  if(btnEl){ btnEl.disabled=true; btnEl.textContent='Sending…'; }
+  if(statusEl) statusEl.textContent='';
+
+  // Build context label for email
+  const filterLabel = {all:'full task list',pending:'pending tasks',overdue:'overdue tasks','in-progress':'in-progress tasks',open:'all open tasks'}[filter]||filter;
+  const extraNote = note
+    ? `<strong>Note from admin:</strong> ${note}`
+    : `This is an ad-hoc digest of your <strong>${filterLabel}</strong> as of ${new Date().toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'})}.`;
+
+  await sendGroupedTaskNotifications(taskIds, 'reminder', null, extraNote);
+
+  // Log to audit
+  AUDIT_LOG.unshift({
+    time: new Date().toISOString().slice(0,16).replace('T',' '),
+    user: document.getElementById('un')?.textContent||'Admin',
+    action: `Sent ad-hoc digest (${filter}) to ${userId==='all'?'all assignees':'user '+userId} — ${taskIds.length} task(s)`,
+    entity: 'DIGEST',
+    type: 'notification'
+  });
+
+  if(btnEl){ btnEl.disabled=false; btnEl.textContent='📤 Send Digest Now'; }
+  if(statusEl) statusEl.textContent='✓ Sent at '+new Date().toLocaleTimeString();
+  showToast('Digest sent successfully.','ok');
+  previewDigest();
+}
+
 
 /* ═══════════════════════════════════════════
    MODALS
