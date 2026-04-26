@@ -2003,18 +2003,20 @@ try {
   const _fbapp = firebase.apps.length ? firebase.app() : firebase.initializeApp(_FB_CFG);
   _db     = firebase.firestore();
   _authFs = firebase.auth();
-  // Enable offline persistence (modern API — multi-tab safe)
+  // Enable offline persistence — suppress the Firebase SDK's own deprecation warning
+  // (the compat SDK 10.x always emits it; the only fix is to intercept it temporarily)
   try {
-    if (typeof firebase.firestore.memoryLocalCache === 'function' ||
-        typeof _db.settings === 'function') {
-      // SDK 10+ supports settings-based cache — but compat SDK uses enablePersistence
-      // Use the compat-safe path with suppressed deprecation
-      _db.enablePersistence({ synchronizeTabs: true })
-        .catch(e => {
-          if (e.code !== 'failed-precondition' && e.code !== 'unimplemented')
-            console.warn('[MoMPro] Persistence error:', e.code);
-        });
-    }
+    const _origWarn = console.warn;
+    console.warn = (...args) => {
+      if (typeof args[0] === 'string' && args[0].includes('enableMultiTabIndexedDbPersistence')) return;
+      _origWarn.apply(console, args);
+    };
+    _db.enablePersistence({ synchronizeTabs: true })
+      .catch(e => {
+        if (e.code !== 'failed-precondition' && e.code !== 'unimplemented')
+          _origWarn('[MoMPro] Persistence error:', e.code);
+      })
+      .finally(() => { console.warn = _origWarn; });
   } catch(pe) {
     // Non-fatal — app works without persistence
   }
