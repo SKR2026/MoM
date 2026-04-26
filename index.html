@@ -293,9 +293,9 @@ input[type=checkbox].task-cb{width:15px;height:15px;accent-color:var(--ac);curso
     <select id="role-sw" style="width:160px;font-size:12px;" onchange="switchRole(this.value)">
     </select>
     <span id="btn-new-meeting"><button class="btn bs bp" onclick="openModal('new-meeting')">+ New Meeting</button></span>
-    <button class="btn bs" id="notif-bell-btn" onclick="showNotifBell()" style="position:relative;">
+    <button class="btn bs" onclick="showToast('2 pending escalations','warn')" style="position:relative;">
       <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 1a5 5 0 015 5v3l1 2H2l1-2V6a5 5 0 015-5zM6 13a2 2 0 004 0"/></svg>
-      <div class="ndot" id="notif-dot" style="position:absolute;top:2px;right:2px;display:none;"></div>
+      <div class="ndot" style="position:absolute;top:2px;right:2px;"></div>
     </button>
   </div>
   <div class="content" id="content"></div>
@@ -316,18 +316,66 @@ input[type=checkbox].task-cb{width:15px;height:15px;accent-color:var(--ac);curso
 /* ═══════════════════════════════════════════
    DATA
 ═══════════════════════════════════════════ */
-const USERS=[];
-const MEETINGS=[];
+const USERS=[
+  {id:1,name:'Rajesh Kumar',role:'assignee',dept:'Operations',email:'r.kumar@corp.com',ini:'RK',col:'#dcfce7',tc:'#16a34a'},
+  {id:2,name:'Priya Sharma',role:'assignee',dept:'Finance',email:'p.sharma@corp.com',ini:'PS',col:'#fce7f3',tc:'#db2777'},
+  {id:3,name:'Amit Singh',role:'manager',dept:'IT',email:'a.singh@corp.com',ini:'AS',col:'#ede9fe',tc:'#7c3aed'},
+  {id:4,name:'Sunita Devi',role:'assignee',dept:'HR',email:'s.devi@corp.com',ini:'SD',col:'#fef3c7',tc:'#d97706'},
+  {id:5,name:'Vikram Patel',role:'top-mgmt',dept:'Executive',email:'v.patel@corp.com',ini:'VP',col:'#fee2e2',tc:'#dc2626'},
+];
+const MEETINGS=[
+  {id:'MOM-001',no:'MTG-2024-01',date:'2024-01-15',title:'Q1 Planning Review',chairperson:'Vikram Patel',attendees:[1,2,3,5],externalAttendees:[{name:'David Wilson',org:'Deloitte Advisory',email:'d.wilson@deloitte.com'}],status:'completed',venue:'Boardroom A'},
+  {id:'MOM-002',no:'MTG-2024-02',date:'2024-01-22',title:'IT Infrastructure Update',chairperson:'Amit Singh',attendees:[3,4],externalAttendees:[],status:'completed',venue:'Conference Room 2'},
+  {id:'MOM-003',no:'MTG-2024-03',date:'2024-02-05',title:'HR Policy Alignment',chairperson:'Vikram Patel',attendees:[2,4,5],externalAttendees:[{name:'Meera Joshi',org:'HR Consultants Pvt Ltd',email:'m.joshi@hrconsult.in'},{name:'Rahul Verma',org:'Legal Advisors LLP',email:'r.verma@legal.com'}],status:'active',venue:'Virtual (Teams)'},
+  {id:'MOM-004',no:'MTG-2024-04',date:'2024-02-19',title:'Finance Audit Prep',chairperson:'Rajesh Kumar',attendees:[1,2,5],externalAttendees:[],status:'active',venue:'Boardroom B'},
+];
 let MEETING_TYPES=(function(){
   try{var s=localStorage.getItem('momMeetingTypes');if(s){var p=JSON.parse(s);if(Array.isArray(p)&&p.length)return p;}}catch(e){}
   return ['Management Review','Project Update','Audit & Compliance','Strategy Planning','Operations','Board Meeting','Statutory Meeting'];
 })();
 function saveMeetingTypes(){try{localStorage.setItem('momMeetingTypes',JSON.stringify(MEETING_TYPES));}catch(e){}}
 
-let TASKS=[];
-const COMMENTS={};
-const AUDIT_LOG=[];
-const EMAIL_LOG=[];
+let TASKS=[
+  {id:'T001',mid:'MOM-001',mno:'MTG-2024-01',title:'Prepare Q1 budget report',uid:1,due:'2024-02-01',status:'overdue',priority:'high',pct:60,esc:2,notes:'Escalated to dept head. Finance team to provide consolidated data.'},
+  {id:'T002',mid:'MOM-001',mno:'MTG-2024-01',title:'Server upgrade procurement',uid:3,due:'2024-02-15',status:'in-progress',priority:'high',pct:40,esc:0,notes:''},
+  {id:'T003',mid:'MOM-002',mno:'MTG-2024-02',title:'Revise leave policy document',uid:4,due:'2024-02-10',status:'overdue',priority:'medium',pct:20,esc:1,notes:''},
+  {id:'T004',mid:'MOM-002',mno:'MTG-2024-02',title:'Network security audit',uid:3,due:'2024-03-01',status:'in-progress',priority:'high',pct:70,esc:0,notes:''},
+  {id:'T005',mid:'MOM-003',mno:'MTG-2024-03',title:'Draft employee handbook',uid:2,due:'2024-02-28',status:'completed',priority:'medium',pct:100,esc:0,notes:''},
+  {id:'T006',mid:'MOM-003',mno:'MTG-2024-03',title:'ROI analysis submission',uid:1,due:'2024-03-05',status:'pending',priority:'low',pct:10,esc:0,notes:''},
+  {id:'T007',mid:'MOM-004',mno:'MTG-2024-04',title:'Vendor shortlisting report',uid:2,due:'2024-02-25',status:'in-progress',priority:'medium',pct:55,esc:0,notes:''},
+];
+const COMMENTS={
+  'T001':[
+    {uid:1,time:'Feb 11 · 10:22 AM',text:'Working on this. Finance team needs to provide consolidated data by EOD.'},
+    {uid:3,time:'Feb 11 · 11:05 AM',text:'@Rajesh — please prioritise. This is blocking the board deck. Need by Friday.'},
+    {uid:5,time:'Feb 12 · 9:00 AM',text:'Escalated to L2. @Amit please ensure this gets resolved this week.'},
+  ],
+  'T005':[
+    {uid:2,time:'Feb 25 · 4:30 PM',text:'First draft complete. Shared with HR head for review.'},
+    {uid:4,time:'Feb 26 · 9:10 AM',text:'Reviewed. Minor changes needed in section 3 on leave encashment.'},
+    {uid:2,time:'Feb 28 · 2:00 PM',text:'Updated and finalised. Marking complete.'},
+  ],
+};
+const AUDIT_LOG=[
+  {time:'2024-02-12 09:14',user:'Super Admin',action:'Escalated T001 to L2',entity:'T001',type:'escalation'},
+  {time:'2024-02-11 15:32',user:'Rajesh Kumar',action:'Updated progress to 60%',entity:'T001',type:'update'},
+  {time:'2024-02-10 11:00',user:'Super Admin',action:'Sent reminder to Sunita Devi',entity:'T003',type:'notification'},
+  {time:'2024-02-09 09:00',user:'System',action:'Auto-escalated T003 to L1 (3 days overdue)',entity:'T003',type:'escalation'},
+  {time:'2024-02-08 14:20',user:'Priya Sharma',action:'Marked T005 as completed',entity:'T005',type:'update'},
+  {time:'2024-02-07 10:05',user:'Super Admin',action:'Bulk imported 12 tasks from tasks_jan_2024.xlsx',entity:'BULK',type:'import'},
+  {time:'2024-02-06 16:45',user:'Amit Singh',action:'Updated T004 progress to 70%',entity:'T004',type:'update'},
+  {time:'2024-02-05 09:30',user:'Super Admin',action:'Created meeting MTG-2024-03',entity:'MOM-003',type:'create'},
+  {time:'2024-02-04 11:00',user:'System',action:'Auto-escalated T001 to L1',entity:'T001',type:'escalation'},
+  {time:'2024-02-03 14:00',user:'Super Admin',action:'Firebase configuration updated',entity:'SYSTEM',type:'config'},
+];
+const EMAIL_LOG=[
+  {time:'2024-02-12 09:15',to:'r.kumar@corp.com',subject:'[MoM Pro] Escalation Notice — T001',status:'delivered',trigger:'Escalation L2'},
+  {time:'2024-02-11 08:00',to:'r.kumar@corp.com',subject:'[MoM Pro] Daily Reminder — T001 overdue',status:'delivered',trigger:'Daily reminder'},
+  {time:'2024-02-10 11:02',to:'s.devi@corp.com',subject:'[MoM Pro] Reminder — T003 due today',status:'delivered',trigger:'Due date reminder'},
+  {time:'2024-02-09 08:00',to:'s.devi@corp.com',subject:'[MoM Pro] Escalation Notice — T003',status:'delivered',trigger:'Escalation L1'},
+  {time:'2024-02-05 09:31',to:'p.sharma@corp.com, s.devi@corp.com',subject:'[MoM Pro] MoM Published — MTG-2024-03',status:'delivered',trigger:'MoM created'},
+  {time:'2024-02-01 08:00',to:'r.kumar@corp.com',subject:'[MoM Pro] Task Due Today — T001',status:'bounced',trigger:'Due date reminder'},
+];
 let currentRole='super-admin';
 let darkMode=false;
 let aiItemCount=2;
@@ -398,9 +446,6 @@ function loadPersistedMeetings(){
 function persistTasks(){
   try{ localStorage.setItem(TASKS_STORE_KEY, JSON.stringify(TASKS)); }
   catch(e){ console.warn('Could not persist tasks:', e); }
-  // Refresh nav badges and bell to reflect live task/escalation counts
-  if(typeof buildNav==='function') buildNav();
-  if(typeof refreshNotifBell==='function') refreshNotifBell();
 }
 
 function loadPersistedTasks(){
@@ -557,7 +602,6 @@ function applyRoleUI(){
   const nmb=document.getElementById('btn-new-meeting');
   if(nmb)nmb.style.display=isSA?'':'none';
   buildNav();
-  refreshNotifBell();
 }
 
 function applySession(name,desc,ini,col,tc,showLogout){
@@ -644,8 +688,8 @@ const NAV=[
   {section:'Main',roles:['super-admin','admin','assignee','manager','top-mgmt','developer'],items:[
     {id:'dashboard',label:'Dashboard',icon:'<rect x="1" y="1" width="6" height="6" rx="1"/><rect x="9" y="1" width="6" height="6" rx="1"/><rect x="1" y="9" width="6" height="6" rx="1"/><rect x="9" y="9" width="6" height="6" rx="1"/>'},
     {id:'meetings',label:'Meetings',icon:'<rect x="1" y="2" width="14" height="12" rx="2"/><path d="M1 6h14M5 1v2M11 1v2"/>',roles:['super-admin','admin','top-mgmt','manager','developer']},
-    {id:'tasks',label:'My Tasks',icon:'<path d="M6 4h8M6 8h8M6 12h8M2 4h.5M2 8h.5M2 12h.5"/>'},
-    {id:'escalations',label:'Escalations',icon:'<path d="M8 1l2 5h5l-4 3 1.5 5L8 11l-4.5 3L5 9 1 6h5z"/>',roles:['super-admin','admin','top-mgmt','manager','developer']},
+    {id:'tasks',label:'My Tasks',icon:'<path d="M6 4h8M6 8h8M6 12h8M2 4h.5M2 8h.5M2 12h.5"/>',badge:3},
+    {id:'escalations',label:'Escalations',icon:'<path d="M8 1l2 5h5l-4 3 1.5 5L8 11l-4.5 3L5 9 1 6h5z"/>',badge:2,roles:['super-admin','admin','top-mgmt','manager','developer']},
     {id:'calendar',label:'Calendar',icon:'<rect x="1" y="2" width="14" height="12" rx="2"/><path d="M1 6h14M5 1v2M11 1v2"/>',roles:['super-admin','admin','top-mgmt','manager','developer']},
   ]},
   {section:'Actions',roles:['super-admin','admin','developer'],items:[
@@ -675,50 +719,18 @@ function canAccess(item){
   return allowed.includes(currentRole);
 }
 
-function getLiveBadge(id){
-  if(id==='tasks'){
-    const pending=TASKS.filter(t=>t.status!=='done'&&t.status!=='completed').length;
-    return pending>0?pending:0;
-  }
-  if(id==='escalations'){
-    const esc=TASKS.filter(t=>t.esc>0).length;
-    return esc>0?esc:0;
-  }
-  return 0;
-}
-
-function refreshNotifBell(){
-  const esc = TASKS.filter(t=>t.esc>0).length;
-  const dot = document.getElementById('notif-dot');
-  if(dot) dot.style.display = esc > 0 ? 'block' : 'none';
-}
-
-function showNotifBell(){
-  const esc = TASKS.filter(t=>t.esc>0).length;
-  const pending = TASKS.filter(t=>t.status!=='done'&&t.status!=='completed').length;
-  if(esc > 0){
-    showToast(esc+' pending escalation'+(esc>1?'s':''),'warn');
-  } else if(pending > 0){
-    showToast(pending+' pending task'+(pending>1?'s':''),'info');
-  } else {
-    showToast('No pending notifications','ok');
-  }
-}
-
 function buildNav(){
   const nav=document.getElementById('sb-nav');
   nav.innerHTML=NAV
     .filter(s=>(s.roles||[]).includes(currentRole))
     .map(s=>`
-      <div class="nl" style="${s.devOnly?'color:var(--wn);':''}">${s.devOnly?'&#9889; ':''} ${s.section}</div>
-      ${s.items.filter(i=>canAccess(i)).map(i=>{
-        const badge=getLiveBadge(i.id);
-        return `
+      <div class="nl" style="${s.devOnly?'color:var(--wn);':''}">${s.devOnly?'⚡ ':''} ${s.section}</div>
+      ${s.items.filter(i=>canAccess(i)).map(i=>`
         <div class="ni" id="ni-${i.id}" onclick="navigate('${i.id}')">
           <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">${i.icon}</svg>
           ${i.label}
-          ${badge?`<span class="nb">${badge}</span>`:''}
-        </div>`;}).join('')}
+          ${i.badge?`<span class="nb">${i.badge}</span>`:''}
+        </div>`).join('')}
     `).join('');
 }
 
@@ -927,9 +939,11 @@ function meetingRows(data){
     <td><div style="display:flex;gap:2px;align-items:center;">${att.slice(0,3).map(u=>`<div class="av" style="width:22px;height:22px;font-size:8px;background:${u.col};color:${u.tc};border:2px solid var(--sf);">${u.ini}</div>`).join('')}${(att.length+(m.externalAttendees||[]).length)>3?`<div class="av" style="width:22px;height:22px;font-size:8px;background:var(--bg3);color:var(--t3);">+${(att.length+(m.externalAttendees||[]).length)-3}</div>`:''}</div></td>
     <td style="font-size:12px;">${mt.length}</td>
     <td>${sb(m.status)}</td>
-    <td style="white-space:nowrap;">
+    <td style="white-space:nowrap;display:flex;gap:4px;flex-wrap:wrap;align-items:center;">
       <button class="btn bs" onclick="openModal('meeting-detail','${m.id}')">View MoM</button>
-      ${canDelete?`<button class="btn bs ber" style="margin-left:5px;" onclick="deleteMeeting('${m.id}')" title="Delete meeting and all its tasks">✕ Delete</button>`:''}
+      ${canDelete?`<button class="btn bs" style="border-color:var(--in);color:var(--in);" onclick="renderEditMeetingModal('${m.id}')" title="Edit meeting details">✎ Edit</button>`:''}
+      ${canDelete?`<button class="btn bs bok" onclick="renderAddTaskToMeetingModal('${m.id}')" title="Add action item to this meeting">+ Task</button>`:''}
+      ${canDelete?`<button class="btn bs ber" onclick="deleteMeeting('${m.id}')" title="Delete meeting and all its tasks">✕</button>`:''}
     </td>
   </tr>`}).join('')}</tbody></table>`;
 }
@@ -955,6 +969,163 @@ function deleteMeeting(id){
   persistTasks();
   showToast(`Meeting "${m.no}" deleted${taskCount?' along with '+taskCount+' task(s)':''}.`,'warn');
   renderMeetings();
+}
+
+function renderEditMeetingModal(meetingId){
+  const m=MEETINGS.find(x=>x.id===meetingId);
+  if(!m)return;
+  // Use same extAttendees global so add/remove helpers work
+  extAttendees=(m.externalAttendees||[]).map(ea=>({...ea}));
+  document.getElementById('modal-title').textContent=`Edit Meeting — ${m.no}`;
+  document.getElementById('modal-body').innerHTML=`
+  <div class="divl">Meeting Details</div>
+  <div class="fgrid" style="margin-bottom:16px;">
+    <div class="fg"><label>MEETING NUMBER</label><input value="${m.no}" id="em-no"></div>
+    <div class="fg"><label>MEETING DATE</label><input type="date" value="${m.date}" id="em-date"></div>
+    <div class="fg full"><label>MEETING TITLE / AGENDA</label><input value="${m.title}" id="em-title"></div>
+    <div class="fg"><label>VENUE / PLATFORM</label><input value="${m.venue||''}" id="em-venue"></div>
+    <div class="fg"><label>MEETING TYPE</label><select id="em-type">${MEETING_TYPES.map(t=>`<option ${t===m.type?'selected':''}>${t}</option>`).join('')}</select></div>
+    <div class="fg full">
+      <label>CHAIRPERSON / PRESIDING OFFICER</label>
+      <input id="em-chair" value="${typeof m.chairperson==='string'?m.chairperson:(gu(m.chairperson).name||'')}" style="width:100%;">
+    </div>
+    <div class="fg"><label>STATUS</label>
+      <select id="em-status">
+        <option value="active" ${m.status==='active'?'selected':''}>Active</option>
+        <option value="completed" ${m.status==='completed'?'selected':''}>Completed</option>
+        <option value="cancelled" ${m.status==='cancelled'?'selected':''}>Cancelled</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="divl">Internal Attendees <span style="font-weight:400;color:var(--t3);">(check to include)</span></div>
+  <div id="internal-att" style="margin-bottom:14px;">
+    ${USERS.map(u=>`
+    <label style="display:flex;align-items:center;gap:9px;padding:7px 0;cursor:pointer;font-size:13px;border-bottom:1px solid var(--br);">
+      ${av(u,24)}
+      <input type="checkbox" class="int-att-cb" value="${u.id}" ${m.attendees.includes(u.id)?'checked':''} style="width:13px;height:13px;flex-shrink:0;">
+      <div style="flex:1;">
+        <div style="font-weight:500;">${u.name}</div>
+        <div style="font-size:11px;color:var(--t3);">${u.dept} · ${u.email}</div>
+      </div>
+    </label>`).join('')}
+  </div>
+
+  <div class="divl">External Attendees <span style="font-weight:400;color:var(--t3);">(guests, consultants, auditors)</span></div>
+  <div id="ext-att-list" style="margin-bottom:10px;"></div>
+  <div style="display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:8px;align-items:end;margin-bottom:16px;background:var(--bg3);padding:12px;border-radius:var(--rs);">
+    <div class="fg" style="margin:0;"><label>FULL NAME</label><input id="ea-name" placeholder="e.g. John Smith"></div>
+    <div class="fg" style="margin:0;"><label>ORGANISATION</label><input id="ea-org" placeholder="e.g. Deloitte"></div>
+    <div class="fg" style="margin:0;"><label>EMAIL</label><input id="ea-email" type="email" placeholder="john@org.com"></div>
+    <button class="btn bok" onclick="addExtAttendee()" style="height:34px;white-space:nowrap;padding:0 12px;">+ Add</button>
+  </div>`;
+  // render existing external attendees
+  renderExtList();
+  document.getElementById('modal-footer').innerHTML=`
+    <button class="btn" onclick="closeModal()">Cancel</button>
+    <button class="btn bp" onclick="saveEditMeeting('${meetingId}')">Save Changes</button>`;
+  openModal();
+}
+
+function saveEditMeeting(meetingId){
+  const m=MEETINGS.find(x=>x.id===meetingId);
+  if(!m)return;
+  const title=(document.getElementById('em-title')?.value||'').trim();
+  if(!title){showToast('Please enter a meeting title.','warn');return;}
+  m.no      = (document.getElementById('em-no')?.value||m.no).trim();
+  m.date    = document.getElementById('em-date')?.value||m.date;
+  m.title   = title;
+  m.venue   = (document.getElementById('em-venue')?.value||'').trim()||'TBD';
+  m.type    = document.getElementById('em-type')?.value||m.type;
+  m.chairperson = (document.getElementById('em-chair')?.value||'').trim()||'—';
+  m.status  = document.getElementById('em-status')?.value||m.status;
+  m.attendees=[...document.querySelectorAll('.int-att-cb:checked')].map(c=>parseInt(c.value));
+  m.externalAttendees=[...extAttendees];
+  // sync task mno if meeting number changed
+  TASKS.filter(t=>t.mid===meetingId).forEach(t=>t.mno=m.no);
+  AUDIT_LOG.unshift({time:new Date().toISOString().slice(0,16).replace('T',' '),user:document.getElementById('un')?.textContent||'Admin',action:`Edited meeting ${m.no}: "${title}"`,entity:meetingId,type:'update'});
+  persistMeetings();
+  persistTasks();
+  closeModal();
+  renderMeetings();
+  showToast(`Meeting "${m.no}" updated.`,'ok');
+}
+
+function renderAddTaskToMeetingModal(meetingId){
+  const m=MEETINGS.find(x=>x.id===meetingId);
+  if(!m)return;
+  document.getElementById('modal-title').textContent=`Add Action Item — ${m.no}`;
+  document.getElementById('modal-body').innerHTML=`
+  <div style="background:var(--al);border:1px solid var(--ac);border-radius:var(--rs);padding:10px 14px;margin-bottom:16px;font-size:12px;color:var(--ac);">
+    Adding task to: <strong>${m.title}</strong> (${m.date})
+  </div>
+  <div class="fgrid">
+    <div class="fg full"><label>ACTION ITEM *</label><input id="at-title" placeholder="Describe the action required…"></div>
+    <div class="fg"><label>ASSIGNEE</label>
+      <select id="at-uid">${USERS.map(u=>`<option value="${u.id}">${u.name} — ${u.dept}</option>`).join('')}</select>
+    </div>
+    <div class="fg"><label>DUE DATE</label><input type="date" id="at-due" value="${new Date().toISOString().slice(0,10)}"></div>
+    <div class="fg"><label>PRIORITY</label>
+      <select id="at-pri">
+        <option value="high">High</option>
+        <option value="medium" selected>Medium</option>
+        <option value="low">Low</option>
+      </select>
+    </div>
+    <div class="fg full"><label>NOTES (optional)</label><textarea id="at-notes" placeholder="Additional context or notes…"></textarea></div>
+  </div>`;
+  document.getElementById('modal-footer').innerHTML=`
+    <button class="btn" onclick="closeModal()">Cancel</button>
+    <button class="btn bp" onclick="saveAddTask('${meetingId}')">+ Add Task & Notify</button>`;
+  openModal();
+}
+
+function saveAddTask(meetingId){
+  const m=MEETINGS.find(x=>x.id===meetingId);
+  if(!m)return;
+  const title=(document.getElementById('at-title')?.value||'').trim();
+  if(!title){showToast('Please enter an action item description.','warn');return;}
+  const uid=parseInt(document.getElementById('at-uid')?.value||USERS[0]?.id);
+  const due=document.getElementById('at-due')?.value||new Date().toISOString().slice(0,10);
+  const priority=document.getElementById('at-pri')?.value||'medium';
+  const notes=(document.getElementById('at-notes')?.value||'').trim();
+  const newTask={
+    id:'T'+Date.now()+Math.random().toString(36).slice(2,6),
+    mid:meetingId,
+    mno:m.no,
+    title,
+    uid,
+    due,
+    priority,
+    status:'pending',
+    esc:0,
+    pct:0,
+    notes,
+    tags:[],
+    comments:0
+  };
+  TASKS.push(newTask);
+  const assignee=gu(uid);
+  AUDIT_LOG.unshift({time:new Date().toISOString().slice(0,16).replace('T',' '),user:document.getElementById('un')?.textContent||'Admin',action:`Added task "${title}" to ${m.no} — assigned to ${assignee.name}`,entity:newTask.id,type:'create'});
+  persistTasks();
+  // Send notification email
+  const subject=`[MoM Pro] New Action Item — ${m.no}`;
+  const html=`<div style="font-family:sans-serif;max-width:600px;">
+    <h2 style="color:#0a2540;">New Action Item Assigned</h2>
+    <p>Hi ${assignee.name||'there'},</p>
+    <p>A new action item has been assigned to you from meeting <strong>${m.no} — ${m.title}</strong>:</p>
+    <table style="width:100%;border-collapse:collapse;font-size:13px;margin:16px 0;">
+      <tr><td style="padding:6px 10px;background:#f4f3ef;font-weight:600;width:100px;">Task</td><td style="padding:6px 10px;border-bottom:1px solid #eee;">${title}</td></tr>
+      <tr><td style="padding:6px 10px;background:#f4f3ef;font-weight:600;">Due Date</td><td style="padding:6px 10px;border-bottom:1px solid #eee;">${due}</td></tr>
+      <tr><td style="padding:6px 10px;background:#f4f3ef;font-weight:600;">Priority</td><td style="padding:6px 10px;">${priority}</td></tr>
+    </table>
+    ${notes?`<p><em>Notes: ${notes}</em></p>`:''}
+    <p style="margin-top:20px;font-size:12px;color:#888;">Sent via MoM Pro</p>
+  </div>`;
+  if(assignee?.email) sendNotificationEmail(assignee.email, subject, html);
+  closeModal();
+  renderMeetings();
+  showToast(`Task added and ${assignee.name} notified.`,'ok');
 }
 
 /* ═══════════════════════════════════════════
@@ -1245,19 +1416,8 @@ function processBulkUpload(){
           date:row.meeting_date||new Date().toISOString().slice(0,10),
           title:row.meeting_title||row['meeting title']||('Meeting '+mno),
           chairperson:(row.chairperson_name||'').trim()||'—',
-          attendees:(()=>{
-            const raw=(row.attendees||'').trim();
-            if(!raw) return USERS.slice(0,1).map(u=>u.id);
-            const emails=raw.split(',').map(e=>e.trim().toLowerCase()).filter(Boolean);
-            const matched=emails.map(em=>USERS.find(u=>u.email&&u.email.toLowerCase()===em)).filter(Boolean).map(u=>u.id);
-            return matched.length?matched:USERS.slice(0,1).map(u=>u.id);
-          })(),
-          externalAttendees:(()=>{
-            const raw=(row.attendees||'').trim();
-            if(!raw) return [];
-            const emails=raw.split(',').map(e=>e.trim().toLowerCase()).filter(Boolean);
-            return emails.filter(em=>!USERS.find(u=>u.email&&u.email.toLowerCase()===em)).map(em=>({name:em,org:'',email:em}));
-          })(),
+          attendees:USERS.slice(0,1).map(u=>u.id),
+          externalAttendees:[],
           status:'active',
           venue:row.location||'TBD'
         };
@@ -1400,101 +1560,23 @@ function renderBulkUpload(){
    REPORTS
 ═══════════════════════════════════════════ */
 function renderReports(){
-  /* ── Completion by Department (real data) ── */
-  const deptColors=['#2563eb','#16a34a','#d97706','#dc2626','#7c3aed','#0891b2','#be185d','#92400e'];
-  // Collect all unique departments from users
-  const allDepts=[...new Set(USERS.map(u=>u.dept).filter(Boolean))].sort();
-  const deptRows=allDepts.map((dept,i)=>{
-    const usersInDept=USERS.filter(u=>u.dept===dept);
-    const deptTasks=TASKS.filter(t=>usersInDept.some(u=>u.id===t.uid));
-    const total=deptTasks.length;
-    const completed=deptTasks.filter(t=>t.status==='completed').length;
-    const pct=total>0?Math.round((completed/total)*100):0;
-    return{dept,pct,total,completed,color:deptColors[i%deptColors.length]};
-  }).filter(r=>r.total>0);
-  const deptHTML=deptRows.length>0
-    ?deptRows.map(r=>`
-      <div style="margin-bottom:12px;">
-        <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px;">
-          <span>${r.dept}</span>
-          <span style="color:var(--t3);font-size:11px;">${r.completed}/${r.total} &nbsp;</span>
-          <span style="font-weight:600;">${r.pct}%</span>
-        </div>
-        <div class="prog"><div class="pf" style="width:${r.pct}%;background:${r.color}"></div></div>
-      </div>`).join('')
-    :`<div style="text-align:center;color:var(--t3);padding:28px 0;font-size:12px;">No task data yet</div>`;
-
-  /* ── Monthly Task Trend (real data — last 6 months) ── */
-  const now=new Date();
-  const months=[];
-  for(let i=5;i>=0;i--){
-    const d=new Date(now.getFullYear(),now.getMonth()-i,1);
-    months.push({
-      key:`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`,
-      label:d.toLocaleString('default',{month:'short'}),
-      created:0,completed:0
-    });
-  }
-  TASKS.forEach(t=>{
-    if(t.due){
-      const mk=t.due.slice(0,7);
-      const m=months.find(x=>x.key===mk);
-      if(m){
-        m.created++;
-        if(t.status==='completed') m.completed++;
-      }
-    }
-  });
-  // SVG chart dimensions
-  const svgW=280,svgH=140,padL=24,padR=12,padT=10,padB=22;
-  const chartW=svgW-padL-padR,chartH=svgH-padT-padB;
-  const xStep=chartW/(months.length-1||1);
-  const allVals=[...months.map(m=>m.created),...months.map(m=>m.completed),1];
-  const maxVal=Math.max(...allVals);
-  const py=v=>padT+chartH-(v/maxVal)*chartH;
-  const createdPts=months.map((m,i)=>`${padL+i*xStep},${py(m.created)}`).join(' ');
-  const completedPts=months.map((m,i)=>`${padL+i*xStep},${py(m.completed)}`).join(' ');
-  // Grid lines (4 horizontal)
-  const gridLines=[0,1,2,3].map(i=>{
-    const y=padT+(chartH/3)*i;
-    return`<line x1="${padL}" y1="${y}" x2="${svgW-padR}" y2="${y}" stroke="var(--br)" stroke-width="0.5"/>`;
-  }).join('');
-  // Dots for created line
-  const createdDots=months.map((m,i)=>`<circle cx="${padL+i*xStep}" cy="${py(m.created)}" r="3" fill="var(--ac)" stroke="var(--sf)" stroke-width="1.5">
-    <title>${m.label}: ${m.created} created</title></circle>`).join('');
-  // Dots for completed line
-  const completedDots=months.map((m,i)=>`<circle cx="${padL+i*xStep}" cy="${py(m.completed)}" r="3" fill="var(--ok)" stroke="var(--sf)" stroke-width="1.5">
-    <title>${m.label}: ${m.completed} completed</title></circle>`).join('');
-  // Month labels
-  const xLabels=months.map((m,i)=>`<text x="${padL+i*xStep}" y="${svgH-4}" text-anchor="middle" font-size="9" fill="var(--t3)">${m.label}</text>`).join('');
-  // Legend
-  const legend=`
-    <rect x="${padL}" y="${padT}" width="8" height="3" rx="1.5" fill="var(--ac)"/>
-    <text x="${padL+10}" y="${padT+4}" font-size="8" fill="var(--t2)">Total Due</text>
-    <rect x="${padL+52}" y="${padT}" width="8" height="3" rx="1.5" fill="var(--ok)"/>
-    <text x="${padL+62}" y="${padT+4}" font-size="8" fill="var(--t2)">Completed</text>`;
-  const trendSVG=`<svg width="100%" viewBox="0 0 ${svgW} ${svgH}">
-    ${gridLines}
-    ${legend}
-    <polyline points="${completedPts}" fill="none" stroke="var(--ok)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" opacity="0.85"/>
-    <polyline points="${createdPts}" fill="none" stroke="var(--ac)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-    ${completedDots}
-    ${createdDots}
-    ${xLabels}
-  </svg>`;
-
   document.getElementById('content').innerHTML=`
   <div class="g2" style="margin-bottom:18px;">
     <div class="card">
-      <div class="ch">
-        <div class="ctit">Completion by Department</div>
-        <span style="font-size:11px;color:var(--t3);">${TASKS.filter(t=>t.status==='completed').length} / ${TASKS.length} tasks</span>
-      </div>
-      ${deptHTML}
+      <div class="ch"><div class="ctit">Completion by Department</div></div>
+      ${[['Operations',75,'#2563eb'],['Finance',90,'#16a34a'],['IT',55,'#d97706'],['HR',40,'#dc2626'],['Executive',100,'#7c3aed']].map(([d,p,c])=>`
+      <div style="margin-bottom:12px;">
+        <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px;"><span>${d}</span><span style="font-weight:600;">${p}%</span></div>
+        <div class="prog"><div class="pf" style="width:${p}%;background:${c}"></div></div>
+      </div>`).join('')}
     </div>
     <div class="card">
-      <div class="ch"><div class="ctit">Monthly Task Trend</div><span style="font-size:11px;color:var(--t3);">Last 6 months</span></div>
-      ${trendSVG}
+      <div class="ch"><div class="ctit">Monthly Task Trend</div></div>
+      <svg width="100%" viewBox="0 0 280 140">
+        ${[0,30,60,90,120].map(y=>`<line x1="20" y1="${y+10}" x2="265" y2="${y+10}" stroke="var(--br)" stroke-width="0.5"/>`).join('')}
+        <polyline points="20,110 65,90 110,70 155,50 200,60 245,35" fill="none" stroke="var(--ac)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        ${[[20,'Nov'],[65,'Dec'],[110,'Jan'],[155,'Feb'],[200,'Mar'],[245,'Apr']].map(([x,l])=>`<text x="${x}" y="138" text-anchor="middle" font-size="10" fill="var(--t3)">${l}</text>`).join('')}
+      </svg>
     </div>
   </div>
   <div class="g2">
@@ -3152,14 +3234,14 @@ function devGate(){
 
 function renderDevConsole(){
   if(!devGate())return;
-  const now=new Date();
-  const pad=n=>String(n).padStart(2,'0');
-  const ts=`${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
   const logs=[
-    {t:ts,lvl:'INFO',msg:`App initialised — version 2.4.1-dev`},
-    {t:ts,lvl:'INFO',msg:`MEETINGS array loaded — ${MEETINGS.length} records`},
-    {t:ts,lvl:'INFO',msg:`TASKS array loaded — ${TASKS.length} records`},
-    {t:ts,lvl:'INFO',msg:`USERS array loaded — ${USERS.length} records`},
+    {t:'14:32:01',lvl:'INFO',msg:'Firebase connection established — latency 42ms'},
+    {t:'14:31:58',lvl:'INFO',msg:'Auth session started for user: developer'},
+    {t:'14:31:55',lvl:'WARN',msg:'Email SMTP retry #2 — smtp.office365.com timeout'},
+    {t:'14:31:40',lvl:'INFO',msg:'TASKS array loaded — 7 records'},
+    {t:'14:31:40',lvl:'INFO',msg:'MEETINGS array loaded — 4 records'},
+    {t:'14:31:39',lvl:'ERROR',msg:'Audit log write failed: network unreachable (retrying)'},
+    {t:'14:31:38',lvl:'INFO',msg:'App initialised — version 2.4.1-dev'},
   ];
   const lc={INFO:'var(--ok)',WARN:'var(--wn)',ERROR:'var(--er)'};
   document.getElementById('content').innerHTML=`
@@ -3245,22 +3327,10 @@ function renderDevSystem(){
 /* ═══════════════════════════════════════════
    INIT
 ═══════════════════════════════════════════ */
-// One-time migration: wipe any old demo data that may be cached in localStorage
-(function clearDemoCache(){
-  const FLAG='mompro_clean_v1';
-  if(!localStorage.getItem(FLAG)){
-    localStorage.removeItem('mompro_meetings_v1');
-    localStorage.removeItem('mompro_tasks_v1');
-    localStorage.removeItem('mompro_users_v1');
-    localStorage.removeItem('mompro_passwords_v1');
-    localStorage.setItem(FLAG,'1');
-  }
-})();
 loadPersistedUsers();   // restore saved users before anything else renders
 loadPersistedMeetings(); // restore saved meetings before rendering
 loadPersistedTasks();    // restore saved tasks before rendering
 buildNav();
-refreshNotifBell();
 navigate('dashboard');
 // Show login screen on load
 initLogin();
