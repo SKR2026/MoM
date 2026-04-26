@@ -1549,45 +1549,229 @@ function renderBulkUpload(){
    REPORTS
 ═══════════════════════════════════════════ */
 function renderReports(){
+  /* ── Live data computation ─────────────────── */
+
+  // 1. Completion by Department — from real TASKS
+  const depts = [...new Set(USERS.map(u=>u.dept))].sort();
+  const deptColors = ['#2563eb','#16a34a','#d97706','#dc2626','#7c3aed','#0891b2','#9333ea','#ea580c'];
+  const deptStats = depts.map((dept,i)=>{
+    const deptUsers = USERS.filter(u=>u.dept===dept).map(u=>u.id);
+    const deptTasks = TASKS.filter(t=>deptUsers.includes(t.uid));
+    const total = deptTasks.length;
+    const done  = deptTasks.filter(t=>t.status==='completed').length;
+    const pct   = total ? Math.round((done/total)*100) : 0;
+    return {dept, total, done, pct, color: deptColors[i%deptColors.length]};
+  }).filter(d=>d.total>0);
+
+  // 2. Monthly Task Trend — count tasks created/due per month from actual data
+  // Use due dates to assign tasks to months
+  const monthCounts = {};
+  TASKS.forEach(t=>{
+    if(!t.due) return;
+    const key = t.due.slice(0,7); // "YYYY-MM"
+    if(!monthCounts[key]) monthCounts[key]={month:key,total:0,completed:0,overdue:0,pending:0};
+    monthCounts[key].total++;
+    if(t.status==='completed') monthCounts[key].completed++;
+    else if(t.status==='overdue') monthCounts[key].overdue++;
+    else monthCounts[key].pending++;
+  });
+  const monthKeys = Object.keys(monthCounts).sort();
+  // Show last 6 months (or all if fewer)
+  const showMonths = monthKeys.slice(-6);
+  const monthData  = showMonths.map(k=>monthCounts[k]);
+  const maxVal     = Math.max(...monthData.map(m=>m.total), 1);
+  const chartW=280, chartH=140, padL=24, padB=20, padT=10;
+  const innerH=chartH-padB-padT;
+  const innerW=chartW-padL-10;
+  const barW   = monthData.length ? Math.min(28, innerW/monthData.length - 4) : 28;
+  const barSpacing = monthData.length ? innerW/monthData.length : 40;
+
+  // SVG bar chart (stacked: completed=green, overdue=red, pending=grey)
+  const bars = monthData.map((m,i)=>{
+    const x = padL + i*barSpacing + (barSpacing-barW)/2;
+    const totalH = (m.total/maxVal)*innerH;
+    const doneH  = (m.completed/maxVal)*innerH;
+    const overH  = (m.overdue/maxVal)*innerH;
+    const pendH  = totalH - doneH - overH;
+    const baseY  = chartH - padB;
+    const label  = m.month.slice(5); // MM
+    const monthNames=['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const lbl = monthNames[parseInt(label)]||label;
+    return `
+      <rect x="${x}" y="${baseY-doneH}" width="${barW}" height="${doneH}" fill="#16a34a" rx="2" opacity=".85" title="Completed: ${m.completed}">
+        <title>Completed: ${m.completed}</title></rect>
+      <rect x="${x}" y="${baseY-doneH-overH}" width="${barW}" height="${overH}" fill="#dc2626" rx="2" opacity=".85">
+        <title>Overdue: ${m.overdue}</title></rect>
+      <rect x="${x}" y="${baseY-doneH-overH-pendH}" width="${barW}" height="${pendH}" fill="var(--br2)" rx="2" opacity=".6">
+        <title>Pending/In-progress: ${m.pending}</title></rect>
+      <text x="${x+barW/2}" y="${chartH-4}" text-anchor="middle" font-size="9" fill="var(--t3)">${lbl}</text>
+      <text x="${x+barW/2}" y="${baseY-totalH-3}" text-anchor="middle" font-size="8" fill="var(--t2)" font-weight="600">${m.total||''}</text>`;
+  }).join('');
+
+  const gridLines = [0,25,50,75,100].map(pct=>{
+    const y = chartH - padB - (pct/100)*innerH;
+    const val = Math.round((pct/100)*maxVal);
+    return `<line x1="${padL}" y1="${y}" x2="${chartW-5}" y2="${y}" stroke="var(--br)" stroke-width="0.5" stroke-dasharray="3,3"/>
+    <text x="${padL-2}" y="${y+3}" text-anchor="end" font-size="8" fill="var(--t3)">${val}</text>`;
+  }).join('');
+
+  const noMonthData = monthData.length === 0;
+
+  // 3. Escalation Summary — from real TASKS.esc field
+  const escCounts = {1:0, 2:0, 3:0};
+  const escResolved = {1:[], 2:[], 3:[]};
+  TASKS.forEach(t=>{
+    if(t.esc && t.esc>=1 && t.esc<=3){
+      escCounts[t.esc]++;
+      // Rough "resolution days" approximation: tasks completed that were escalated
+      if(t.status==='completed' && t.due){
+        const now = new Date();
+        const due = new Date(t.due);
+        const diff = Math.max(0, Math.round((now-due)/(1000*60*60*24)));
+        escResolved[t.esc].push(diff);
+      }
+    }
+  });
+  const escAvg = lv => {
+    const arr = escResolved[lv];
+    if(!arr.length) return '—';
+    return (arr.reduce((a,b)=>a+b,0)/arr.length).toFixed(1)+' days';
+  };
+  const totalEsc = escCounts[1]+escCounts[2]+escCounts[3];
+
+  // 4. Status distribution donut (for a mini summary card)
+  const statCounts={completed:0,'in-progress':0,overdue:0,pending:0};
+  TASKS.forEach(t=>{ if(statCounts[t.status]!==undefined) statCounts[t.status]++; });
+  const totalTasks = TASKS.length || 1;
+  const completionRate = Math.round((statCounts.completed/totalTasks)*100);
+
+  // 5. Overdue rate per user for Top/Bottom performers
+  const userPerf = USERS.map(u=>{
+    const ut = TASKS.filter(t=>t.uid===u.id);
+    const done = ut.filter(t=>t.status==='completed').length;
+    const over = ut.filter(t=>t.status==='overdue').length;
+    return {...u, total:ut.length, done, over,
+      pct: ut.length ? Math.round((done/ut.length)*100) : 0};
+  }).filter(u=>u.total>0).sort((a,b)=>b.pct-a.pct);
+
   document.getElementById('content').innerHTML=`
-  <div class="g2" style="margin-bottom:18px;">
-    <div class="card">
-      <div class="ch"><div class="ctit">Completion by Department</div></div>
-      ${[['Operations',75,'#2563eb'],['Finance',90,'#16a34a'],['IT',55,'#d97706'],['HR',40,'#dc2626'],['Executive',100,'#7c3aed']].map(([d,p,c])=>`
-      <div style="margin-bottom:12px;">
-        <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px;"><span>${d}</span><span style="font-weight:600;">${p}%</span></div>
-        <div class="prog"><div class="pf" style="width:${p}%;background:${c}"></div></div>
-      </div>`).join('')}
+
+  <!-- Row 1: KPI strip -->
+  <div class="g4" style="margin-bottom:18px;">
+    <div class="sc">
+      <div class="sl-">Total Tasks</div>
+      <div class="sv">${TASKS.length}</div>
+      <div class="sc2">${MEETINGS.length} meeting${MEETINGS.length!==1?'s':''}</div>
     </div>
-    <div class="card">
-      <div class="ch"><div class="ctit">Monthly Task Trend</div></div>
-      <svg width="100%" viewBox="0 0 280 140">
-        ${[0,30,60,90,120].map(y=>`<line x1="20" y1="${y+10}" x2="265" y2="${y+10}" stroke="var(--br)" stroke-width="0.5"/>`).join('')}
-        <polyline points="20,110 65,90 110,70 155,50 200,60 245,35" fill="none" stroke="var(--ac)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-        ${[[20,'Nov'],[65,'Dec'],[110,'Jan'],[155,'Feb'],[200,'Mar'],[245,'Apr']].map(([x,l])=>`<text x="${x}" y="138" text-anchor="middle" font-size="10" fill="var(--t3)">${l}</text>`).join('')}
-      </svg>
+    <div class="sc">
+      <div class="sl-">Completion Rate</div>
+      <div class="sv" style="color:var(--ok);">${completionRate}%</div>
+      <div class="sc2">${statCounts.completed} of ${totalTasks} done</div>
+    </div>
+    <div class="sc">
+      <div class="sl-">Overdue Tasks</div>
+      <div class="sv" style="color:var(--er);">${statCounts.overdue}</div>
+      <div class="sc2">${totalTasks?Math.round((statCounts.overdue/totalTasks)*100):0}% of all tasks</div>
+    </div>
+    <div class="sc">
+      <div class="sl-">Escalations Active</div>
+      <div class="sv" style="color:var(--wn);">${totalEsc}</div>
+      <div class="sc2">L1:${escCounts[1]} · L2:${escCounts[2]} · L3:${escCounts[3]}</div>
     </div>
   </div>
+
+  <!-- Row 2: Dept completion + Monthly trend -->
+  <div class="g2" style="margin-bottom:18px;">
+    <div class="card">
+      <div class="ch"><div class="ctit">Completion by Department</div><span style="font-size:11px;color:var(--t3);">live data</span></div>
+      ${deptStats.length ? deptStats.map(d=>`
+      <div style="margin-bottom:13px;">
+        <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px;">
+          <span style="font-weight:500;">${d.dept}</span>
+          <span style="font-weight:700;color:${d.pct===100?'var(--ok)':d.pct<40?'var(--er)':'var(--tx)'};">${d.pct}%
+            <span style="font-weight:400;color:var(--t3);font-size:10px;">(${d.done}/${d.total})</span>
+          </span>
+        </div>
+        <div class="prog"><div class="pf" style="width:${d.pct}%;background:${d.color};transition:width .4s"></div></div>
+      </div>`).join('') : '<div style="color:var(--t3);font-size:12px;padding:20px 0;text-align:center;">No task data yet.</div>'}
+    </div>
+
+    <div class="card">
+      <div class="ch">
+        <div class="ctit">Monthly Task Trend</div>
+        <div style="display:flex;gap:8px;align-items:center;font-size:10px;">
+          <span style="display:inline-flex;align-items:center;gap:3px;"><span style="width:10px;height:10px;background:#16a34a;border-radius:2px;display:inline-block;"></span>Done</span>
+          <span style="display:inline-flex;align-items:center;gap:3px;"><span style="width:10px;height:10px;background:#dc2626;border-radius:2px;display:inline-block;"></span>Overdue</span>
+          <span style="display:inline-flex;align-items:center;gap:3px;"><span style="width:10px;height:10px;background:var(--br2);border-radius:2px;display:inline-block;opacity:.7;"></span>Pending</span>
+        </div>
+      </div>
+      ${noMonthData
+        ? '<div style="color:var(--t3);font-size:12px;padding:20px 0;text-align:center;">No task data yet.</div>'
+        : `<svg width="100%" viewBox="0 0 ${chartW} ${chartH}" style="overflow:visible;">
+            ${gridLines}
+            ${bars}
+          </svg>`}
+    </div>
+  </div>
+
+  <!-- Row 3: Escalation summary + Performers -->
   <div class="g2">
     <div class="card">
-      <div class="ch"><div class="ctit">Escalation Summary</div><button class="btn bs" onclick="showToast('Report exported','ok')">Export</button></div>
-      <table><thead><tr><th>Level</th><th>Count</th><th>Avg Resolution</th></tr></thead><tbody>
-        <tr><td>${eb(1)}</td><td>8</td><td>4.2 days</td></tr>
-        <tr><td>${eb(2)}</td><td>3</td><td>7.8 days</td></tr>
-        <tr><td>${eb(3)}</td><td>1</td><td>12 days</td></tr>
-      </tbody></table>
+      <div class="ch">
+        <div class="ctit">Escalation Summary</div>
+        <span style="font-size:11px;color:var(--t3);">live data · ${totalEsc} active</span>
+      </div>
+      ${totalEsc===0
+        ? `<div style="text-align:center;padding:24px 0;"><div style="font-size:28px;margin-bottom:6px;">✅</div><div style="font-size:13px;color:var(--ok);font-weight:600;">No active escalations</div><div style="font-size:12px;color:var(--t3);margin-top:4px;">All tasks are within escalation thresholds.</div></div>`
+        : `<table><thead><tr><th>Level</th><th>Active Tasks</th><th>Avg Delay</th><th>% of Total</th></tr></thead><tbody>
+          ${[1,2,3].filter(l=>escCounts[l]>0).map(l=>`
+          <tr>
+            <td>${eb(l)}</td>
+            <td style="font-weight:600;font-size:13px;">${escCounts[l]}</td>
+            <td style="font-size:12px;color:var(--t2);">${escAvg(l)}</td>
+            <td>
+              <div style="display:flex;align-items:center;gap:6px;">
+                <div class="prog" style="flex:1;height:4px;"><div class="pf" style="width:${Math.round((escCounts[l]/totalTasks)*100)}%;background:${l===1?'var(--wn)':l===2?'var(--er)':'var(--in)'};"></div></div>
+                <span style="font-size:10px;color:var(--t3);min-width:28px;">${Math.round((escCounts[l]/totalTasks)*100)}%</span>
+              </div>
+            </td>
+          </tr>`).join('')}
+          <tr style="background:var(--bg3);">
+            <td style="font-weight:600;font-size:12px;">Total</td>
+            <td style="font-weight:700;">${totalEsc}</td>
+            <td colspan="2" style="font-size:11px;color:var(--t3);">${totalEsc} of ${totalTasks} tasks escalated</td>
+          </tr>
+          </tbody></table>
+          <div style="margin-top:12px;">
+            ${TASKS.filter(t=>t.esc>0).map(t=>{const u=gu(t.uid);return`
+            <div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--br);font-size:12px;">
+              <span style="font-family:var(--mo);color:var(--ac);min-width:56px;">${t.id}</span>
+              <div style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${t.title}">${t.title}</div>
+              ${ma(u)}
+              ${eb(t.esc)}
+            </div>`}).join('')}
+          </div>`}
     </div>
+
     <div class="card">
-      <div class="ch"><div class="ctit">Top Performers</div></div>
-      ${USERS.filter(u=>u.role!=='top-mgmt').map((u,i)=>{
-        const ut=TASKS.filter(t=>t.uid===u.id);
-        const uc=ut.filter(t=>t.status==='completed').length;
-        return`<div style="display:flex;align-items:center;gap:9px;padding:7px 0;border-bottom:1px solid var(--br);">
-          <div style="font-size:14px;font-weight:700;color:var(--t3);width:18px;">${i+1}</div>
-          ${av(u,24)}<div style="flex:1;"><div style="font-size:12px;font-weight:500;">${u.name}</div><div style="font-size:10px;color:var(--t3);">${u.dept}</div></div>
-          <div style="text-align:right;"><div style="font-weight:600;font-size:12px;">${uc}/${ut.length}</div><div style="font-size:10px;color:var(--t3);">completed</div></div>
-        </div>`;
-      }).join('')}
+      <div class="ch"><div class="ctit">Assignee Performance</div><span style="font-size:11px;color:var(--t3);">${userPerf.length} staff with tasks</span></div>
+      ${userPerf.length===0
+        ? '<div style="color:var(--t3);font-size:12px;padding:20px 0;text-align:center;">No task data yet.</div>'
+        : userPerf.map((u,i)=>`
+        <div style="display:flex;align-items:center;gap:9px;padding:8px 0;border-bottom:1px solid var(--br);">
+          <div style="font-size:13px;font-weight:700;color:var(--t3);width:20px;text-align:center;">${i+1}</div>
+          ${av(u,26)}
+          <div style="flex:1;min-width:0;">
+            <div style="font-size:12px;font-weight:500;">${u.name}</div>
+            <div style="font-size:10px;color:var(--t3);">${u.dept}</div>
+            <div class="prog" style="margin-top:4px;height:3px;"><div class="pf" style="width:${u.pct}%;background:${u.pct===100?'var(--ok)':u.pct>=70?'var(--ac)':u.pct>=40?'var(--wn)':'var(--er)'};"></div></div>
+          </div>
+          <div style="text-align:right;min-width:60px;">
+            <div style="font-weight:700;font-size:13px;color:${u.pct===100?'var(--ok)':u.pct>=70?'var(--ac)':u.pct>=40?'var(--wn)':'var(--er)'};">${u.pct}%</div>
+            <div style="font-size:10px;color:var(--t3);">${u.done}/${u.total} done</div>
+            ${u.over>0?`<div style="font-size:9px;color:var(--er);">${u.over} overdue</div>`:''}
+          </div>
+        </div>`).join('')}
     </div>
   </div>`;
 }
