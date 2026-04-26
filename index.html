@@ -1973,9 +1973,9 @@ try {
   // Show diagnostic toast after DOM is ready
   setTimeout(() => {
     if (typeof showToast === 'function') {
-      showToast('Firebase init error: ' + e.message + ' — check console', 'err');
+      showToast('Firebase init error (' + e.message + '). Open Firebase Console → skr-mom project → Enable Anonymous Auth & create Firestore DB.', 'err');
     }
-  }, 1000);
+  }, 1500);
 }
 
 const FS_MEETINGS = () => _db && _db.collection("mompro_meetings");
@@ -3941,17 +3941,21 @@ loadPersistedMeetings();
 loadPersistedTasks();
 buildNav();
 navigate('dashboard');
-startFirebaseSync(); // boot Firestore - works on any device
-// Check for deep-link (assignee clicked email link) — if found, skip login
-initCompanyName();
-updateBell(); // initial badge counts
+
+// Always show login screen immediately — do NOT wait for Firebase
 if(!handleDeepLink()){
-  // Normal flow — show login screen
   initLogin();
   showLoginScreen();
-  // Hide role switcher initially (shown after admin/dev login)
   document.getElementById('role-sw').style.display='none';
 }
+
+initCompanyName();
+updateBell();
+
+// Start Firebase sync after UI is ready — failures won't block login
+setTimeout(() => {
+  startFirebaseSync();
+}, 100);
 </script>
 </body>
 </html>
