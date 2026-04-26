@@ -947,89 +947,99 @@ function donut(vals, colors, cx, r){
 
 
 function speedometer(pct, comp, tot){
-  const W=280, H=172, cx=140, cy=158, R=128, ri=96;
-  // Converts 0-100 pct to angle in radians on half-circle (left=0, right=100)
-  const toR = p => Math.PI + (p/100)*Math.PI;
-  // Arc path between two percentages
-  function arc(s,e,ro,rin){
-    if(e<=s) return '';
-    const a1=toR(s), a2=toR(e), laf=(e-s)>50?1:0;
-    const p=`M${(cx+ro*Math.cos(a1)).toFixed(2)},${(cy+ro*Math.sin(a1)).toFixed(2)}`
-            +` A${ro},${ro} 0 ${laf},1 ${(cx+ro*Math.cos(a2)).toFixed(2)},${(cy+ro*Math.sin(a2)).toFixed(2)}`
-            +` L${(cx+rin*Math.cos(a2)).toFixed(2)},${(cy+rin*Math.sin(a2)).toFixed(2)}`
-            +` A${rin},${rin} 0 ${laf},0 ${(cx+rin*Math.cos(a1)).toFixed(2)},${(cy+rin*Math.sin(a1)).toFixed(2)} Z`;
-    return p;
+  /* Clean half-gauge: sharp coloured track + solid needle, no blurs/shadows */
+  const W=280, H=168, cx=140, cy=152, R=120, ri=88; // ring width = 32px
+
+  // Half-circle arc path (left = 0%, right = 100%)
+  // Angles: 180° (left) → 360°/0° (right)
+  const toR = p => Math.PI + (p / 100) * Math.PI;
+
+  function arc(s, e, ro, rin){
+    if(e <= s) return '';
+    const span = e - s;
+    const a1 = toR(s), a2 = toR(e);
+    const laf = span > 50 ? 1 : 0;
+    const cos1=Math.cos(a1), sin1=Math.sin(a1);
+    const cos2=Math.cos(a2), sin2=Math.sin(a2);
+    return `M${f(cx+ro*cos1)},${f(cy+ro*sin1)}`
+         + ` A${ro},${ro} 0 ${laf},1 ${f(cx+ro*cos2)},${f(cy+ro*sin2)}`
+         + ` L${f(cx+rin*cos2)},${f(cy+rin*sin2)}`
+         + ` A${rin},${rin} 0 ${laf},0 ${f(cx+rin*cos1)},${f(cy+rin*sin1)} Z`;
   }
+  const f = n => n.toFixed(1);
 
-  // Active colour based on pct
-  const clr = pct<34 ? '#ef4444' : pct<67 ? '#f59e0b' : '#22c55e';
-  const glowId = 'sg'+Date.now();
+  // ── Track: 3 sharp coloured zones (full brightness, no opacity) ──────────
+  const trackBg  = `<path d="${arc(0,100,R,ri)}" fill="#e5e7eb"/>`;
+  const zone0    = `<path d="${arc(0,33,R,ri)}"   fill="#fee2e2"/>`;  // red tint bg
+  const zone1    = `<path d="${arc(33,67,R,ri)}"  fill="#fef9c3"/>`;  // yellow tint bg
+  const zone2    = `<path d="${arc(67,100,R,ri)}" fill="#dcfce7"/>`;  // green tint bg
 
-  // Zone arcs (coloured background segments)
-  const zones = `
-    <path d="${arc(0,34,R,ri)}"  fill="#ef4444" opacity="0.32"/>
-    <path d="${arc(34,67,R,ri)}" fill="#f59e0b" opacity="0.32"/>
-    <path d="${arc(67,100,R,ri)}" fill="#22c55e" opacity="0.32"/>`;
+  // ── Active colour (sharp, zone-matched) ───────────────────────────────────
+  const clr = pct < 33 ? '#ef4444' : pct < 67 ? '#eab308' : '#16a34a';
 
-  // Filled progress arc
-  const filled = `<path id="speedo-fill" d="${pct>0?arc(0,pct,R,ri):''}" fill="${clr}" filter="url(#${glowId})"/>`;
+  // ── Filled progress arc — solid, sharp edge ───────────────────────────────
+  const filled = `<path id="speedo-fill" d="${pct > 0 ? arc(0, pct, R, ri) : ''}" fill="${clr}"/>`;
 
-  // Tick marks (major at 0,25,50,75,100 — minor at 12.5,37.5,62.5,87.5)
-  const ticks = [0,12.5,25,37.5,50,62.5,75,87.5,100].map(p=>{
-    const a=toR(p), major=[0,25,50,75,100].includes(p);
-    const x1=(cx+(R+3)*Math.cos(a)).toFixed(2), y1=(cy+(R+3)*Math.sin(a)).toFixed(2);
-    const x2=(cx+(ri-3)*Math.cos(a)).toFixed(2), y2=(cy+(ri-3)*Math.sin(a)).toFixed(2);
-    return `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}"
-      stroke="var(--bg2)" stroke-width="${major?2:1}" stroke-linecap="round" opacity="${major?1:0.6}"/>`;
+  // ── Thin separator lines between zones ───────────────────────────────────
+  const seps = [33, 67].map(p => {
+    const a = toR(p);
+    const x1=f(cx+R*Math.cos(a)),  y1=f(cy+R*Math.sin(a));
+    const x2=f(cx+ri*Math.cos(a)), y2=f(cy+ri*Math.sin(a));
+    return `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="white" stroke-width="2"/>`;
   }).join('');
 
-  // Labels at 0, 50, 100
-  const labels = [[0,'0%'],[50,'50%'],[100,'100%']].map(([p,lbl])=>{
-    const a=toR(p);
-    const lx=(cx+(R+18)*Math.cos(a)).toFixed(2), ly=(cy+(R+18)*Math.sin(a)).toFixed(2);
+  // ── Tick marks ────────────────────────────────────────────────────────────
+  const ticks = [0,25,50,75,100].map(p => {
+    const a = toR(p);
+    const x1=f(cx+(R+4)*Math.cos(a)),  y1=f(cy+(R+4)*Math.sin(a));
+    const x2=f(cx+(ri-4)*Math.cos(a)), y2=f(cy+(ri-4)*Math.sin(a));
+    return `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="white" stroke-width="2" stroke-linecap="round"/>`;
+  }).join('');
+
+  // ── Labels ────────────────────────────────────────────────────────────────
+  const labels = [[0,'0%'],[50,'50%'],[100,'100%']].map(([p, lbl]) => {
+    const a  = toR(p);
+    const lx = f(cx + (R+16)*Math.cos(a));
+    const ly = f(cy + (R+16)*Math.sin(a));
     return `<text x="${lx}" y="${ly}" text-anchor="middle" dominant-baseline="middle"
-      font-size="11" font-family="var(--fn)" font-weight="600" fill="var(--t2)">${lbl}</text>`;
+      font-size="11" font-weight="700" font-family="var(--fn)" fill="var(--t2)">${lbl}</text>`;
   }).join('');
 
-  // Needle
-  const na=toR(pct);
-  const nLen=R-8;
-  const nx=(cx+nLen*Math.cos(na)).toFixed(2), ny=(cy+nLen*Math.sin(na)).toFixed(2);
-  const needle = `<line id="speedo-needle" x1="${cx}" y1="${cy}" x2="${nx}" y2="${ny}"
-    stroke="${clr}" stroke-width="4" stroke-linecap="round"
-    style="transition:all 1s cubic-bezier(.4,0,.2,1);filter:drop-shadow(0 0 4px ${clr})"/>
-  <circle id="speedo-hub" cx="${cx}" cy="${cy}" r="10" fill="${clr}" style="filter:drop-shadow(0 0 6px ${clr}88)"/>
-  <circle cx="${cx}" cy="${cy}" r="4" fill="var(--bg2)"/>`;
+  // ── Needle: sharp solid triangle ─────────────────────────────────────────
+  const na   = toR(pct);
+  const nTip = R - 6;
+  const nBase = 8;                     // half-width of base
+  // Perpendicular to needle direction
+  const px = Math.cos(na + Math.PI/2), py = Math.sin(na + Math.PI/2);
+  const tipX  = f(cx + nTip*Math.cos(na)),  tipY  = f(cy + nTip*Math.sin(na));
+  const bas1X = f(cx + nBase*px),            bas1Y = f(cy + nBase*py);
+  const bas2X = f(cx - nBase*px),            bas2Y = f(cy - nBase*py);
+  const needle = `
+  <polygon id="speedo-needle" points="${tipX},${tipY} ${bas1X},${bas1Y} ${bas2X},${bas2Y}"
+    fill="${clr}" stroke="white" stroke-width="1.5" stroke-linejoin="round"
+    style="transition:all 0.9s cubic-bezier(.4,0,.2,1);transform-origin:${cx}px ${cy}px;"/>
+  <circle id="speedo-hub" cx="${cx}" cy="${cy}" r="11" fill="${clr}" stroke="white" stroke-width="3"/>
+  <circle cx="${cx}" cy="${cy}" r="4" fill="white"/>`;
 
-  // Centre text
+  // ── Centre text ───────────────────────────────────────────────────────────
   const centerText = `
-  <text id="speedo-pct" x="${cx}" y="${cy-34}" text-anchor="middle"
-    font-size="36" font-weight="800" font-family="var(--fn)" fill="${clr}"
-    letter-spacing="-2" style="filter:drop-shadow(0 0 8px ${clr}66)">${pct}%</text>
-  <text id="speedo-sub" x="${cx}" y="${cy-12}" text-anchor="middle"
+  <text id="speedo-pct" x="${cx}" y="${cy-30}" text-anchor="middle"
+    font-size="38" font-weight="800" font-family="var(--fn)" fill="${clr}"
+    letter-spacing="-1">${pct}%</text>
+  <text id="speedo-sub" x="${cx}" y="${cy-8}" text-anchor="middle"
     font-size="11" font-family="var(--fn)" fill="var(--t3)">${comp} / ${tot} completed</text>`;
 
-  return `<svg id="speedo-svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" style="overflow:visible;">
-  <defs>
-    <filter id="${glowId}" x="-20%" y="-20%" width="140%" height="140%">
-      <feGaussianBlur in="SourceGraphic" stdDeviation="3" result="blur"/>
-      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
-    </filter>
-  </defs>
-  <!-- Track background -->
-  <path d="${arc(0,100,R,ri)}" fill="var(--bg3)"/>
-  <!-- Zone colours -->
-  ${zones}
-  <!-- Progress fill -->
+  return `<svg id="speedo-svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
+  ${trackBg}${zone0}${zone1}${zone2}
   ${filled}
-  <!-- Tick marks -->
+  ${seps}
   ${ticks}
   ${labels}
-  <!-- Needle & hub -->
   ${needle}
   ${centerText}
 </svg>`;
 }
+
 
 
 /* Live update — patches speedometer, donut + stat cards without full re-render */
@@ -1041,40 +1051,50 @@ function updateSpeedometer(){
   const over = vis.filter(t=>t.status==='overdue').length;
   const pend = vis.filter(t=>t.status==='pending').length;
   const pct  = tot ? Math.round(comp/tot*100) : 0;
-  const clr  = pct<34 ? '#ef4444' : pct<67 ? '#f59e0b' : '#22c55e';
+  const clr  = pct<33 ? '#ef4444' : pct<67 ? '#eab308' : '#16a34a';
 
   // ── Speedometer ────────────────────────────────────────────────────────────
   const svg = document.getElementById('speedo-svg');
   if(svg){
-    const cx=140, cy=158, R=128, ri=96;
+    const cx=140, cy=152, R=120, ri=88;
     const toR = p => Math.PI + (p/100)*Math.PI;
+    const f = n => n.toFixed(1);
+
     function arcPath(s,e,ro,rin){
       if(e<=s) return '';
       const a1=toR(s),a2=toR(e),laf=(e-s)>50?1:0;
-      return `M${(cx+ro*Math.cos(a1)).toFixed(2)},${(cy+ro*Math.sin(a1)).toFixed(2)}`
-            +` A${ro},${ro} 0 ${laf},1 ${(cx+ro*Math.cos(a2)).toFixed(2)},${(cy+ro*Math.sin(a2)).toFixed(2)}`
-            +` L${(cx+rin*Math.cos(a2)).toFixed(2)},${(cy+rin*Math.sin(a2)).toFixed(2)}`
-            +` A${rin},${rin} 0 ${laf},0 ${(cx+rin*Math.cos(a1)).toFixed(2)},${(cy+rin*Math.sin(a1)).toFixed(2)} Z`;
+      return `M${f(cx+ro*Math.cos(a1))},${f(cy+ro*Math.sin(a1))}`
+            +` A${ro},${ro} 0 ${laf},1 ${f(cx+ro*Math.cos(a2))},${f(cy+ro*Math.sin(a2))}`
+            +` L${f(cx+rin*Math.cos(a2))},${f(cy+rin*Math.sin(a2))}`
+            +` A${rin},${rin} 0 ${laf},0 ${f(cx+rin*Math.cos(a1))},${f(cy+rin*Math.sin(a1))} Z`;
     }
-    // Filled arc — has stable id="speedo-fill"
+
+    // Filled arc
     const fillEl = svg.querySelector('#speedo-fill');
     if(fillEl){
       fillEl.setAttribute('d', pct>0 ? arcPath(0,pct,R,ri) : '');
       fillEl.setAttribute('fill', clr);
     }
-    // Needle
+
+    // Needle (polygon — tip + two base points)
     const nd = svg.querySelector('#speedo-needle');
     if(nd){
-      const a=toR(pct), nLen=R-8;
-      nd.setAttribute('x2',(cx+nLen*Math.cos(a)).toFixed(2));
-      nd.setAttribute('y2',(cy+nLen*Math.sin(a)).toFixed(2));
-      nd.setAttribute('stroke',clr);
-      nd.style.filter=`drop-shadow(0 0 4px ${clr})`;
+      const na=toR(pct), nTip=R-6, nBase=8;
+      const px=Math.cos(na+Math.PI/2), py=Math.sin(na+Math.PI/2);
+      const tipX=f(cx+nTip*Math.cos(na)), tipY=f(cy+nTip*Math.sin(na));
+      const b1x=f(cx+nBase*px), b1y=f(cy+nBase*py);
+      const b2x=f(cx-nBase*px), b2y=f(cy-nBase*py);
+      nd.setAttribute('points',`${tipX},${tipY} ${b1x},${b1y} ${b2x},${b2y}`);
+      nd.setAttribute('fill',clr);
     }
+
+    // Hub
     const hub = svg.querySelector('#speedo-hub');
-    if(hub){ hub.setAttribute('fill',clr); hub.style.filter=`drop-shadow(0 0 6px ${clr}88)`; }
+    if(hub) hub.setAttribute('fill', clr);
+
+    // Text
     const pctEl = svg.querySelector('#speedo-pct');
-    if(pctEl){ pctEl.textContent=pct+'%'; pctEl.setAttribute('fill',clr); pctEl.style.filter=`drop-shadow(0 0 8px ${clr}66)`; }
+    if(pctEl){ pctEl.textContent=pct+'%'; pctEl.setAttribute('fill',clr); }
     const subEl = svg.querySelector('#speedo-sub');
     if(subEl) subEl.textContent=`${comp} / ${tot} completed`;
     const sub2 = document.getElementById('speedo-subtitle');
@@ -1087,19 +1107,15 @@ function updateSpeedometer(){
     const vals=[comp,inp,over,pend], colors=['#22c55e','#3b82f6','#ef4444','#94a3b8'];
     const dCx=110, dR=80, dRi=Math.round(dR*0.62);
     const sw=(dR-dRi)+1, C=2*Math.PI*dR;
-
-    // Replace the rings group contents
     let ringsG = dsvg.querySelector('#donut-rings');
     if(!ringsG){
-      // Fallback: rebuild whole donut SVG content if IDs missing
-      ringsG = document.createElementNS('http://www.w3.org/2000/svg','g');
+      ringsG=document.createElementNS('http://www.w3.org/2000/svg','g');
       ringsG.id='donut-rings';
       dsvg.appendChild(ringsG);
     }
-    ringsG.innerHTML=''; // clear old rings
-
+    ringsG.innerHTML='';
     if(tot>0){
-      let offset = -C*0.25;
+      let offset=-C*0.25;
       vals.forEach((v,i)=>{
         if(!v) return;
         const dash=(v/tot)*C, gap=C-dash;
@@ -1114,10 +1130,8 @@ function updateSpeedometer(){
         offset-=dash;
       });
     }
-
-    // Update centre text
     const dpct=dsvg.querySelector('#donut-pct');
-    if(dpct){ dpct.textContent=pct+'%'; }
+    if(dpct) dpct.textContent=pct+'%';
   }
 
   // ── Donut legend ───────────────────────────────────────────────────────────
