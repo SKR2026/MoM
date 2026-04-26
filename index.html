@@ -3376,7 +3376,7 @@ function renderNewMeetingModal(){
     ${[1,2].map(i=>`<div style="background:var(--bg3);border-radius:8px;padding:12px;margin-bottom:9px;">
       <div class="fgrid">
         <div class="fg full"><label>ACTION ITEM ${i}</label><input placeholder="Describe the action required…"></div>
-        <div class="fg"><label>ASSIGNEE</label><select>${USERS.map(u=>`<option>${u.name}</option>`).join('')}</select></div>
+        <div class="fg"><label>ASSIGNEE</label><select>${USERS.map(u=>`<option value="${u.id}">${u.name}</option>`).join('')}</select></div>
         <div class="fg"><label>DUE DATE</label><input type="date"></div>
         <div class="fg"><label>PRIORITY</label><select><option>high</option><option selected>medium</option><option>low</option></select></div>
       </div>
@@ -3432,7 +3432,7 @@ function addAIItem(){
   aiItemCount++;
   const d=document.createElement('div');
   d.style.cssText='background:var(--bg3);border-radius:8px;padding:12px;margin-bottom:9px;';
-  d.innerHTML=`<div class="fgrid"><div class="fg full"><label>ACTION ITEM ${aiItemCount}</label><input placeholder="Describe the action required…"></div><div class="fg"><label>ASSIGNEE</label><select>${USERS.map(u=>`<option>${u.name}</option>`).join('')}</select></div><div class="fg"><label>DUE DATE</label><input type="date"></div><div class="fg"><label>PRIORITY</label><select><option>high</option><option selected>medium</option><option>low</option></select></div></div>`;
+  d.innerHTML=`<div class="fgrid"><div class="fg full"><label>ACTION ITEM ${aiItemCount}</label><input placeholder="Describe the action required…"></div><div class="fg"><label>ASSIGNEE</label><select>${USERS.map(u=>`<option value="${u.id}">${u.name}</option>`).join('')}</select></div><div class="fg"><label>DUE DATE</label><input type="date"></div><div class="fg"><label>PRIORITY</label><select><option>high</option><option selected>medium</option><option>low</option></select></div></div>`;
   document.getElementById('ai-items').appendChild(d);
 }
 
@@ -3467,17 +3467,16 @@ function saveMeeting(){
   aiDivs.forEach(function(div){
     const inputs=div.querySelectorAll('input,select');
     const aiTitle=(inputs[0]?.value||'').trim();
-    const assigneeName=(inputs[1]?.value||'').trim();
+    const assigneeUid=parseInt(inputs[1]?.value, 10);
     const dueDate=(inputs[2]?.value||'').trim();
     const priority=(inputs[3]?.value||'medium').trim();
     if(!aiTitle) return;
-    const assigneeUser=USERS.find(function(u){return u.name===assigneeName;});
     TASKS.push({
       id:'T'+Date.now()+Math.random().toString(36).slice(2,6),
       mid:newMeetingId,
       mno:no,
       title:aiTitle,
-      uid:assigneeUser?assigneeUser.id:(USERS[0]?.id||null),
+      uid:isNaN(assigneeUid)?null:assigneeUid,
       due:dueDate||date,
       priority:priority,
       status:'pending',
