@@ -919,162 +919,218 @@ function displayDate(raw) {
   return `${d}-${m}-${y}`;
 }
 
-function donut(vals,colors,cx,r){
-  const tot=vals.reduce((a,b)=>a+b,0);if(!tot)return'';
-  let ang=-Math.PI/2,parts=[];
-  vals.forEach((v,i)=>{if(!v)return;const a=(v/tot)*Math.PI*2;const x1=cx+r*Math.cos(ang),y1=cx+r*Math.sin(ang);ang+=a;const x2=cx+r*Math.cos(ang),y2=cx+r*Math.sin(ang);parts.push(`<path d="M${cx},${cx} L${x1},${y1} A${r},${r} 0 ${a>Math.PI?1:0},1 ${x2},${y2} Z" fill="${colors[i]}" opacity=".9"/>`)});
-  return parts.join('')+`<circle cx="${cx}" cy="${cx}" r="${r*.55}" fill="var(--sf)"/>`;
+function donut(vals, colors, cx, r){
+  /* Proper ring/donut chart using stroke-dasharray on a circle */
+  const tot = vals.reduce((a,b)=>a+b,0);
+  if(!tot) return `<circle cx="${cx}" cy="${cx}" r="${r}" fill="none" stroke="var(--bg3)" stroke-width="${r*.38}"/>`;
+  const inner = r * 0.62;           // ring thickness = r - inner
+  const C     = 2 * Math.PI * r;    // circumference
+  let offset  = -C * 0.25;          // start from top (−90°)
+  const rings = vals.map((v,i)=>{
+    if(!v) return '';
+    const dash  = (v/tot)*C;
+    const gap   = C - dash;
+    const seg   = `<circle cx="${cx}" cy="${cx}" r="${r}" fill="none"
+      stroke="${colors[i]}" stroke-width="${(r-inner)+1}"
+      stroke-dasharray="${dash.toFixed(2)} ${gap.toFixed(2)}"
+      stroke-dashoffset="${offset.toFixed(2)}"
+      stroke-linecap="butt"/>`;
+    offset -= dash;
+    return seg;
+  }).join('');
+  return `<circle cx="${cx}" cy="${cx}" r="${r}" fill="none" stroke="var(--bg3)" stroke-width="${(r-inner)+1}"/>${rings}`;
 }
 
-/* ── Half Speedometer ─────────────────────────────────────────────────────
-   Renders once into the DOM, then updateSpeedometer() patches it live.
-   Called after every task save so stats stay current without re-rendering
-   the whole dashboard.
-────────────────────────────────────────────────────────────────────────── */
-function speedometer(pct, comp, tot){
-  const id = 'speedo-svg';
-  const W = 260, H = 162, cx = 130, cy = 145, R = 115, ri = 84;
 
-  // arc path: from startPct to endPct on the half-circle
-  function arc(s, e, ro, rin){
-    const a1 = Math.PI + (s/100)*Math.PI, a2 = Math.PI + (e/100)*Math.PI;
-    const laf = (e-s) > 50 ? 1 : 0;
-    const cos1=Math.cos(a1),sin1=Math.sin(a1),cos2=Math.cos(a2),sin2=Math.sin(a2);
-    return `M${cx+ro*cos1},${cy+ro*sin1}`
-          +` A${ro},${ro} 0 ${laf},1 ${cx+ro*cos2},${cy+ro*sin2}`
-          +` L${cx+rin*cos2},${cy+rin*sin2}`
-          +` A${rin},${rin} 0 ${laf},0 ${cx+rin*cos1},${cy+rin*sin1} Z`;
+function speedometer(pct, comp, tot){
+  const W=280, H=172, cx=140, cy=158, R=128, ri=96;
+  // Converts 0-100 pct to angle in radians on half-circle (left=0, right=100)
+  const toR = p => Math.PI + (p/100)*Math.PI;
+  // Arc path between two percentages
+  function arc(s,e,ro,rin){
+    if(e<=s) return '';
+    const a1=toR(s), a2=toR(e), laf=(e-s)>50?1:0;
+    const p=`M${(cx+ro*Math.cos(a1)).toFixed(2)},${(cy+ro*Math.sin(a1)).toFixed(2)}`
+            +` A${ro},${ro} 0 ${laf},1 ${(cx+ro*Math.cos(a2)).toFixed(2)},${(cy+ro*Math.sin(a2)).toFixed(2)}`
+            +` L${(cx+rin*Math.cos(a2)).toFixed(2)},${(cy+rin*Math.sin(a2)).toFixed(2)}`
+            +` A${rin},${rin} 0 ${laf},0 ${(cx+rin*Math.cos(a1)).toFixed(2)},${(cy+rin*Math.sin(a1)).toFixed(2)} Z`;
+    return p;
   }
 
-  // Colour for current pct
-  const clr = pct < 34 ? '#ef4444' : pct < 67 ? '#f59e0b' : '#22c55e';
+  // Active colour based on pct
+  const clr = pct<34 ? '#ef4444' : pct<67 ? '#f59e0b' : '#22c55e';
+  const glowId = 'sg'+Date.now();
 
-  // Gradient segments (track background)
-  const zones = [
-    [0,  34, '#ef4444'],   // red
-    [34, 67, '#f59e0b'],   // amber
-    [67, 100,'#22c55e'],   // green
-  ];
+  // Zone arcs (coloured background segments)
+  const zones = `
+    <path d="${arc(0,34,R,ri)}"  fill="#ef4444" opacity="0.32"/>
+    <path d="${arc(34,67,R,ri)}" fill="#f59e0b" opacity="0.32"/>
+    <path d="${arc(67,100,R,ri)}" fill="#22c55e" opacity="0.32"/>`;
 
-  // Ticks
-  const tickSVG = [0,25,50,75,100].map(p => {
-    const a = Math.PI + (p/100)*Math.PI;
-    const x1=cx+(R+5)*Math.cos(a), y1=cy+(R+5)*Math.sin(a);
-    const x2=cx+(ri-5)*Math.cos(a), y2=cy+(ri-5)*Math.sin(a);
-    return `<line x1="${x1.toFixed(1)}" y1="${y1.toFixed(1)}" x2="${x2.toFixed(1)}" y2="${y2.toFixed(1)}" stroke="var(--br2)" stroke-width="1.5" stroke-linecap="round"/>`;
+  // Filled progress arc
+  const filled = pct>0 ? `<path d="${arc(0,pct,R,ri)}" fill="${clr}" filter="url(#${glowId})"/>` : '';
+
+  // Tick marks (major at 0,25,50,75,100 — minor at 12.5,37.5,62.5,87.5)
+  const ticks = [0,12.5,25,37.5,50,62.5,75,87.5,100].map(p=>{
+    const a=toR(p), major=[0,25,50,75,100].includes(p);
+    const x1=(cx+(R+3)*Math.cos(a)).toFixed(2), y1=(cy+(R+3)*Math.sin(a)).toFixed(2);
+    const x2=(cx+(ri-3)*Math.cos(a)).toFixed(2), y2=(cy+(ri-3)*Math.sin(a)).toFixed(2);
+    return `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}"
+      stroke="var(--bg2)" stroke-width="${major?2:1}" stroke-linecap="round" opacity="${major?1:0.6}"/>`;
   }).join('');
 
-  // Labels at 0%, 50%, 100%
-  const labelSVG = [[0,'0'],[50,'50'],[100,'100']].map(([p,lbl]) => {
-    const a = Math.PI + (p/100)*Math.PI;
-    const lx=(cx+(R+18)*Math.cos(a)).toFixed(1), ly=(cy+(R+18)*Math.sin(a)).toFixed(1);
-    return `<text x="${lx}" y="${ly}" text-anchor="middle" dominant-baseline="middle" font-size="10" font-family="var(--fn)" fill="var(--t3)">${lbl}%</text>`;
+  // Labels at 0, 50, 100
+  const labels = [[0,'0%'],[50,'50%'],[100,'100%']].map(([p,lbl])=>{
+    const a=toR(p);
+    const lx=(cx+(R+18)*Math.cos(a)).toFixed(2), ly=(cy+(R+18)*Math.sin(a)).toFixed(2);
+    return `<text x="${lx}" y="${ly}" text-anchor="middle" dominant-baseline="middle"
+      font-size="11" font-family="var(--fn)" font-weight="600" fill="var(--t2)">${lbl}</text>`;
   }).join('');
 
   // Needle
-  function needle(p, color){
-    const a = Math.PI + (p/100)*Math.PI;
-    const nx=(cx+(R-10)*Math.cos(a)).toFixed(1), ny=(cy+(R-10)*Math.sin(a)).toFixed(1);
-    return `<line id="speedo-needle" x1="${cx}" y1="${cy}" x2="${nx}" y2="${ny}"
-      stroke="${color}" stroke-width="3.5" stroke-linecap="round"
-      style="transition:all 0.9s cubic-bezier(.4,0,.2,1);"/>
-    <circle cx="${cx}" cy="${cy}" r="8" fill="${color}" id="speedo-hub"/>
-    <circle cx="${cx}" cy="${cy}" r="3.5" fill="var(--sf)"/>`;
-  }
+  const na=toR(pct);
+  const nLen=R-8;
+  const nx=(cx+nLen*Math.cos(na)).toFixed(2), ny=(cy+nLen*Math.sin(na)).toFixed(2);
+  const needle = `<line id="speedo-needle" x1="${cx}" y1="${cy}" x2="${nx}" y2="${ny}"
+    stroke="${clr}" stroke-width="4" stroke-linecap="round"
+    style="transition:all 1s cubic-bezier(.4,0,.2,1);filter:drop-shadow(0 0 4px ${clr})"/>
+  <circle id="speedo-hub" cx="${cx}" cy="${cy}" r="10" fill="${clr}" style="filter:drop-shadow(0 0 6px ${clr}88)"/>
+  <circle cx="${cx}" cy="${cy}" r="4" fill="var(--bg2)"/>`;
 
-  const safe = pct > 0 ? `<path d="${arc(0,pct,R,ri)}" fill="${clr}" id="speedo-fill"/>` : `<path d="" fill="${clr}" id="speedo-fill"/>`;
+  // Centre text
+  const centerText = `
+  <text id="speedo-pct" x="${cx}" y="${cy-34}" text-anchor="middle"
+    font-size="36" font-weight="800" font-family="var(--fn)" fill="${clr}"
+    letter-spacing="-2" style="filter:drop-shadow(0 0 8px ${clr}66)">${pct}%</text>
+  <text id="speedo-sub" x="${cx}" y="${cy-12}" text-anchor="middle"
+    font-size="11" font-family="var(--fn)" fill="var(--t3)">${comp} / ${tot} done</text>`;
 
-  return `<svg id="${id}" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" style="overflow:visible;">
+  return `<svg id="speedo-svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" style="overflow:visible;">
+  <defs>
+    <filter id="${glowId}" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="3" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
   <!-- Track background -->
   <path d="${arc(0,100,R,ri)}" fill="var(--bg3)"/>
-  <!-- Zone colours (bright, no opacity) -->
-  ${zones.map(([s,e,c])=>`<path d="${arc(s,e,R,ri)}" fill="${c}" opacity="0.22"/>`).join('')}
-  <!-- Filled progress -->
-  ${safe}
-  <!-- Ticks & labels -->
-  ${tickSVG}
-  ${labelSVG}
-  <!-- Needle -->
-  ${needle(pct, clr)}
-  <!-- Centre readout -->
-  <text id="speedo-pct" x="${cx}" y="${cy-26}" text-anchor="middle" font-size="34" font-weight="700"
-    font-family="var(--fn)" fill="${clr}" letter-spacing="-1">${pct}%</text>
-  <text id="speedo-sub" x="${cx}" y="${cy-6}" text-anchor="middle" font-size="11"
-    font-family="var(--fn)" fill="var(--t3)">${comp} / ${tot} completed</text>
+  <!-- Zone colours -->
+  ${zones}
+  <!-- Progress fill -->
+  ${filled}
+  <!-- Tick marks -->
+  ${ticks}
+  ${labels}
+  <!-- Needle & hub -->
+  ${needle}
+  ${centerText}
 </svg>`;
 }
 
-/* Live update — patches only the changed SVG elements + stat cards.
-   Call this after every task save instead of re-rendering the whole dashboard. */
-function updateSpeedometer(){
-  const vis   = getVisibleTasks();
-  const tot   = vis.length;
-  const comp  = vis.filter(t=>t.status==='completed').length;
-  const inp   = vis.filter(t=>t.status==='in-progress').length;
-  const over  = vis.filter(t=>t.status==='overdue').length;
-  const pend  = vis.filter(t=>t.status==='pending').length;
-  const pct   = tot ? Math.round(comp/tot*100) : 0;
-  const clr   = pct < 34 ? '#ef4444' : pct < 67 ? '#f59e0b' : '#22c55e';
 
-  // ── Patch SVG elements if they exist ─────────────────────────────────────
+/* Live update — patches speedometer, donut + stat cards without full re-render */
+function updateSpeedometer(){
+  const vis  = getVisibleTasks();
+  const tot  = vis.length;
+  const comp = vis.filter(t=>t.status==='completed').length;
+  const inp  = vis.filter(t=>t.status==='in-progress').length;
+  const over = vis.filter(t=>t.status==='overdue').length;
+  const pend = vis.filter(t=>t.status==='pending').length;
+  const pct  = tot ? Math.round(comp/tot*100) : 0;
+  const clr  = pct<34 ? '#ef4444' : pct<67 ? '#f59e0b' : '#22c55e';
+
+  // ── Speedometer SVG ────────────────────────────────────────────────────────
   const svg = document.getElementById('speedo-svg');
   if(svg){
+    const cx=140, cy=158, R=128, ri=96;
+    const toR = p => Math.PI + (p/100)*Math.PI;
+    function arc(s,e,ro,rin){
+      if(e<=s) return '';
+      const a1=toR(s),a2=toR(e),laf=(e-s)>50?1:0;
+      return `M${(cx+ro*Math.cos(a1)).toFixed(2)},${(cy+ro*Math.sin(a1)).toFixed(2)}`
+            +` A${ro},${ro} 0 ${laf},1 ${(cx+ro*Math.cos(a2)).toFixed(2)},${(cy+ro*Math.sin(a2)).toFixed(2)}`
+            +` L${(cx+rin*Math.cos(a2)).toFixed(2)},${(cy+rin*Math.sin(a2)).toFixed(2)}`
+            +` A${rin},${rin} 0 ${laf},0 ${(cx+rin*Math.cos(a1)).toFixed(2)},${(cy+rin*Math.sin(a1)).toFixed(2)} Z`;
+    }
     // Filled arc
-    const fill = svg.querySelector('#speedo-fill');
-    if(fill){
-      if(tot && pct > 0){
-        // Recalculate arc path
-        const R=115, ri=84, cx=130, cy=145;
-        function arc(s,e,ro,rin){
-          const a1=Math.PI+(s/100)*Math.PI, a2=Math.PI+(e/100)*Math.PI;
-          const laf=(e-s)>50?1:0;
-          return `M${cx+ro*Math.cos(a1)},${cy+ro*Math.sin(a1)}`
-                +` A${ro},${ro} 0 ${laf},1 ${cx+ro*Math.cos(a2)},${cy+ro*Math.sin(a2)}`
-                +` L${cx+rin*Math.cos(a2)},${cy+rin*Math.sin(a2)}`
-                +` A${rin},${rin} 0 ${laf},0 ${cx+rin*Math.cos(a1)},${cy+rin*Math.sin(a1)} Z`;
-        }
-        fill.setAttribute('d', arc(0, pct, R, ri));
-      } else {
-        fill.setAttribute('d','');
-      }
-      fill.setAttribute('fill', clr);
+    const fill = svg.querySelector('#speedo-fill') || svg.querySelector('path[id^="speedo-fill"]');
+    // Find the progress fill (4th path — after track + 3 zones)
+    const paths = svg.querySelectorAll('path');
+    if(paths.length>=5){
+      paths[4].setAttribute('d', pct>0 ? arc(0,pct,R,ri) : '');
+      paths[4].setAttribute('fill', clr);
     }
     // Needle
     const nd = svg.querySelector('#speedo-needle');
     if(nd){
-      const a = Math.PI+(pct/100)*Math.PI;
-      const R=115, cx=130, cy=145;
-      nd.setAttribute('x2', (cx+(R-10)*Math.cos(a)).toFixed(1));
-      nd.setAttribute('y2', (cy+(R-10)*Math.sin(a)).toFixed(1));
-      nd.setAttribute('stroke', clr);
+      const a=toR(pct), nLen=R-8;
+      nd.setAttribute('x2',(cx+nLen*Math.cos(a)).toFixed(2));
+      nd.setAttribute('y2',(cy+nLen*Math.sin(a)).toFixed(2));
+      nd.setAttribute('stroke',clr);
+      nd.style.filter=`drop-shadow(0 0 4px ${clr})`;
     }
     const hub = svg.querySelector('#speedo-hub');
-    if(hub) hub.setAttribute('fill', clr);
-    // Text
+    if(hub){ hub.setAttribute('fill',clr); hub.style.filter=`drop-shadow(0 0 6px ${clr}88)`; }
     const pctEl = svg.querySelector('#speedo-pct');
-    if(pctEl){ pctEl.textContent=pct+'%'; pctEl.setAttribute('fill',clr); }
+    if(pctEl){ pctEl.textContent=pct+'%'; pctEl.setAttribute('fill',clr); pctEl.style.filter=`drop-shadow(0 0 8px ${clr}66)`; }
     const subEl = svg.querySelector('#speedo-sub');
-    if(subEl) subEl.textContent=`${comp} / ${tot} completed`;
-    // Also update subtitle above SVG
+    if(subEl) subEl.textContent=`${comp} / ${tot} done`;
     const sub2 = document.getElementById('speedo-subtitle');
     if(sub2) sub2.textContent=`${comp} of ${tot} tasks completed`;
   }
 
-  // ── Patch stat cards ─────────────────────────────────────────────────────
-  function patch(id, val){ const el=document.getElementById(id); if(el) el.textContent=val; }
-  patch('stat-tot',   tot);
-  patch('stat-comp',  comp);
-  patch('stat-inp',   inp);
-  patch('stat-over',  over);
-  patch('stat-pct',   pct+'% completion');
-  patch('stat-mtgs',  'Across '+MEETINGS.length+' meetings');
-  patch('stat-esc',   vis.filter(t=>t.esc>0).length+' escalated');
+  // ── Donut chart ────────────────────────────────────────────────────────────
+  const dsvg = document.getElementById('donut-svg');
+  if(dsvg && tot){
+    const vals=[comp,inp,over,pend], colors=['#22c55e','#3b82f6','#ef4444','#94a3b8'];
+    const dCx=110, dR=80, dRi=Math.round(dR*0.62);
+    const C=2*Math.PI*dR;
+    let offset=-C*0.25;
+    // Remove old rings (circles after the first background one)
+    const existing=dsvg.querySelectorAll('circle[stroke]:not(:first-of-type)');
+    existing.forEach(c=>c.remove());
+    // Re-draw background
+    let bg=dsvg.querySelector('circle[stroke]');
+    if(!bg){
+      bg=document.createElementNS('http://www.w3.org/2000/svg','circle');
+      bg.setAttribute('cx',dCx);bg.setAttribute('cy',dCx);bg.setAttribute('r',dR);
+      bg.setAttribute('fill','none');bg.setAttribute('stroke','var(--bg3)');
+      bg.setAttribute('stroke-width',(dR-dRi)+1);
+      dsvg.insertBefore(bg,dsvg.firstChild);
+    }
+    vals.forEach((v,i)=>{
+      if(!v)return;
+      const dash=(v/tot)*C, gap=C-dash;
+      const c=document.createElementNS('http://www.w3.org/2000/svg','circle');
+      c.setAttribute('cx',dCx);c.setAttribute('cy',dCx);c.setAttribute('r',dR);
+      c.setAttribute('fill','none');c.setAttribute('stroke',colors[i]);
+      c.setAttribute('stroke-width',(dR-dRi)+1);
+      c.setAttribute('stroke-dasharray',`${dash.toFixed(2)} ${gap.toFixed(2)}`);
+      c.setAttribute('stroke-dashoffset',offset.toFixed(2));
+      c.setAttribute('stroke-linecap','butt');
+      dsvg.insertBefore(c,dsvg.querySelector('text'));
+      offset-=dash;
+    });
+    const dpct=dsvg.querySelector('#donut-pct');
+    if(dpct) dpct.textContent=pct+'%';
+  }
 
-  // Progress bars
-  function bar(id, w){ const el=document.getElementById(id); if(el) el.style.width=w+'%'; }
-  bar('bar-comp',  pct);
-  bar('bar-inp',   tot ? Math.round(inp/tot*100) : 0);
-  bar('bar-over',  tot ? Math.round(over/tot*100) : 0);
+  // ── Donut legend ───────────────────────────────────────────────────────────
+  function patch(id,v){const el=document.getElementById(id);if(el)el.textContent=v;}
+  patch('donut-leg-comp',comp); patch('donut-leg-inp',inp);
+  patch('donut-leg-over',over); patch('donut-leg-pend',pend);
+  patch('donut-leg-tot',tot);   patch('donut-pct',pct+'%');
+
+  // ── Stat cards ─────────────────────────────────────────────────────────────
+  patch('stat-tot',tot);  patch('stat-comp',comp);
+  patch('stat-inp',inp);  patch('stat-over',over);
+  patch('stat-pct',pct+'% completion');
+  patch('stat-mtgs','Across '+MEETINGS.length+' meetings');
+  patch('stat-esc',vis.filter(t=>t.esc>0).length+' escalated');
+  function bar(id,w){const el=document.getElementById(id);if(el)el.style.width=w+'%';}
+  bar('bar-comp',pct);
+  bar('bar-inp', tot?Math.round(inp/tot*100):0);
+  bar('bar-over',tot?Math.round(over/tot*100):0);
 }
 
 
@@ -1157,7 +1213,7 @@ function renderDashboard(){
   <div style="display:flex;gap:18px;margin-bottom:20px;flex-wrap:wrap;align-items:stretch;">
 
     <!-- Speedometer card -->
-    <div class="card" style="flex:0 0 300px;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:20px 24px 14px;">
+    <div class="card" style="flex:0 0 320px;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:20px 24px 16px;">
       <div class="ctit" style="margin-bottom:2px;">Task Completion</div>
       <div id="speedo-subtitle" style="font-size:11px;color:var(--t3);margin-bottom:10px;">${comp} of ${tot} tasks completed</div>
       ${speedometer(pct, comp, tot)}
@@ -1174,21 +1230,26 @@ function renderDashboard(){
   </div>
   ${over?`<div class="alert ad" style="margin-bottom:16px;">${over} overdue task${over>1?'s':''} require attention. ${myTasks.filter(t=>t.esc>=2).length} escalated to senior management.</div>`:''}
   <div class="g2" style="margin-bottom:20px;">
-    <div class="card">
-      <div class="ch"><div class="ctit">Task Status</div></div>
-      <div style="display:flex;align-items:center;gap:20px;">
-        <svg width="180" height="180" viewBox="0 0 180 180">
-          ${donut([comp,inp,over,myTasks.filter(t=>t.status==='pending').length],['#16a34a','#2563eb','#dc2626','#9ca3af'],90,68)}
-          <text x="90" y="86" text-anchor="middle" font-size="26" font-weight="600" fill="currentColor">${pct}%</text>
-          <text x="90" y="103" text-anchor="middle" font-size="13" fill="var(--t3)">done</text>
-        </svg>
-        <div style="flex:1;">
-          ${[['Completed','#16a34a',comp],['In Progress','#2563eb',inp],['Overdue','#dc2626',over],['Pending','#9ca3af',myTasks.filter(t=>t.status==='pending').length]].map(([l,c,v])=>`
-          <div style="display:flex;align-items:center;gap:7px;margin-bottom:8px;font-size:12px;">
-            <div style="width:8px;height:8px;border-radius:50%;background:${c};flex-shrink:0;"></div>
-            <span style="flex:1;color:var(--t2);">${l}</span>
-            <span style="font-weight:600;">${v}</span>
+    <div class="card" id="donut-card">
+      <div class="ch"><div class="ctit">Task Status Breakdown</div></div>
+      <div style="display:flex;align-items:center;gap:24px;">
+        <div style="position:relative;flex-shrink:0;">
+          <svg id="donut-svg" width="220" height="220" viewBox="0 0 220 220">
+            ${donut([comp,inp,over,myTasks.filter(t=>t.status==='pending').length],['#22c55e','#3b82f6','#ef4444','#94a3b8'],110,80)}
+            <text id="donut-pct" x="110" y="104" text-anchor="middle" font-size="32" font-weight="700" fill="var(--tx)" font-family="var(--fn)">${pct}%</text>
+            <text x="110" y="126" text-anchor="middle" font-size="12" fill="var(--t3)" font-family="var(--fn)">completed</text>
+          </svg>
+        </div>
+        <div style="flex:1;min-width:0;">
+          ${[['Completed','#22c55e','donut-leg-comp',comp],['In Progress','#3b82f6','donut-leg-inp',inp],['Overdue','#ef4444','donut-leg-over',over],['Pending','#94a3b8','donut-leg-pend',myTasks.filter(t=>t.status==='pending').length]].map(([l,c,lid,v])=>`
+          <div style="display:flex;align-items:center;gap:9px;margin-bottom:12px;">
+            <div style="width:10px;height:10px;border-radius:50%;background:${c};flex-shrink:0;box-shadow:0 0 6px ${c}88;"></div>
+            <span style="flex:1;color:var(--t2);font-size:12px;">${l}</span>
+            <span id="${lid}" style="font-weight:700;font-size:14px;color:var(--tx);">${v}</span>
           </div>`).join('')}
+          <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--br);font-size:11px;color:var(--t3);display:flex;justify-content:space-between;">
+            <span>Total</span><span id="donut-leg-tot" style="font-weight:700;color:var(--tx);">${tot}</span>
+          </div>
         </div>
       </div>
     </div>
