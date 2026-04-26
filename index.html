@@ -437,7 +437,8 @@ function loadPersistedMeetings(){
 function persistTasks(){
   try{ localStorage.setItem(TASKS_STORE_KEY, JSON.stringify(TASKS)); }
   catch(e){ console.warn('Could not persist tasks:', e); }
-  setTimeout(updateBell, 0); // refresh live counts
+  setTimeout(updateBell, 0);          // refresh bell counts
+  setTimeout(updateSpeedometer, 0);   // refresh dashboard charts & stats
 }
 
 function loadPersistedTasks(){
@@ -938,7 +939,7 @@ function donut(vals, colors, cx, r){
     offset -= dash;
     return seg;
   }).join('');
-  return `<circle cx="${cx}" cy="${cx}" r="${r}" fill="none" stroke="var(--bg3)" stroke-width="${(r-inner)+1}"/>${rings}`;
+  return `<circle id="donut-bg" cx="${cx}" cy="${cx}" r="${r}" fill="none" stroke="var(--bg3)" stroke-width="${(r-inner)+1}"/><g id="donut-rings">${rings}</g>`;
 }
 
 
@@ -968,7 +969,7 @@ function speedometer(pct, comp, tot){
     <path d="${arc(67,100,R,ri)}" fill="#22c55e" opacity="0.32"/>`;
 
   // Filled progress arc
-  const filled = pct>0 ? `<path d="${arc(0,pct,R,ri)}" fill="${clr}" filter="url(#${glowId})"/>` : '';
+  const filled = `<path id="speedo-fill" d="${pct>0?arc(0,pct,R,ri):''}" fill="${clr}" filter="url(#${glowId})"/>`;
 
   // Tick marks (major at 0,25,50,75,100 — minor at 12.5,37.5,62.5,87.5)
   const ticks = [0,12.5,25,37.5,50,62.5,75,87.5,100].map(p=>{
@@ -1039,12 +1040,12 @@ function updateSpeedometer(){
   const pct  = tot ? Math.round(comp/tot*100) : 0;
   const clr  = pct<34 ? '#ef4444' : pct<67 ? '#f59e0b' : '#22c55e';
 
-  // ── Speedometer SVG ────────────────────────────────────────────────────────
+  // ── Speedometer ────────────────────────────────────────────────────────────
   const svg = document.getElementById('speedo-svg');
   if(svg){
     const cx=140, cy=158, R=128, ri=96;
     const toR = p => Math.PI + (p/100)*Math.PI;
-    function arc(s,e,ro,rin){
+    function arcPath(s,e,ro,rin){
       if(e<=s) return '';
       const a1=toR(s),a2=toR(e),laf=(e-s)>50?1:0;
       return `M${(cx+ro*Math.cos(a1)).toFixed(2)},${(cy+ro*Math.sin(a1)).toFixed(2)}`
@@ -1052,13 +1053,11 @@ function updateSpeedometer(){
             +` L${(cx+rin*Math.cos(a2)).toFixed(2)},${(cy+rin*Math.sin(a2)).toFixed(2)}`
             +` A${rin},${rin} 0 ${laf},0 ${(cx+rin*Math.cos(a1)).toFixed(2)},${(cy+rin*Math.sin(a1)).toFixed(2)} Z`;
     }
-    // Filled arc
-    const fill = svg.querySelector('#speedo-fill') || svg.querySelector('path[id^="speedo-fill"]');
-    // Find the progress fill (4th path — after track + 3 zones)
-    const paths = svg.querySelectorAll('path');
-    if(paths.length>=5){
-      paths[4].setAttribute('d', pct>0 ? arc(0,pct,R,ri) : '');
-      paths[4].setAttribute('fill', clr);
+    // Filled arc — has stable id="speedo-fill"
+    const fillEl = svg.querySelector('#speedo-fill');
+    if(fillEl){
+      fillEl.setAttribute('d', pct>0 ? arcPath(0,pct,R,ri) : '');
+      fillEl.setAttribute('fill', clr);
     }
     // Needle
     const nd = svg.querySelector('#speedo-needle');
@@ -1081,45 +1080,48 @@ function updateSpeedometer(){
 
   // ── Donut chart ────────────────────────────────────────────────────────────
   const dsvg = document.getElementById('donut-svg');
-  if(dsvg && tot){
+  if(dsvg){
     const vals=[comp,inp,over,pend], colors=['#22c55e','#3b82f6','#ef4444','#94a3b8'];
     const dCx=110, dR=80, dRi=Math.round(dR*0.62);
-    const C=2*Math.PI*dR;
-    let offset=-C*0.25;
-    // Remove old rings (circles after the first background one)
-    const existing=dsvg.querySelectorAll('circle[stroke]:not(:first-of-type)');
-    existing.forEach(c=>c.remove());
-    // Re-draw background
-    let bg=dsvg.querySelector('circle[stroke]');
-    if(!bg){
-      bg=document.createElementNS('http://www.w3.org/2000/svg','circle');
-      bg.setAttribute('cx',dCx);bg.setAttribute('cy',dCx);bg.setAttribute('r',dR);
-      bg.setAttribute('fill','none');bg.setAttribute('stroke','var(--bg3)');
-      bg.setAttribute('stroke-width',(dR-dRi)+1);
-      dsvg.insertBefore(bg,dsvg.firstChild);
+    const sw=(dR-dRi)+1, C=2*Math.PI*dR;
+
+    // Replace the rings group contents
+    let ringsG = dsvg.querySelector('#donut-rings');
+    if(!ringsG){
+      // Fallback: rebuild whole donut SVG content if IDs missing
+      ringsG = document.createElementNS('http://www.w3.org/2000/svg','g');
+      ringsG.id='donut-rings';
+      dsvg.appendChild(ringsG);
     }
-    vals.forEach((v,i)=>{
-      if(!v)return;
-      const dash=(v/tot)*C, gap=C-dash;
-      const c=document.createElementNS('http://www.w3.org/2000/svg','circle');
-      c.setAttribute('cx',dCx);c.setAttribute('cy',dCx);c.setAttribute('r',dR);
-      c.setAttribute('fill','none');c.setAttribute('stroke',colors[i]);
-      c.setAttribute('stroke-width',(dR-dRi)+1);
-      c.setAttribute('stroke-dasharray',`${dash.toFixed(2)} ${gap.toFixed(2)}`);
-      c.setAttribute('stroke-dashoffset',offset.toFixed(2));
-      c.setAttribute('stroke-linecap','butt');
-      dsvg.insertBefore(c,dsvg.querySelector('text'));
-      offset-=dash;
-    });
+    ringsG.innerHTML=''; // clear old rings
+
+    if(tot>0){
+      let offset = -C*0.25;
+      vals.forEach((v,i)=>{
+        if(!v) return;
+        const dash=(v/tot)*C, gap=C-dash;
+        const c=document.createElementNS('http://www.w3.org/2000/svg','circle');
+        c.setAttribute('cx',dCx); c.setAttribute('cy',dCx); c.setAttribute('r',dR);
+        c.setAttribute('fill','none'); c.setAttribute('stroke',colors[i]);
+        c.setAttribute('stroke-width',sw);
+        c.setAttribute('stroke-dasharray',`${dash.toFixed(2)} ${gap.toFixed(2)}`);
+        c.setAttribute('stroke-dashoffset',offset.toFixed(2));
+        c.setAttribute('stroke-linecap','butt');
+        ringsG.appendChild(c);
+        offset-=dash;
+      });
+    }
+
+    // Update centre text
     const dpct=dsvg.querySelector('#donut-pct');
-    if(dpct) dpct.textContent=pct+'%';
+    if(dpct){ dpct.textContent=pct+'%'; }
   }
 
   // ── Donut legend ───────────────────────────────────────────────────────────
   function patch(id,v){const el=document.getElementById(id);if(el)el.textContent=v;}
   patch('donut-leg-comp',comp); patch('donut-leg-inp',inp);
   patch('donut-leg-over',over); patch('donut-leg-pend',pend);
-  patch('donut-leg-tot',tot);   patch('donut-pct',pct+'%');
+  patch('donut-leg-tot',tot);
 
   // ── Stat cards ─────────────────────────────────────────────────────────────
   patch('stat-tot',tot);  patch('stat-comp',comp);
