@@ -1109,8 +1109,7 @@ function saveEditMeeting(meetingId){
   AUDIT_LOG.unshift({time:new Date().toISOString().slice(0,16).replace('T',' '),user:document.getElementById('un')?.textContent||'Admin',action:`Edited meeting ${m.no}: "${title}"`,entity:meetingId,type:'update'});
   persistMeetings();
   persistTasks();
-  fsWriteMeeting(m);
-  TASKS.filter(t=>t.mid===meetingId).forEach(t=>fsWriteTask(t));
+  fsWriteAllMeetingsAndTasks([m], TASKS.filter(t=>t.mid===meetingId));
   closeModal();
   renderMeetings();
   showToast(`Meeting "${m.no}" updated.`,'ok');
@@ -1173,7 +1172,7 @@ function saveAddTask(meetingId){
   const assignee=gu(uid);
   AUDIT_LOG.unshift({time:new Date().toISOString().slice(0,16).replace('T',' '),user:document.getElementById('un')?.textContent||'Admin',action:`Added task "${title}" to ${m.no} — assigned to ${assignee.name}`,entity:newTask.id,type:'create'});
   persistTasks();
-  fsWriteTask(newTask);
+  fsWriteAllMeetingsAndTasks([], [newTask]);
   // Send grouped notification with deep-link
   sendGroupedTaskNotifications([newTask.id], 'assigned', m,
     `New action item <strong>${title}</strong> has been assigned to you from meeting <strong>${m.no}</strong>.`);
@@ -1548,8 +1547,9 @@ function processBulkUpload(){
 
     persistMeetings();
     persistTasks();
-    MEETINGS.forEach(m=>fsWriteMeeting(m));
-    TASKS.forEach(t=>fsWriteTask(t));
+    // Use batch write so all records land atomically without listener wipe
+    const _bulkMtgs = MEETINGS.filter(m => !m._existedBeforeImport);
+    fsWriteAllMeetingsAndTasks(MEETINGS, TASKS);
 
     if(importedTasks===0){
       showToast('No tasks imported. Check columns match the template and required fields are filled.','warn');
@@ -1948,43 +1948,81 @@ function fbStatusBadge(online){
   return online ? '<span class="bdg b-ok">&#9679; Online</span>' : '<span class="bdg b-df">&#9675; Offline</span>';
 }
 
+// Write-lock: prevents Firestore snapshot from overwriting data during saves
+let _writeLock = false;
+let _firstMeetingsSnap = false;
+let _firstTasksSnap    = false;
+let _firstUsersSnap    = false;
+
 function initFirestoreListeners() {
   if (_listenersStarted || !_db) return;
   _listenersStarted = true;
 
-  // Users
+  // ── Users ──────────────────────────────────────────────────────────────────
   const fu = FS_USERS();
   if (fu) fu.onSnapshot(snap => {
-    if (!snap.docs.length) return;
-    USERS.length = 0;
-    snap.docs.forEach(d => {
-      const u = d.data();
-      u.id = Number(u.id);
-      if (u._pw !== undefined && u._pw !== null) USER_PASSWORDS[u.id] = u._pw;
-      const { _pw, ...clean } = u;
-      USERS.push(clean);
-    });
-    try { localStorage.setItem(USERS_STORE_KEY, JSON.stringify(USERS)); } catch(e2) {}
+    const fsUsers = snap.docs.map(d => d.data());
+    if (!_firstUsersSnap && fsUsers.length === 0) {
+      // First snapshot with no data — Firestore is empty, keep localStorage data
+      _firstUsersSnap = true;
+      return;
+    }
+    _firstUsersSnap = true;
+    if (fsUsers.length) {
+      USERS.length = 0;
+      fsUsers.forEach(d => {
+        const u = {...d};
+        u.id = Number(u.id);
+        if (u._pw !== undefined && u._pw !== null) USER_PASSWORDS[u.id] = u._pw;
+        delete u._pw;
+        USERS.push(u);
+      });
+      try { localStorage.setItem(USERS_STORE_KEY, JSON.stringify(USERS)); } catch(e2) {}
+    }
     if (loggedInAs) { initLogin(); buildNav(); }
   }, e => console.warn("[MoMPro] Users listener:", e.code));
 
-  // Meetings
+  // ── Meetings ───────────────────────────────────────────────────────────────
   const fm = FS_MEETINGS();
   if (fm) fm.orderBy("date","asc").onSnapshot(snap => {
+    if (_writeLock) return; // don't overwrite during an active save
+    const fsMeetings = snap.docs.map(d => d.data());
+    if (!_firstMeetingsSnap && fsMeetings.length === 0) {
+      // First snapshot empty — Firestore has no data yet, keep local
+      _firstMeetingsSnap = true;
+      return;
+    }
+    _firstMeetingsSnap = true;
+    // Merge: Firestore is source of truth once it has data
+    // Keep any locally-added items not yet confirmed by Firestore
+    const fsIds = new Set(fsMeetings.map(m => m.id));
+    const localOnly = MEETINGS.filter(m => !fsIds.has(m.id));
     MEETINGS.length = 0;
-    snap.docs.forEach(d => MEETINGS.push(d.data()));
+    fsMeetings.forEach(m => MEETINGS.push(m));
+    localOnly.forEach(m => MEETINGS.push(m)); // keep pending local items
     try { localStorage.setItem(MEETINGS_STORE_KEY, JSON.stringify(MEETINGS)); } catch(e2) {}
     if (loggedInAs) { buildNav(); updateBell(); }
   }, e => console.warn("[MoMPro] Meetings listener:", e.code));
 
-  // Tasks
+  // ── Tasks ──────────────────────────────────────────────────────────────────
   const ft = FS_TASKS();
   if (ft) ft.onSnapshot(snap => {
-    TASKS = snap.docs.map(d => {
+    if (_writeLock) return; // don't overwrite during an active save
+    const fsTasks = snap.docs.map(d => {
       const t = d.data();
       if (t.uid != null) t.uid = Number(t.uid);
       return t;
     });
+    if (!_firstTasksSnap && fsTasks.length === 0) {
+      // First snapshot empty — keep local data
+      _firstTasksSnap = true;
+      return;
+    }
+    _firstTasksSnap = true;
+    // Merge: keep local items not yet in Firestore
+    const fsTaskIds = new Set(fsTasks.map(t => t.id));
+    const localOnlyTasks = TASKS.filter(t => !fsTaskIds.has(t.id));
+    TASKS = [...fsTasks, ...localOnlyTasks];
     try { localStorage.setItem(TASKS_STORE_KEY, JSON.stringify(TASKS)); } catch(e2) {}
     updateBell();
     if (loggedInAs) buildNav();
@@ -2042,9 +2080,30 @@ function fbUpgradeAuth(emailOrId) {
     });
 }
 
-function fsWriteMeeting(m)  { const c=FS_MEETINGS(); if(c) c.doc(m.id).set(m).catch(e=>console.warn("FW meeting:",e.code)); }
+// Batch write with write-lock: prevents listener from wiping pending data
+function _fsWriteBatch(writes) {
+  if (!_db) return Promise.resolve();
+  _writeLock = true;
+  const batch = _db.batch();
+  writes.forEach(({col, id, data, del}) => {
+    const ref = _db.collection(col).doc(id);
+    if (del) batch.delete(ref);
+    else batch.set(ref, data);
+  });
+  return batch.commit()
+    .catch(e => console.warn("[MoMPro] Batch write error:", e.code, e.message))
+    .finally(() => { setTimeout(() => { _writeLock = false; }, 2000); });
+}
+
+function fsWriteMeeting(m)  {
+  const c=FS_MEETINGS();
+  if(c) { _writeLock=true; c.doc(m.id).set(m).catch(e=>console.warn("FW meeting:",e.code)).finally(()=>setTimeout(()=>{_writeLock=false;},2000)); }
+}
 function fsDeleteMeeting(id){ const c=FS_MEETINGS(); if(c) c.doc(id).delete().catch(e=>console.warn("FD meeting:",e.code)); }
-function fsWriteTask(t)     { const c=FS_TASKS(); if(c) c.doc(t.id).set(t).catch(e=>console.warn("FW task:",e.code)); }
+function fsWriteTask(t)     {
+  const c=FS_TASKS();
+  if(c) { _writeLock=true; c.doc(t.id).set(t).catch(e=>console.warn("FW task:",e.code)).finally(()=>setTimeout(()=>{_writeLock=false;},2000)); }
+}
 function fsDeleteTask(id)   { const c=FS_TASKS(); if(c) c.doc(id).delete().catch(e=>console.warn("FD task:",e.code)); }
 function fsWriteUser(u)     {
   const c=FS_USERS(); const pw=USER_PASSWORDS[u.id];
@@ -2052,6 +2111,29 @@ function fsWriteUser(u)     {
 }
 function fsDeleteUser(id)   { const c=FS_USERS(); if(c) c.doc(String(id)).delete().catch(e=>console.warn("FD user:",e.code)); }
 function fsWriteMeta(data)  { const c=FS_META(); if(c) c.doc("app").set(data,{merge:true}).catch(e=>console.warn("FW meta:",e.code)); }
+
+// Batch-save all meetings + tasks (for bulk upload and new meeting)
+function fsWriteAllMeetingsAndTasks(meetings, tasks) {
+  if (!_db) return;
+  _writeLock = true;
+  const CHUNK = 400; // Firestore batch limit is 500
+  const allWrites = [
+    ...meetings.map(m => ({col:"mompro_meetings", id:m.id, data:m})),
+    ...tasks.map(t => ({col:"mompro_tasks", id:t.id, data:t}))
+  ];
+  // Split into chunks
+  const chunks = [];
+  for (let i = 0; i < allWrites.length; i += CHUNK) chunks.push(allWrites.slice(i, i+CHUNK));
+  
+  Promise.all(chunks.map(chunk => {
+    const batch = _db.batch();
+    chunk.forEach(({col, id, data}) => batch.set(_db.collection(col).doc(id), data));
+    return batch.commit();
+  }))
+  .then(() => { console.log("[MoMPro] Batch saved:", meetings.length, "meetings,", tasks.length, "tasks"); })
+  .catch(e => { console.warn("[MoMPro] Batch save error:", e.code, e.message); showToast("Firestore save error: "+e.message,'warn'); })
+  .finally(() => { setTimeout(() => { _writeLock = false; }, 3000); });
+}
 
 function renderFirebase(){
   const isLive = !!(_db && _listenersStarted);
@@ -3345,8 +3427,8 @@ function saveMeeting(){
 
   persistMeetings();
   persistTasks();
-  fsWriteMeeting(newMeeting);
-  TASKS.filter(t=>t.mid===newMeetingId).forEach(t=>fsWriteTask(t));
+  const _newMtgTasks = TASKS.filter(t=>t.mid===newMeetingId);
+  fsWriteAllMeetingsAndTasks([newMeeting], _newMtgTasks);
 
   // Send one grouped email per assignee for all action items
   const newTaskIds = TASKS.filter(t=>t.mid===newMeetingId).map(t=>t.id);
@@ -3466,7 +3548,7 @@ function saveTaskStatus(id){
   const azConfigured = typeof azureSavedConfig==='function' && azureSavedConfig()?.msClientId;
   if(!azConfigured) showToast(`Status updated to "${newStatus}".`,'ok');
   persistTasks();
-  fsWriteTask(t);
+  fsWriteAllMeetingsAndTasks([], [t]);
   closeModal();
   renderTasks();
 }
@@ -3491,7 +3573,7 @@ function saveTask(id){
     const azConfigured = typeof azureSavedConfig==='function' && azureSavedConfig()?.msClientId;
     if(!azConfigured) showToast('Task saved.','ok');
     persistTasks();
-    if(t) fsWriteTask(t);
+    if(t) fsWriteAllMeetingsAndTasks([], [t]);
   }
   closeModal();
 }
