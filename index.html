@@ -2088,31 +2088,40 @@ function initFirestoreListeners() {
   }, e => console.warn("[MoMPro] Meta listener:", e.code));
 }
 
+// ── Firebase service account ─────────────────────────────────────────────────
+// This is a DEDICATED read/write service account for Firestore access only.
+// It is NOT an app user — it just lets the app connect securely to Firestore.
+// Firestore rules: allow read, write: if request.auth.uid == "<UID of this account>"
+// Create this account once: Firebase Console → Authentication → Add user
+const _FS_SVC_EMAIL = "mompro-service@skr-mom.firebaseapp.com";
+const _FS_SVC_PASS  = "MoMPro@Secure#2025!";
+
 function startFirebaseSync() {
-  if (!_authFs) {
-    console.warn("[MoMPro] startFirebaseSync: _authFs is null — Firebase not initialised");
+  if (!_authFs || !_db) {
+    console.warn("[MoMPro] startFirebaseSync: Firebase not initialised");
     return;
   }
   _authFs.onAuthStateChanged(user => {
-    if (user) {
-      console.log("[MoMPro] Auth ready. UID:", user.uid, "| anon:", user.isAnonymous);
+    if (user && user.email === _FS_SVC_EMAIL) {
+      console.log("[MoMPro] Service account authenticated. UID:", user.uid);
       initFirestoreListeners();
-    } else {
-      _authFs.signInAnonymously()
+    } else if (!user) {
+      _authFs.signInWithEmailAndPassword(_FS_SVC_EMAIL, _FS_SVC_PASS)
         .then(c => {
-          console.log("[MoMPro] Anon auth OK. UID:", c.user.uid);
+          console.log("[MoMPro] Service account sign-in OK. UID:", c.user.uid);
           initFirestoreListeners();
         })
         .catch(e => {
-          console.error("[MoMPro] Anon auth FAILED:", e.code, e.message);
-          const tips = {
-            'auth/operation-not-allowed': 'Anonymous sign-in is disabled. Enable it in Firebase Console → Authentication → Sign-in method → Anonymous.',
-            'auth/network-request-failed': 'Network error. Check internet connection.',
-          };
-          const tip = tips[e.code] || ('Firebase Auth error: ' + e.code);
-          setTimeout(() => { if(typeof showToast==='function') showToast(tip, 'err'); }, 500);
-          // Still try to start listeners (will work if rules allow unauthenticated reads)
-          try { initFirestoreListeners(); } catch(_) {}
+          console.error("[MoMPro] Service account sign-in FAILED:", e.code, e.message);
+          if (e.code === 'auth/user-not-found' || e.code === 'auth/invalid-credential' || e.code === 'auth/wrong-password') {
+            setTimeout(() => showToast(
+              '⚠️ Firebase service account not set up. Go to Firebase Console → Authentication → Add user: ' +
+              _FS_SVC_EMAIL + ' with the configured password. Data will not sync until this is done.',
+              'warn'), 500);
+          } else if (e.code === 'auth/network-request-failed') {
+            setTimeout(() => showToast('Network error — Firebase sync unavailable. App running in offline mode.', 'warn'), 500);
+          }
+          // App still works fully in offline mode via localStorage
         });
     }
   });
@@ -2198,15 +2207,21 @@ function fsWriteAllMeetingsAndTasks(meetings, tasks) {
 
 function renderFirebase(){
   const isLive = !!(_db && _listenersStarted);
-  // Simple rules: any authenticated user (including anonymous) can read/write.
-  // App enforces roles itself through the login system.
-  // This is the correct approach for a single-org internal tool.
+  // Rules: locked to the service account UID only — no public access.
+  // The app uses signInWithEmailAndPassword (service account) instead of anonymous auth,
+  // so this works on file:// protocol too. App login/roles are enforced by the app itself.
+  // ── How to get the service account UID ──────────────────────────────────────
+  // 1. Firebase Console → Authentication → Users → find mompro-service@skr-mom.firebaseapp.com
+  // 2. Copy the UID shown there
+  // 3. Paste it below in place of YOUR_SERVICE_ACCOUNT_UID
+  const SVC_UID = 9gHathHebVh3t3qulgmLt4SUUG62; // ← paste UID here after creating the account
   const RULES = [
     "rules_version = '2';",
     "service cloud.firestore {",
     "  match /databases/{database}/documents {",
     "    match /{document=**} {",
-    "      allow read, write: if request.auth != null;",
+    "      // Only the app service account can read/write — no public access",
+    "      allow read, write: if request.auth != null && request.auth.uid == \"" + SVC_UID + "\";",
     "    }",
     "  }",
     "}"
