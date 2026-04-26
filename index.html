@@ -3944,103 +3944,316 @@ function exportMoMExcel(meetingId){
 ═══════════════════════════════════════════ */
 function devGate(){
   if(currentRole!=='developer'){
-    document.getElementById('content').innerHTML=`<div class="card" style="text-align:center;padding:48px;"><div style="font-size:30px;margin-bottom:12px;">⚡</div><div style="font-size:15px;font-weight:600;">Developer Mode Only</div><div style="font-size:13px;color:var(--t2);margin-top:6px;">Switch to Developer role to access this section.</div></div>`;
+    document.getElementById('content').innerHTML=`<div class="card" style="text-align:center;padding:48px;"><div style="font-size:30px;margin-bottom:12px;">🔒</div><div style="font-size:15px;font-weight:600;">Developer Access Only</div></div>`;
     return false;
   }
   return true;
 }
 
+/* ─── Real console capture ───────────────────────────────────────────────── */
+const _DEV_LOGS = [];
+(function(){
+  const _cap = (lvl, orig) => function(...args){
+    _DEV_LOGS.unshift({
+      t: new Date().toTimeString().slice(0,8),
+      lvl,
+      msg: args.map(a => {
+        try { return typeof a === 'object' ? JSON.stringify(a) : String(a); }
+        catch(e){ return String(a); }
+      }).join(' ')
+    });
+    if(_DEV_LOGS.length > 200) _DEV_LOGS.pop();
+    orig.apply(console, args);
+    // Live-refresh console panel if open
+    if(typeof _devConsoleRefresh === 'function') _devConsoleRefresh();
+  };
+  console.log   = _cap('INFO',  console.log);
+  console.warn  = (function(){
+    const _origWarn = console.warn.bind(console);
+    return _cap('WARN', function(...args){
+      if(typeof args[0]==='string' && args[0].includes('enableMultiTabIndexedDbPersistence')) return;
+      _origWarn(...args);
+    });
+  })();
+  console.error = _cap('ERROR', console.error);
+  console.info  = _cap('INFO',  console.info);
+})();
+
+let _devConsoleRefresh = null;
+
 function renderDevConsole(){
-  if(!devGate())return;
-  const logs=[
-    {t:'14:32:01',lvl:'INFO',msg:'Firebase connection established — latency 42ms'},
-    {t:'14:31:58',lvl:'INFO',msg:'Auth session started for user: developer'},
-    {t:'14:31:55',lvl:'WARN',msg:'Email SMTP retry #2 — smtp.office365.com timeout'},
-    {t:'14:31:40',lvl:'INFO',msg:'TASKS array loaded — 7 records'},
-    {t:'14:31:40',lvl:'INFO',msg:'MEETINGS array loaded — 4 records'},
-    {t:'14:31:39',lvl:'ERROR',msg:'Audit log write failed: network unreachable (retrying)'},
-    {t:'14:31:38',lvl:'INFO',msg:'App initialised — version 2.4.1-dev'},
-  ];
-  const lc={INFO:'var(--ok)',WARN:'var(--wn)',ERROR:'var(--er)'};
+  if(!devGate()) return;
+  const lc = {INFO:'#4ade80', WARN:'#fbbf24', ERROR:'#f87171'};
+  const render = () => {
+    const logHtml = _DEV_LOGS.length
+      ? _DEV_LOGS.map(l=>`<div style="display:flex;gap:10px;padding:2px 0;border-bottom:1px solid #1f2937;"><span style="color:#6b7280;white-space:nowrap;">${l.t}</span><span style="color:${lc[l.lvl]||'#9ca3af'};font-weight:700;width:42px;flex-shrink:0;">${l.lvl}</span><span style="color:#e5e7eb;word-break:break-all;">${l.msg.replace(/</g,'&lt;')}</span></div>`).join('')
+      : '<div style="color:#6b7280;">No logs yet — interactions will appear here.</div>';
+    const el = document.getElementById('dev-log-out');
+    if(el){ el.innerHTML = logHtml; }
+  };
+  _devConsoleRefresh = render;
+
+  const fsStatus = _listenersStarted
+    ? `<span class="bdg b-ok">● Firestore Live</span>`
+    : `<span class="bdg b-wn">○ Firestore Offline</span>`;
+  const authUid = _authFs && _authFs.currentUser ? _authFs.currentUser.uid : '—';
+
   document.getElementById('content').innerHTML=`
-  <div style="max-width:760px;">
-    <div class="card" style="padding:0;margin-bottom:18px;">
-      <div style="padding:12px 18px;border-bottom:1px solid var(--br);display:flex;align-items:center;justify-content:space-between;">
-        <div class="ctit" style="display:flex;align-items:center;gap:8px;"><span style="color:var(--wn);">⚡</span> Live Console</div>
-        <div style="display:flex;gap:8px;">
-          <button class="btn bs" onclick="showToast('Console cleared','info')">Clear</button>
-          <button class="btn bs bp" onclick="showToast('Logs exported to dev-console.log','ok')">Export Logs</button>
-        </div>
-      </div>
-      <div style="background:#0d1117;border-radius:0 0 var(--r) var(--r);padding:16px;font-family:var(--mo);font-size:12px;line-height:1.8;max-height:320px;overflow-y:auto;">
-        ${logs.map(l=>`<div><span style="color:#6b7280;">${l.t}</span> <span style="color:${lc[l.lvl]};font-weight:700;">[${l.lvl}]</span> <span style="color:#e5e7eb;">${l.msg}</span></div>`).join('')}
-      </div>
+  <div style="max-width:820px;display:flex;flex-direction:column;gap:18px;">
+
+    <!-- Status bar -->
+    <div class="card" style="padding:12px 18px;display:flex;align-items:center;gap:14px;flex-wrap:wrap;">
+      ${fsStatus}
+      <span style="font-size:12px;color:var(--t3);">Firebase: <code style="font-family:var(--mo);color:var(--ac);">${_FB_CFG.projectId}</code></span>
+      <span style="font-size:12px;color:var(--t3);">Auth UID: <code style="font-family:var(--mo);color:var(--t2);">${authUid.slice(0,16)}…</code></span>
+      <span style="font-size:12px;color:var(--t3);">M:<b>${MEETINGS.length}</b> T:<b>${TASKS.length}</b> U:<b>${USERS.length}</b></span>
+      <span style="flex:1"></span>
+      <button class="btn bs" onclick="_DEV_LOGS.length=0;renderDevConsole();showToast('Console cleared','info')">Clear</button>
+      <button class="btn bs bp" onclick="
+        const txt=_DEV_LOGS.map(l=>l.t+' ['+l.lvl+'] '+l.msg).join('\\n');
+        navigator.clipboard.writeText(txt).then(()=>showToast('Logs copied','ok')).catch(()=>showToast('Select text manually','warn'))
+      ">Copy Logs</button>
     </div>
-    <div class="card" style="margin-bottom:18px;">
-      <div class="ch"><div class="ctit">Run Diagnostic</div></div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;">
-        ${['Firebase Ping','SMTP Test','Auth Check','DB Integrity','Cache Flush','Re-index Tasks'].map(d=>`<button class="btn bs" onclick="showToast('${d} — passed ✓','ok')">${d}</button>`).join('')}
+
+    <!-- Live console -->
+    <div class="card" style="padding:0;">
+      <div style="padding:10px 16px;border-bottom:1px solid var(--br);display:flex;align-items:center;gap:8px;">
+        <span style="color:var(--wn);font-size:14px;">⚡</span>
+        <span class="ctit">Live Console</span>
+        <span style="font-size:11px;color:var(--t3);margin-left:4px;">(captures console.log / warn / error)</span>
       </div>
+      <div id="dev-log-out" style="background:#0d1117;border-radius:0 0 var(--r) var(--r);padding:14px 16px;font-family:var(--mo);font-size:11px;line-height:1.9;max-height:360px;overflow-y:auto;"></div>
     </div>
+
+    <!-- REPL -->
     <div class="card">
-      <div class="ch"><div class="ctit">Quick Data Edit (Dev Only)</div></div>
-      <div class="code">${JSON.stringify({tasks:TASKS.length,meetings:MEETINGS.length,users:USERS.length,comments:Object.keys(COMMENTS).length},null,2)}</div>
-      <div style="margin-top:12px;display:flex;gap:8px;">
-        <button class="btn bs" onclick="showToast('Data snapshot copied to clipboard','ok')">Copy JSON</button>
-        <button class="btn bs ber" onclick="showToast('Seed data reset to defaults','warn')">Reset Seed Data</button>
+      <div class="ch"><div class="ctit">JS Console (REPL)</div><span style="font-size:11px;color:var(--t3);">Has access to MEETINGS, TASKS, USERS, _db, _authFs</span></div>
+      <div style="display:flex;gap:8px;">
+        <input id="dev-repl-in" style="font-family:var(--mo);font-size:12px;flex:1;" placeholder="e.g. TASKS.length  or  MEETINGS.map(m=>m.title)" onkeydown="if(event.key==='Enter')devREPL()">
+        <button class="btn bp" onclick="devREPL()">Run ▶</button>
       </div>
+      <div id="dev-repl-out" style="margin-top:10px;background:#0d1117;color:#4ade80;border-radius:var(--rs);padding:10px 14px;font-family:var(--mo);font-size:12px;min-height:38px;display:none;word-break:break-all;"></div>
     </div>
+
+    <!-- Diagnostics -->
+    <div class="card">
+      <div class="ch"><div class="ctit">Diagnostics</div></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <button class="btn bs" onclick="devDiag('firebase')">Firebase Ping</button>
+        <button class="btn bs" onclick="devDiag('auth')">Auth Check</button>
+        <button class="btn bs" onclick="devDiag('integrity')">DB Integrity</button>
+        <button class="btn bs" onclick="devDiag('ls')">LocalStorage Size</button>
+        <button class="btn bs ber" onclick="devDiag('clearls')">Clear LocalStorage</button>
+        <button class="btn bs ber" onclick="devDiag('purgeorphan')">Purge Orphan Tasks</button>
+      </div>
+      <div id="dev-diag-out" style="margin-top:12px;display:none;background:var(--bg3);border-radius:var(--rs);padding:12px;font-family:var(--mo);font-size:12px;line-height:1.9;"></div>
+    </div>
+
   </div>`;
+  render();
+}
+
+function devREPL(){
+  const inp = document.getElementById('dev-repl-in');
+  const out = document.getElementById('dev-repl-out');
+  if(!inp||!out) return;
+  out.style.display='block';
+  try {
+    // eslint-disable-next-line no-eval
+    const result = eval(inp.value);
+    const str = result === undefined ? 'undefined'
+      : typeof result === 'object' ? JSON.stringify(result, null, 2) : String(result);
+    out.style.color='#4ade80';
+    out.textContent = '→ ' + str;
+  } catch(e) {
+    out.style.color='#f87171';
+    out.textContent = '✗ ' + e.message;
+  }
+}
+
+async function devDiag(type){
+  const out = document.getElementById('dev-diag-out');
+  if(!out) return;
+  out.style.display='block';
+  out.textContent='Running…';
+  let html = '';
+  if(type==='firebase'){
+    const t0=Date.now();
+    try{
+      await _db.collection('mompro_meta').doc('app').get();
+      html=`<span style="color:var(--ok)">✓ Firestore reachable — latency ${Date.now()-t0}ms</span>`;
+    }catch(e){
+      html=`<span style="color:var(--er)">✗ Firestore error: ${e.code} — ${e.message}</span>`;
+    }
+  } else if(type==='auth'){
+    const u=_authFs&&_authFs.currentUser;
+    html=u
+      ? `<span style="color:var(--ok)">✓ Authenticated</span><br>UID: ${u.uid}<br>Anonymous: ${u.isAnonymous}<br>Provider: ${u.providerData.map(p=>p.providerId).join(', ')||'anonymous'}`
+      : `<span style="color:var(--er)">✗ Not authenticated</span>`;
+  } else if(type==='integrity'){
+    const orphanTasks=TASKS.filter(t=>!MEETINGS.find(m=>m.id===t.mid));
+    const noPwUsers=USERS.filter(u=>USER_PASSWORDS[u.id]===undefined);
+    const dupeM=MEETINGS.filter((m,i)=>MEETINGS.findIndex(x=>x.id===m.id)!==i);
+    const dupeT=TASKS.filter((t,i)=>TASKS.findIndex(x=>x.id===t.id)!==i);
+    html=`Meetings: <b>${MEETINGS.length}</b> | Tasks: <b>${TASKS.length}</b> | Users: <b>${USERS.length}</b><br>`
+      +`<span style="color:${orphanTasks.length?'var(--er)':'var(--ok)'}">Orphan tasks (no meeting): ${orphanTasks.length}</span><br>`
+      +`<span style="color:${noPwUsers.length?'var(--wn)':'var(--ok)'}">Users without password: ${noPwUsers.length}${noPwUsers.length?' ('+noPwUsers.map(u=>u.name).join(', ')+')':''}</span><br>`
+      +`<span style="color:${dupeM.length?'var(--er)':'var(--ok)'}">Duplicate meeting IDs: ${dupeM.length}</span><br>`
+      +`<span style="color:${dupeT.length?'var(--er)':'var(--ok)'}">Duplicate task IDs: ${dupeT.length}</span>`;
+  } else if(type==='ls'){
+    let total=0;
+    const keys=[USERS_STORE_KEY,PWDS_STORE_KEY,MEETINGS_STORE_KEY,TASKS_STORE_KEY,'momCompanyName','momMeetingTypes'];
+    html=keys.map(k=>{const v=localStorage.getItem(k)||'';const kb=(new Blob([v]).size/1024).toFixed(1);total+=parseFloat(kb);return `${k}: <b>${kb} KB</b>`;}).join('<br>');
+    html+=`<br><b>Total: ${total.toFixed(1)} KB</b>`;
+  } else if(type==='clearls'){
+    if(!confirm('Clear ALL localStorage? App will reload fresh from Firestore.')) return;
+    [USERS_STORE_KEY,PWDS_STORE_KEY,MEETINGS_STORE_KEY,TASKS_STORE_KEY].forEach(k=>localStorage.removeItem(k));
+    html=`<span style="color:var(--ok)">✓ LocalStorage cleared — reload page to re-sync from Firestore</span>`;
+  } else if(type==='purgeorphan'){
+    const orphans=TASKS.filter(t=>!MEETINGS.find(m=>m.id===t.mid));
+    if(!orphans.length){html='<span style="color:var(--ok)">✓ No orphan tasks found</span>';out.innerHTML=html;return;}
+    if(!confirm(`Delete ${orphans.length} orphan task(s) not linked to any meeting?`)) return;
+    orphans.forEach(t=>{ fsDeleteTask(t.id); });
+    TASKS=TASKS.filter(t=>MEETINGS.find(m=>m.id===t.mid));
+    persistTasks();
+    html=`<span style="color:var(--ok)">✓ Purged ${orphans.length} orphan task(s)</span>`;
+  }
+  out.innerHTML=html;
 }
 
 function renderDevApi(){
-  if(!devGate())return;
+  if(!devGate()) return;
+  const isLive=_listenersStarted;
   document.getElementById('content').innerHTML=`
-  <div style="max-width:680px;">
-    <div class="card" style="margin-bottom:18px;">
-      <div class="ch"><div class="ctit">API Endpoints</div><span class="bdg b-ok">v2.4.1</span></div>
-      ${[['POST','/api/tasks','Create task'],['GET','/api/tasks/:id','Fetch task by ID'],['PATCH','/api/tasks/:id','Update task'],['DELETE','/api/tasks/:id','Delete task'],['POST','/api/meetings','Create meeting'],['GET','/api/meetings','List meetings'],['POST','/api/notify','Send notification'],['GET','/api/audit','Fetch audit trail']].map(([m,p,d])=>`
-      <div style="display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--br);font-size:12px;">
-        <span class="bdg ${m==='GET'?'b-ok':m==='POST'?'b-in':m==='PATCH'?'b-wn':'b-er'}" style="min-width:52px;justify-content:center;">${m}</span>
-        <code style="font-family:var(--mo);color:var(--ac);flex:1;">${p}</code>
-        <span style="color:var(--t2);">${d}</span>
-        <button class="btn bs" onclick="showToast('Copied: ${p}','info')">Copy</button>
+  <div style="max-width:700px;display:flex;flex-direction:column;gap:18px;">
+
+    <div class="card">
+      <div class="ch"><div class="ctit">Firestore Collections</div>${isLive?'<span class="bdg b-ok">Live</span>':'<span class="bdg b-wn">Offline</span>'}</div>
+      ${['mompro_meetings','mompro_tasks','mompro_users','mompro_meta','mompro_roles'].map(col=>`
+      <div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--br);font-size:12px;">
+        <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><ellipse cx="8" cy="4" rx="6" ry="2"/><path d="M2 4v4c0 1.1 2.7 2 6 2s6-.9 6-2V4"/><path d="M2 8v4c0 1.1 2.7 2 6 2s6-.9 6-2V8"/></svg>
+        <code style="font-family:var(--mo);color:var(--ac);flex:1;">${col}</code>
+        <span style="color:var(--t3);">${col==='mompro_meetings'?MEETINGS.length+' docs':col==='mompro_tasks'?TASKS.length+' docs':col==='mompro_users'?USERS.length+' docs':'—'}</span>
+        <button class="btn bs" onclick="window.open('https://console.firebase.google.com/project/${_FB_CFG.projectId}/firestore/data/~2F${col}','_blank')">Open ↗</button>
       </div>`).join('')}
     </div>
+
     <div class="card">
-      <div class="ch"><div class="ctit">Auth Token</div></div>
-      <div class="fg"><label>BEARER TOKEN (DEV)</label><input type="password" value="dev_tok_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" style="font-family:var(--mo);font-size:11px;"></div>
-      <div style="display:flex;gap:8px;">
-        <button class="btn bs" onclick="showToast('Token rotated — copy new token','warn')">Rotate Token</button>
-        <button class="btn bs bp" onclick="showToast('Token copied','ok')">Copy Token</button>
+      <div class="ch"><div class="ctit">Firestore Rules</div></div>
+      <div style="font-size:12px;color:var(--t2);margin-bottom:10px;"><b>①</b> Firebase Console → Authentication → Sign-in method → <b>Anonymous → Enable</b><br><b>②</b> Firestore → Rules → paste below → <b>Publish</b></div>
+      <pre style="background:#0d1117;color:#e5e7eb;border-radius:var(--rs);padding:14px;font-family:var(--mo);font-size:11px;line-height:1.8;overflow-x:auto;margin:0;">rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if request.auth != null;
+    }
+  }
+}</pre>
+      <div style="margin-top:10px;">
+        <button class="btn bs bp" onclick="navigator.clipboard.writeText(\`rules_version = '2';\nservice cloud.firestore {\n  match /databases/{database}/documents {\n    match /{document=**} {\n      allow read, write: if request.auth != null;\n    }\n  }\n}\`).then(()=>showToast('Rules copied','ok'))">Copy Rules</button>
+        <button class="btn bs" onclick="window.open('https://console.firebase.google.com/project/${_FB_CFG.projectId}/firestore/rules','_blank')" style="margin-left:8px;">Open Firebase Rules ↗</button>
       </div>
     </div>
+
+    <div class="card">
+      <div class="ch"><div class="ctit">Data Export</div></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <button class="btn bs" onclick="devExport('meetings')">Export Meetings JSON</button>
+        <button class="btn bs" onclick="devExport('tasks')">Export Tasks JSON</button>
+        <button class="btn bs" onclick="devExport('users')">Export Users JSON</button>
+        <button class="btn bs bp" onclick="devExport('all')">Export All JSON</button>
+      </div>
+    </div>
+
   </div>`;
 }
 
+function devExport(type){
+  let data, filename;
+  if(type==='meetings'){ data=MEETINGS; filename='meetings.json'; }
+  else if(type==='tasks'){ data=TASKS; filename='tasks.json'; }
+  else if(type==='users'){ data=USERS.map(u=>({...u})); filename='users.json'; } // no passwords
+  else { data={meetings:MEETINGS,tasks:TASKS,users:USERS.map(u=>({...u})),exported:new Date().toISOString()}; filename='mompro-export.json'; }
+  const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob); a.download=filename; a.click();
+  showToast(filename+' downloaded','ok');
+}
+
 function renderDevSystem(){
-  if(!devGate())return;
+  if(!devGate()) return;
+  const ua=navigator.userAgent;
+  const mem=performance.memory?`${Math.round(performance.memory.usedJSHeapSize/1048576)} MB / ${Math.round(performance.memory.jsHeapSizeLimit/1048576)} MB`:'N/A';
+  const conn=navigator.connection?`${navigator.connection.effectiveType} (${navigator.connection.downlink} Mbps)`:'N/A';
+  const ls=Object.keys(localStorage).filter(k=>k.startsWith('mompro')||k==='momCompanyName');
+  const lsSize=ls.reduce((s,k)=>s+new Blob([localStorage.getItem(k)||'']).size,0);
+
   document.getElementById('content').innerHTML=`
-  <div class="g2" style="max-width:760px;">
-    <div class="card">
-      <div class="ch"><div class="ctit">System Info</div></div>
-      ${[['App Version','2.4.1-dev'],['Environment','Development'],['Firebase Project','mom-pro-dev'],['Node Version','20.11.0'],['Last Deploy','2024-02-12 08:00 UTC'],['Uptime','4h 32m'],['Memory Usage','128 MB / 512 MB'],['Active Sessions','1 (dev)']].map(([k,v])=>`
-      <div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--br);font-size:12px;">
-        <span style="color:var(--t2);">${k}</span>
-        <span style="font-family:var(--mo);font-weight:500;">${v}</span>
-      </div>`).join('')}
+  <div style="max-width:820px;display:flex;flex-direction:column;gap:18px;">
+
+    <div class="g2">
+      <div class="card">
+        <div class="ch"><div class="ctit">App State</div></div>
+        ${[
+          ['Meetings',MEETINGS.length+' records'],
+          ['Tasks',TASKS.length+' records'],
+          ['Users',USERS.length+' registered'],
+          ['Audit Log',AUDIT_LOG.length+' entries'],
+          ['Firebase Project',_FB_CFG.projectId],
+          ['Firestore',_listenersStarted?'Live ✓':'Offline ✗'],
+          ['Auth UID',_authFs&&_authFs.currentUser?_authFs.currentUser.uid.slice(0,12)+'…':'Not signed in'],
+          ['LocalStorage',`${(lsSize/1024).toFixed(1)} KB (${ls.length} keys)`],
+        ].map(([k,v])=>`<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--br);font-size:12px;"><span style="color:var(--t2);">${k}</span><span style="font-family:var(--mo);font-weight:500;">${v}</span></div>`).join('')}
+      </div>
+
+      <div class="card">
+        <div class="ch"><div class="ctit">Browser / Device</div></div>
+        ${[
+          ['JS Heap',mem],
+          ['Network',conn],
+          ['Language',navigator.language],
+          ['Online',navigator.onLine?'Yes ✓':'No ✗'],
+          ['Screen',screen.width+'×'+screen.height],
+          ['Viewport',window.innerWidth+'×'+window.innerHeight],
+          ['Cookies',navigator.cookieEnabled?'Enabled':'Disabled'],
+          ['IndexedDB',typeof indexedDB!=='undefined'?'Supported':'Not supported'],
+        ].map(([k,v])=>`<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--br);font-size:12px;"><span style="color:var(--t2);">${k}</span><span style="font-family:var(--mo);font-weight:500;">${v}</span></div>`).join('')}
+      </div>
     </div>
+
     <div class="card">
       <div class="ch"><div class="ctit">Feature Flags</div></div>
-      ${[['AI task suggestions','Enabled'],['Email via Office 365','Enabled'],['Bulk import','Enabled'],['MoM auto-PDF','Disabled'],['WhatsApp notify','Disabled'],['Biometric auth','Disabled']].map(([f,s])=>`
+      ${[
+        ['Real-time Firestore Sync', _listenersStarted],
+        ['Offline Persistence (IndexedDB)', typeof indexedDB!=='undefined'],
+        ['Email via Office 365', !!(localStorage.getItem('mompro_azure_cfg'))],
+        ['Bulk Import', true],
+        ['Multi-tab Support', true],
+        ['Anonymous Auth', !!(_authFs&&_authFs.currentUser&&_authFs.currentUser.isAnonymous)],
+      ].map(([f,on])=>`
       <div style="display:flex;align-items:center;padding:7px 0;border-bottom:1px solid var(--br);">
         <span style="font-size:12px;flex:1;">${f}</span>
-        <span class="bdg ${s==='Enabled'?'b-ok':'b-df'}">${s}</span>
-        <div class="tgl ${s==='Enabled'?'on':''}" style="margin-left:10px;" onclick="this.classList.toggle('on');showToast('Flag toggled — restart to apply','warn')"></div>
+        <span class="bdg ${on?'b-ok':'b-df'}">${on?'Enabled':'Disabled'}</span>
       </div>`).join('')}
     </div>
+
+    <div class="card">
+      <div class="ch"><div class="ctit">User Agent</div></div>
+      <div style="font-family:var(--mo);font-size:11px;color:var(--t2);word-break:break-all;line-height:1.7;">${ua}</div>
+    </div>
+
+    <div class="card">
+      <div class="ch"><div class="ctit">Danger Zone</div></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <button class="btn bs ber" onclick="if(confirm('Force reload from Firestore? LocalStorage cache will be cleared.')){[USERS_STORE_KEY,PWDS_STORE_KEY,MEETINGS_STORE_KEY,TASKS_STORE_KEY].forEach(k=>localStorage.removeItem(k));location.reload();}">Force Reload from Firestore</button>
+        <button class="btn bs ber" onclick="if(confirm('Reset ALL app data? This cannot be undone.')){MEETINGS.length=0;TASKS=[];AUDIT_LOG.length=0;persistMeetings();persistTasks();showToast('Local data cleared — Firestore unchanged','warn');navigate('dashboard');}">Clear Local State</button>
+      </div>
+    </div>
+
   </div>`;
 }
+
+
 
 /* ═══════════════════════════════════════════
    INIT
