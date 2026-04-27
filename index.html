@@ -304,7 +304,7 @@ input[type=checkbox].task-cb{width:15px;height:15px;accent-color:var(--ac);curso
     <span id="btn-new-meeting"><button class="btn bs bp" onclick="openModal('new-meeting')">+ New Meeting</button></span>
     <button class="btn bs" id="bell-btn" onclick="showBellSummary()" style="position:relative;">
       <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 1a5 5 0 015 5v3l1 2H2l1-2V6a5 5 0 015-5zM6 13a2 2 0 004 0"/></svg>
-      <div class="ndot" id="bell-dot" style="position:absolute;top:2px;right:2px;display:none;"></div>
+      <div id="bell-dot" style="position:absolute;top:-5px;right:-5px;display:none;min-width:16px;height:16px;padding:0 4px;border-radius:8px;background:var(--er);color:#fff;font-size:10px;font-weight:700;font-family:var(--fn);line-height:16px;text-align:center;pointer-events:none;"></div>
     </button>
   </div>
   <div class="content" id="content"></div>
@@ -730,10 +730,12 @@ function updateBell(){
   const visibleTasks = getVisibleTasks();
   const overdue   = visibleTasks.filter(t=>t.status==='overdue').length;
   const escalated = visibleTasks.filter(t=>t.esc>0).length;
-  const pending   = visibleTasks.filter(t=>t.status==='pending').length;
   const total     = overdue + escalated;
   const dot = document.getElementById('bell-dot');
-  if(dot) dot.style.display = total>0 ? 'block' : 'none';
+  if(dot){
+    dot.textContent = total > 99 ? '99+' : total;
+    dot.style.display = total > 0 ? 'block' : 'none';
+  }
   // Also refresh sidebar badges whenever bell updates
   buildNav();
 }
