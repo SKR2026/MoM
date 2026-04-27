@@ -956,9 +956,8 @@ function speedometer(pct, comp, tot){
 
   function arc(s, e, ro, rin){
     if(e <= s) return '';
-    const span = e - s;
     const a1 = toR(s), a2 = toR(e);
-    const laf = span > 50 ? 1 : 0;
+    const laf = 0; // half-gauge spans 0°–180°, so arcs never exceed 180° → laf always 0
     const cos1=Math.cos(a1), sin1=Math.sin(a1);
     const cos2=Math.cos(a2), sin2=Math.sin(a2);
     return `M${f(cx+ro*cos1)},${f(cy+ro*sin1)}`
@@ -1062,7 +1061,7 @@ function updateSpeedometer(){
 
     function arcPath(s,e,ro,rin){
       if(e<=s) return '';
-      const a1=toR(s),a2=toR(e),laf=(e-s)>50?1:0;
+      const a1=toR(s),a2=toR(e),laf=0; // half-gauge: arcs never exceed 180° → laf always 0
       return `M${f(cx+ro*Math.cos(a1))},${f(cy+ro*Math.sin(a1))}`
             +` A${ro},${ro} 0 ${laf},1 ${f(cx+ro*Math.cos(a2))},${f(cy+ro*Math.sin(a2))}`
             +` L${f(cx+rin*Math.cos(a2))},${f(cy+rin*Math.sin(a2))}`
