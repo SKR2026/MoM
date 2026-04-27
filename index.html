@@ -739,19 +739,83 @@ function updateBell(){
 }
 
 function showBellSummary(){
-  const _vis = getVisibleTasks();
+  const existing = document.getElementById('bell-panel');
+  if(existing){ existing.remove(); return; }
+
+  const _vis      = getVisibleTasks();
   const overdue   = _vis.filter(t=>t.status==='overdue');
-  const escalated = _vis.filter(t=>t.esc>0);
-  const pending   = _vis.filter(t=>t.status==='pending');
-  if(!overdue.length && !escalated.length && !pending.length){
-    showToast('✅ No alerts — all tasks on track.','ok');
-    return;
+  const escalated = _vis.filter(t=>t.esc>0 && t.status!=='overdue');
+  const allAlerts = [...overdue, ...escalated];
+
+  const bellBtn = document.getElementById('bell-btn');
+  const rect    = bellBtn.getBoundingClientRect();
+
+  const panel = document.createElement('div');
+  panel.id = 'bell-panel';
+  panel.style.cssText =
+    'position:fixed;top:'+(rect.bottom+6)+'px;right:'+(window.innerWidth-rect.right)+'px;'+
+    'width:340px;max-height:480px;background:var(--bg2);border:1px solid var(--br);'+
+    'border-radius:var(--r);box-shadow:0 8px 24px rgba(0,0,0,.15);'+
+    'z-index:600;display:flex;flex-direction:column;overflow:hidden;font-family:var(--fn);';
+
+  if(!allAlerts.length){
+    panel.innerHTML =
+      '<div style="padding:14px 16px;border-bottom:1px solid var(--br);font-size:13px;font-weight:600;">Notifications</div>'+
+      '<div style="padding:32px 16px;text-align:center;color:var(--t3);font-size:13px;">'+
+        '<div style="font-size:22px;margin-bottom:8px;">All clear</div>'+
+        'All tasks are on track -- no alerts.'+
+      '</div>';
+  } else {
+    const oPart = overdue.length   ? '<span style="color:var(--er);font-weight:600;">'+overdue.length+' overdue</span>' : '';
+    const ePart = escalated.length ? '<span style="color:var(--wn);font-weight:600;">'+escalated.length+' escalated</span>' : '';
+    const summary = [oPart, ePart].filter(Boolean).join(' &nbsp;&middot;&nbsp; ');
+
+    const rows = allAlerts.map(function(t){
+      const u      = gu(t.uid);
+      const isOver = t.status === 'overdue';
+      const tagBg  = isOver ? 'var(--el)' : 'var(--wl)';
+      const tagClr = isOver ? 'var(--er)' : 'var(--wn)';
+      const escLvl = t.esc > 0 ? ' L'+t.esc : '';
+      const tagTxt = isOver ? 'Overdue'+escLvl : 'Escalated'+escLvl;
+      const mtg    = MEETINGS.find(function(m){ return m.id === t.mid; });
+      const mtgLbl = mtg ? mtg.no : '';
+      const meta   = [u.name, mtgLbl, 'Due '+displayDate(t.due)].filter(Boolean).join(' / ');
+      return '<div style="display:flex;align-items:flex-start;gap:10px;padding:11px 16px;border-bottom:1px solid var(--br);cursor:pointer;" '+
+             'onmouseenter="this.style.background=\'var(--bg3)\'" onmouseleave="this.style.background=\'\'" '+
+             'onclick="document.getElementById(\'bell-panel\')?.remove();navigate(\'tasks\')">'+
+               '<div style="width:32px;height:32px;border-radius:50%;background:'+u.col+';color:'+u.tc+';display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0;margin-top:1px;">'+u.ini+'</div>'+
+               '<div style="flex:1;min-width:0;">'+
+                 '<div style="font-size:12px;font-weight:600;color:var(--tx);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+t.title+'</div>'+
+                 '<div style="font-size:11px;color:var(--t3);margin-top:2px;">'+meta+'</div>'+
+               '</div>'+
+               '<span style="background:'+tagBg+';color:'+tagClr+';font-size:10px;font-weight:700;padding:2px 6px;border-radius:10px;white-space:nowrap;margin-top:2px;flex-shrink:0;">'+tagTxt+'</span>'+
+             '</div>';
+    }).join('');
+
+    panel.innerHTML =
+      '<div style="padding:12px 16px;border-bottom:1px solid var(--br);display:flex;align-items:center;justify-content:space-between;">'+
+        '<div style="font-size:13px;font-weight:600;">Notifications</div>'+
+        '<div style="font-size:11px;">'+summary+'</div>'+
+      '</div>'+
+      '<div style="overflow-y:auto;max-height:380px;">'+rows+'</div>'+
+      '<div style="padding:10px 16px;border-top:1px solid var(--br);">'+
+        '<button class="btn bs bp" style="width:100%;font-size:12px;" '+
+          'onclick="document.getElementById(\'bell-panel\')?.remove();navigate(\'tasks\')">'+
+          'View All Tasks'+
+        '</button>'+
+      '</div>';
   }
-  const parts=[];
-  if(overdue.length)   parts.push(`${overdue.length} overdue task${overdue.length>1?'s':''}`);
-  if(escalated.length) parts.push(`${escalated.length} escalated task${escalated.length>1?'s':''}`);
-  if(pending.length)   parts.push(`${pending.length} pending task${pending.length>1?'s':''}`);
-  showToast('⚠ ' + parts.join(' · '),'warn');
+
+  document.body.appendChild(panel);
+
+  function outsideClick(e){
+    const p = document.getElementById('bell-panel');
+    if(p && !p.contains(e.target) && !document.getElementById('bell-btn').contains(e.target)){
+      p.remove();
+      document.removeEventListener('click', outsideClick, true);
+    }
+  }
+  setTimeout(function(){ document.addEventListener('click', outsideClick, true); }, 0);
 }
 
 /* ═══════════════════════════════════════════
@@ -957,7 +1021,7 @@ function speedometer(pct, comp, tot){
   function arc(s, e, ro, rin){
     if(e <= s) return '';
     const a1 = toR(s), a2 = toR(e);
-    const laf = 0; // half-gauge spans 0°–180°, so arcs never exceed 180° → laf always 0
+    const laf = 0; // half-gauge spans 0-180deg, arcs never exceed 180deg
     const cos1=Math.cos(a1), sin1=Math.sin(a1);
     const cos2=Math.cos(a2), sin2=Math.sin(a2);
     return `M${f(cx+ro*cos1)},${f(cy+ro*sin1)}`
@@ -1061,7 +1125,7 @@ function updateSpeedometer(){
 
     function arcPath(s,e,ro,rin){
       if(e<=s) return '';
-      const a1=toR(s),a2=toR(e),laf=0; // half-gauge: arcs never exceed 180° → laf always 0
+      const a1=toR(s),a2=toR(e),laf=0; // half-gauge: laf always 0
       return `M${f(cx+ro*Math.cos(a1))},${f(cy+ro*Math.sin(a1))}`
             +` A${ro},${ro} 0 ${laf},1 ${f(cx+ro*Math.cos(a2))},${f(cy+ro*Math.sin(a2))}`
             +` L${f(cx+rin*Math.cos(a2))},${f(cy+rin*Math.sin(a2))}`
