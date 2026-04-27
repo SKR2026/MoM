@@ -870,7 +870,7 @@ function buildNav(){
             let count=0;
             if(i.id==='tasks'){
               const _myUid = loggedInAs && loggedInAs.id ? Number(loggedInAs.id) : null;
-              count = _myUid ? TASKS.filter(t=>Number(t.uid)===_myUid && t.status!=='completed').length : 0;
+              count = _myUid ? TASKS.filter(t=>Number(t.uid)===_myUid).length : 0;
             } else if(i.id==='escalations'){
               count=TASKS.filter(t=>t.esc>0).length;
             }
