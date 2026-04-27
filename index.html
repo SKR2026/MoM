@@ -304,7 +304,7 @@ input[type=checkbox].task-cb{width:15px;height:15px;accent-color:var(--ac);curso
     <span id="btn-new-meeting"><button class="btn bs bp" onclick="openModal('new-meeting')">+ New Meeting</button></span>
     <button class="btn bs" id="bell-btn" onclick="showBellSummary()" style="position:relative;">
       <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 1a5 5 0 015 5v3l1 2H2l1-2V6a5 5 0 015-5zM6 13a2 2 0 004 0"/></svg>
-      <div id="bell-dot" style="position:absolute;top:-5px;right:-5px;display:none;min-width:16px;height:16px;padding:0 4px;border-radius:8px;background:var(--er);color:#fff;font-size:10px;font-weight:700;font-family:var(--fn);line-height:16px;text-align:center;pointer-events:none;"></div>
+      <div class="ndot" id="bell-dot" style="position:absolute;top:2px;right:2px;display:none;"></div>
     </button>
   </div>
   <div class="content" id="content"></div>
@@ -730,12 +730,10 @@ function updateBell(){
   const visibleTasks = getVisibleTasks();
   const overdue   = visibleTasks.filter(t=>t.status==='overdue').length;
   const escalated = visibleTasks.filter(t=>t.esc>0).length;
+  const pending   = visibleTasks.filter(t=>t.status==='pending').length;
   const total     = overdue + escalated;
   const dot = document.getElementById('bell-dot');
-  if(dot){
-    dot.textContent = total > 99 ? '99+' : total;
-    dot.style.display = total > 0 ? 'block' : 'none';
-  }
+  if(dot) dot.style.display = total>0 ? 'block' : 'none';
   // Also refresh sidebar badges whenever bell updates
   buildNav();
 }
@@ -1110,7 +1108,8 @@ function speedometer(pct, comp, tot){
 
 /* Live update — patches speedometer, donut + stat cards without full re-render */
 function updateSpeedometer(){
-  const vis  = getVisibleTasks();
+  const _spdUid = loggedInAs && loggedInAs.id ? Number(loggedInAs.id) : null;
+  const vis  = _spdUid ? TASKS.filter(t=>Number(t.uid)===_spdUid) : getVisibleTasks();
   const tot  = vis.length;
   const comp = vis.filter(t=>t.status==='completed').length;
   const inp  = vis.filter(t=>t.status==='in-progress').length;
@@ -1286,7 +1285,9 @@ function switchRole(r){
    DASHBOARD
 ═══════════════════════════════════════════ */
 function renderDashboard(){
-  const myTasks=getVisibleTasks();
+  const _dashUid = loggedInAs && loggedInAs.id ? Number(loggedInAs.id) : null;
+  // Always show the logged-in user's own tasks on their dashboard
+  const myTasks = _dashUid ? TASKS.filter(t=>Number(t.uid)===_dashUid) : getVisibleTasks();
   const comp=myTasks.filter(t=>t.status==='completed').length;
   const over=myTasks.filter(t=>t.status==='overdue').length;
   const inp=myTasks.filter(t=>t.status==='in-progress').length;
@@ -1341,7 +1342,7 @@ function renderDashboard(){
     <div class="card">
       <div class="ch"><div class="ctit">Assignee Workload</div></div>
       ${USERS.filter(u=>u.role==='assignee'||u.role==='manager').map(u=>{
-        const ut=TASKS.filter(t=>t.uid===u.id);
+        const ut=TASKS.filter(t=>Number(t.uid)===Number(u.id));
         const uc=ut.filter(t=>t.status==='completed').length;
         const p=ut.length?Math.round(uc/ut.length*100):0;
         return`<div style="margin-bottom:11px;"><div style="display:flex;align-items:center;gap:7px;margin-bottom:4px;">${av(u,20)}<span style="font-size:12px;flex:1;">${u.name}</span><span style="font-size:11px;color:var(--t3);">${uc}/${ut.length}</span></div><div class="prog"><div class="pf" style="width:${p}%;background:${p===100?'var(--ok)':p>50?'var(--ac)':'var(--wn)'}"></div></div></div>`;
