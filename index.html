@@ -1357,7 +1357,9 @@ function renderDashboard(){
         } else if(currentRole==='manager'){
           _wlUsers = _wlDept ? USERS.filter(u=>u.dept&&u.dept.trim().toLowerCase()===_wlDept) : USERS.filter(u=>Number(u.id)===_wlUid);
         } else {
-          _wlUsers = USERS.filter(u=>u.role==='assignee'||u.role==='manager');
+          // Show any user who has at least one task, regardless of role
+          const _assignedUids = new Set(TASKS.map(t=>Number(t.uid)));
+          _wlUsers = USERS.filter(u=>_assignedUids.has(Number(u.id)));
         }
         return _wlUsers.map(u=>{
           const ut=TASKS.filter(t=>Number(t.uid)===Number(u.id));
