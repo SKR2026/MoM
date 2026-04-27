@@ -1348,12 +1348,24 @@ function renderDashboard(){
     </div>
     <div class="card">
       <div class="ch"><div class="ctit">Assignee Workload</div></div>
-      ${USERS.filter(u=>u.role==='assignee'||u.role==='manager').map(u=>{
-        const ut=TASKS.filter(t=>Number(t.uid)===Number(u.id));
-        const uc=ut.filter(t=>t.status==='completed').length;
-        const p=ut.length?Math.round(uc/ut.length*100):0;
-        return`<div style="margin-bottom:11px;"><div style="display:flex;align-items:center;gap:7px;margin-bottom:4px;">${av(u,20)}<span style="font-size:12px;flex:1;">${u.name}</span><span style="font-size:11px;color:var(--t3);">${uc}/${ut.length}</span></div><div class="prog"><div class="pf" style="width:${p}%;background:${p===100?'var(--ok)':p>50?'var(--ac)':'var(--wn)'}"></div></div></div>`;
-      }).join('')}
+      ${(()=>{
+        const _wlUid  = (loggedInAs && loggedInAs.id != null) ? Number(loggedInAs.id) : null;
+        const _wlDept = loggedInAs && loggedInAs.dept ? loggedInAs.dept.trim().toLowerCase() : null;
+        let _wlUsers;
+        if(currentRole==='assignee'){
+          _wlUsers = USERS.filter(u=>Number(u.id)===_wlUid);
+        } else if(currentRole==='manager'){
+          _wlUsers = _wlDept ? USERS.filter(u=>u.dept&&u.dept.trim().toLowerCase()===_wlDept) : USERS.filter(u=>Number(u.id)===_wlUid);
+        } else {
+          _wlUsers = USERS.filter(u=>u.role==='assignee'||u.role==='manager');
+        }
+        return _wlUsers.map(u=>{
+          const ut=TASKS.filter(t=>Number(t.uid)===Number(u.id));
+          const uc=ut.filter(t=>t.status==='completed').length;
+          const p=ut.length?Math.round(uc/ut.length*100):0;
+          return`<div style="margin-bottom:11px;"><div style="display:flex;align-items:center;gap:7px;margin-bottom:4px;">${av(u,20)}<span style="font-size:12px;flex:1;">${u.name}</span><span style="font-size:11px;color:var(--t3);">${uc}/${ut.length}</span></div><div class="prog"><div class="pf" style="width:${p}%;background:${p===100?'var(--ok)':p>50?'var(--ac)':'var(--wn)'}"></div></div></div>`;
+        }).join('')||'<div style="color:var(--t3);font-size:13px;">No workload data.</div>';
+      })()}
     </div>
   </div>
   <div class="g2">
