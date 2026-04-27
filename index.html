@@ -1108,8 +1108,7 @@ function speedometer(pct, comp, tot){
 
 /* Live update — patches speedometer, donut + stat cards without full re-render */
 function updateSpeedometer(){
-  const _spdUid = (loggedInAs && loggedInAs.id != null) ? Number(loggedInAs.id) : null;
-  const vis  = _spdUid != null ? TASKS.filter(t=>Number(t.uid)===_spdUid) : getVisibleTasks();
+  const vis = getDashboardTasks();
   const tot  = vis.length;
   const comp = vis.filter(t=>t.status==='completed').length;
   const inp  = vis.filter(t=>t.status==='in-progress').length;
@@ -1284,9 +1283,18 @@ function switchRole(r){
 /* ═══════════════════════════════════════════
    DASHBOARD
 ═══════════════════════════════════════════ */
+function getDashboardTasks(){
+  // super-admin / admin / top-mgmt / developer: all tasks
+  // manager: department tasks (getVisibleTasks scopes by dept)
+  // assignee: own tasks only
+  const uid = (loggedInAs && loggedInAs.id != null) ? Number(loggedInAs.id) : null;
+  if(currentRole==='assignee'){
+    return uid != null ? TASKS.filter(t=>Number(t.uid)===uid) : [];
+  }
+  return getVisibleTasks();
+}
 function renderDashboard(){
-  const _dashUid = (loggedInAs && loggedInAs.id != null) ? Number(loggedInAs.id) : null;
-  const myTasks = _dashUid != null ? TASKS.filter(t=>Number(t.uid)===_dashUid) : getVisibleTasks();
+  const myTasks = getDashboardTasks();
   const comp=myTasks.filter(t=>t.status==='completed').length;
   const over=myTasks.filter(t=>t.status==='overdue').length;
   const inp=myTasks.filter(t=>t.status==='in-progress').length;
