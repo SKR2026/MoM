@@ -869,8 +869,8 @@ function buildNav(){
           ${(()=>{
             let count=0;
             if(i.id==='tasks'){
-              const _myUid = loggedInAs && loggedInAs.id ? Number(loggedInAs.id) : null;
-              count = _myUid ? TASKS.filter(t=>Number(t.uid)===_myUid).length : 0;
+              const _myUid = (loggedInAs && loggedInAs.id != null) ? Number(loggedInAs.id) : null;
+              count = _myUid != null ? TASKS.filter(t=>Number(t.uid)===_myUid).length : 0;
             } else if(i.id==='escalations'){
               count=TASKS.filter(t=>t.esc>0).length;
             }
@@ -931,7 +931,7 @@ function refreshCurrentPage() {
 function getVisibleTasks(allTasks){
   allTasks = allTasks || TASKS;
   const role = currentRole;
-  const uid  = loggedInAs && loggedInAs.id ? Number(loggedInAs.id) : null;
+  const uid  = (loggedInAs && loggedInAs.id != null) ? Number(loggedInAs.id) : null;
 
   if(role === 'super-admin' || role === 'admin' || role === 'top-mgmt' || role === 'developer'){
     return allTasks; // see everything
@@ -939,7 +939,7 @@ function getVisibleTasks(allTasks){
   if(role === 'manager'){
     // Manager sees tasks belonging to users in the same department
     const dept = loggedInAs && loggedInAs.dept ? loggedInAs.dept.trim().toLowerCase() : null;
-    if(!dept) return uid ? allTasks.filter(t => t.uid === uid) : allTasks;
+    if(!dept) return uid != null ? allTasks.filter(t => Number(t.uid) === uid) : allTasks;
     const teamIds = new Set(
       USERS.filter(u => u.dept && u.dept.trim().toLowerCase() === dept).map(u => Number(u.id))
     );
@@ -1108,8 +1108,8 @@ function speedometer(pct, comp, tot){
 
 /* Live update — patches speedometer, donut + stat cards without full re-render */
 function updateSpeedometer(){
-  const _spdUid = loggedInAs && loggedInAs.id ? Number(loggedInAs.id) : null;
-  const vis  = _spdUid ? TASKS.filter(t=>Number(t.uid)===_spdUid) : getVisibleTasks();
+  const _spdUid = (loggedInAs && loggedInAs.id != null) ? Number(loggedInAs.id) : null;
+  const vis  = _spdUid != null ? TASKS.filter(t=>Number(t.uid)===_spdUid) : getVisibleTasks();
   const tot  = vis.length;
   const comp = vis.filter(t=>t.status==='completed').length;
   const inp  = vis.filter(t=>t.status==='in-progress').length;
@@ -1285,9 +1285,8 @@ function switchRole(r){
    DASHBOARD
 ═══════════════════════════════════════════ */
 function renderDashboard(){
-  const _dashUid = loggedInAs && loggedInAs.id ? Number(loggedInAs.id) : null;
-  // Always show the logged-in user's own tasks on their dashboard
-  const myTasks = _dashUid ? TASKS.filter(t=>Number(t.uid)===_dashUid) : getVisibleTasks();
+  const _dashUid = (loggedInAs && loggedInAs.id != null) ? Number(loggedInAs.id) : null;
+  const myTasks = _dashUid != null ? TASKS.filter(t=>Number(t.uid)===_dashUid) : getVisibleTasks();
   const comp=myTasks.filter(t=>t.status==='completed').length;
   const over=myTasks.filter(t=>t.status==='overdue').length;
   const inp=myTasks.filter(t=>t.status==='in-progress').length;
@@ -1669,8 +1668,8 @@ function renderTasks(){
     `<div class="tab${i===0?' active':''}" data-tab="${t.id}" onclick="filterTasks('${t.id}',this)">${t.label}</div>`
   ).join('');
 
-  // Initial data: canSeeAll → My Tasks; assignee → own tasks
-  const initTasks = canSeeAll && myUid
+  // Initial data: always show logged-in user's own tasks first
+  const initTasks = myUid != null
     ? TASKS.filter(t=>Number(t.uid)===myUid)
     : getVisibleTasks();
 
