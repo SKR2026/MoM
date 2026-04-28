@@ -622,24 +622,38 @@ function doLogin(){
 
   if(matchUser){
     const storedPw = USER_PASSWORDS[Number(matchUser.id)];
-    if(storedPw !== undefined && storedPw === pVal){
-      errEl.style.display = 'none';
-      loggedInAs  = matchUser;
-      const roleMap = {'super-admin':'super-admin','admin':'admin','top-mgmt':'top-mgmt','manager':'manager','assignee':'assignee'};
-      currentRole = roleMap[matchUser.role] || matchUser.role;
-      baseRole    = currentRole;
-      hideLoginScreen();
-      applySession(matchUser.name, matchUser.dept, matchUser.ini, matchUser.col, matchUser.tc, true);
-      return;
+    const roleMap = {'super-admin':'super-admin','admin':'admin','top-mgmt':'top-mgmt','manager':'manager','assignee':'assignee'};
+    const resolvedRole = roleMap[matchUser.role] || matchUser.role;
+    const requiresPassword = resolvedRole === 'super-admin' || resolvedRole === 'admin';
+
+    if(requiresPassword){
+      // super-admin and admin MUST have a password and enter it correctly
+      if(storedPw === undefined){
+        errEl.textContent = `Account exists for "${matchUser.name}" but no password has been set. Ask the Super Admin to set one in Users & Roles.`;
+        errEl.style.display = 'block';
+        return;
+      }
+      if(storedPw !== pVal){
+        errEl.textContent = 'Incorrect password.';
+        errEl.style.display = 'block';
+        return;
+      }
+    } else {
+      // top-mgmt, manager, assignee — password optional; if set, validate it
+      if(storedPw !== undefined && pVal !== '' && storedPw !== pVal){
+        errEl.textContent = 'Incorrect password.';
+        errEl.style.display = 'block';
+        return;
+      }
     }
-    if(storedPw !== undefined && storedPw !== pVal){
-      errEl.textContent = 'Incorrect password.';
-      errEl.style.display = 'block';
-      return;
-    }
-    // storedPw === undefined — password not set at all
-    errEl.textContent = `Account exists for "${matchUser.name}" but no password has been set. Ask the Super Admin to set one in Users & Roles.`;
-    errEl.style.display = 'block';
+
+    // Credentials accepted
+    errEl.style.display = 'none';
+    loggedInAs  = matchUser;
+    currentRole = resolvedRole;
+    baseRole    = currentRole;
+    hideLoginScreen();
+    applySession(matchUser.name, matchUser.dept, matchUser.ini, matchUser.col, matchUser.tc, true);
     return;
   }
 
