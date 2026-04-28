@@ -1385,14 +1385,14 @@ function getDashboardTasks(){
 }
 function renderDashboardPlantTabs(){
   var bar = document.getElementById('plant-tabs-bar');
-  if(!bar || !(currentRole==='super-admin'||currentRole==='developer') || !PLANTS.length) return;
+  if(!bar || !(currentRole==='super-admin'||currentRole==='developer'||currentRole==='top-mgmt') || !PLANTS.length) return;
   var html = '<div style="margin-bottom:18px;border-bottom:2px solid var(--br)">'
     +'<div style="display:flex;gap:0;flex-wrap:wrap;align-items:center;">';
   var tabs = [];
   if(PLANTS.some(function(p){return p.adminId==='__superadmin__';}))
-    tabs.push({id:'corporate', label:'Corporate'});
-  tabs.push({id:'all', label:'All Plants'});
-  PLANTS.forEach(function(p){tabs.push({id:p.id, label:p.name});});
+    tabs.push({id:'corporate', label:'🏢 Corporate'});
+  tabs.push({id:'all', label:'🌐 All Plants'});
+  PLANTS.forEach(function(p){tabs.push({id:p.id, label:'🏭 '+p.name});});
   tabs.forEach(function(t){
     var a = (_dashPlantFilter===t.id);
     html += '<button onclick="switchPlantTab(\''+t.id+'\')"'
@@ -2280,8 +2280,8 @@ function showCalDayDetail(dateKey, day){
 ═══════════════════════════════════════════ */
 function downloadBulkTemplate(){
   // No user_id column — assignee matched by name OR email
-  const headers=['meeting_no','meeting_date','meeting_title','chairperson_name','location','action_item','assignee_name','assignee_email','due_date','priority','attendees'];
-  const example=['MTG-001','2026-04-26','Monthly Review','Chairperson Name','Boardroom A','Action item description','Assignee Name','assignee@company.com','2026-05-10','high','cc@company.com'];
+  const headers=['meeting_no','meeting_date','meeting_title','plant_name','chairperson_name','location','action_item','assignee_name','assignee_email','due_date','priority','attendees'];
+  const example=['MTG-001','2026-04-26','Monthly Review','Plant Name','Chairperson Name','Boardroom A','Action item description','Assignee Name','assignee@company.com','2026-05-10','high','cc@company.com'];
   const csv=[headers.join(','), example.join(',')].join('\n');
   const blob=new Blob([csv],{type:'text/csv'});
   const a=document.createElement('a');
@@ -2320,7 +2320,7 @@ function handleBulkFile(input){
       headers.forEach((h,idx)=>row[h]=clean[idx]||'');
       rows.push(row);
     }
-    const displayCols=['meeting_no','action_item','assignee_name','assignee_email','due_date','priority'];
+    const displayCols=['meeting_no','plant_name','action_item','assignee_name','assignee_email','due_date','priority'];
     const shownCols=displayCols.filter(c=>headers.includes(c));
     const previewEl=document.getElementById('bulk-preview');
     previewEl.innerHTML=`
@@ -2374,7 +2374,9 @@ function processBulkUpload(){
     const meetingNoToId={};
 
     // Seed map with existing meetings (match by .no field = MTG-xxxx)
-    MEETINGS.forEach(m=>{ meetingNoToId[m.no]=m.id; });
+    // Also store a reference for plant updates on existing meetings
+    const _meetingNoToObj = {};
+    MEETINGS.forEach(m=>{ meetingNoToId[m.no]=m.id; _meetingNoToObj[m.no]=m; });
 
     for(let i=1;i<lines.length;i++){
       const cols=lines[i].match(/(".*?"|[^",\n]+|(?<=,)(?=,)|(?<=,)$|^(?=,))/g)||[];
@@ -2385,9 +2387,19 @@ function processBulkUpload(){
       const mno=(row.meeting_no||'').trim();
       if(!mno) continue;
 
+      // Update plantId on existing meeting if plant_name provided
+      const _rowPlantName = (row.plant_name||'').trim().toLowerCase();
+      if(_rowPlantName && _meetingNoToObj[mno] && !_meetingNoToObj[mno].plantId){
+        const _ep = PLANTS.find(p=>p.name.trim().toLowerCase()===_rowPlantName);
+        if(_ep) _meetingNoToObj[mno].plantId = _ep.id;
+      }
       // If this meeting_no is new, create a MEETINGS entry
       if(!meetingNoToId[mno]){
         const newId='MOM-'+(MEETINGS.length+1+importedMeetings).toString().padStart(3,'0');
+        const _bulkPlantName = (row.plant_name||'').trim().toLowerCase();
+        const _bulkPlant = _bulkPlantName
+          ? PLANTS.find(p=>p.name.trim().toLowerCase()===_bulkPlantName)
+          : null;
         const newMeeting={
           id:newId,
           no:mno,
@@ -2397,7 +2409,8 @@ function processBulkUpload(){
           attendees:USERS.slice(0,1).map(u=>u.id),
           externalAttendees:[],
           status:'active',
-          venue:row.location||'TBD'
+          venue:row.location||'TBD',
+          plantId:_bulkPlant ? _bulkPlant.id : null
         };
         MEETINGS.push(newMeeting);
         meetingNoToId[mno]=newId;
@@ -2517,7 +2530,7 @@ function renderBulkUpload(){
         <table style="font-size:12px;">
           <thead><tr><th>Column</th><th>Type</th><th>Required</th><th>Example</th></tr></thead>
           <tbody>
-            ${[['meeting_no','Text','Yes','MTG-2024-01'],['meeting_date','YYYY-MM-DD','Yes','2024-01-15'],['meeting_title','Text','No','Q1 Planning Review'],['chairperson_name','Full name','No','Vikram Patel'],['location','Venue/Platform','No','Boardroom A'],['action_item','Text','Yes','Prepare Q1 report'],['assignee_name','Full name (no ID needed)','Optional*','Rajesh Kumar'],['assignee_email','Email','Optional*','r.kumar@corp.com'],['due_date','YYYY-MM-DD','Yes','2024-02-15'],['priority','high/medium/low','No','high'],['attendees','Comma-separated emails','No','a@b.com, c@d.com']].map(([c,t,r,e])=>`<tr><td style="font-family:var(--mo);font-size:10px;color:var(--ac);">${c}</td><td>${t}</td><td><span class="bdg ${r==='Yes'?'b-er':r.startsWith('Optional')?'b-wn':'b-df'}">${r}</span></td><td style="color:var(--t3);">${e}</td></tr>`).join('')}
+            ${[['meeting_no','Text','Yes','MTG-2024-01'],['meeting_date','YYYY-MM-DD','Yes','2024-01-15'],['meeting_title','Text','No','Q1 Planning Review'],['plant_name','Plant name','No','Panipat Unit 1'],['chairperson_name','Full name','No','Vikram Patel'],['location','Venue/Platform','No','Boardroom A'],['action_item','Text','Yes','Prepare Q1 report'],['assignee_name','Full name (no ID needed)','Optional*','Rajesh Kumar'],['assignee_email','Email','Optional*','r.kumar@corp.com'],['due_date','YYYY-MM-DD','Yes','2024-02-15'],['priority','high/medium/low','No','high'],['attendees','Comma-separated emails','No','a@b.com, c@d.com']].map(([c,t,r,e])=>`<tr><td style="font-family:var(--mo);font-size:10px;color:var(--ac);">${c}</td><td>${t}</td><td><span class="bdg ${r==='Yes'?'b-er':r.startsWith('Optional')?'b-wn':'b-df'}">${r}</span></td><td style="color:var(--t3);">${e}</td></tr>`).join('')}
             <tr><td colspan="4" style="font-size:10px;color:var(--t3);padding-top:4px;">* Provide assignee_name OR assignee_email (or both). No user_id required.</td></tr>
           </tbody>
         </table>
