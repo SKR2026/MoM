@@ -542,7 +542,7 @@ function cancelCompanyEdit(){
 function initLogin(){
   const ul=document.getElementById('user-list');
   if(!ul)return;
-  ul.innerHTML=USERS.map(u=>`
+  ul.innerHTML=USERS.filter(u=>u.role!=='super-admin'&&u.role!=='admin').map(u=>`
     <button class="login-user-btn" onclick="loginAsUser(${u.id})">
       ${av(u,32)}
       <div class="lub-info">
