@@ -2,6 +2,9 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%230284c7'/><text x='16' y='22' text-anchor='middle' font-size='18' font-family='sans-serif' fill='white'>M</text></svg>">
 <title>MoM Pro — Minutes of Meeting Management</title>
@@ -1380,6 +1383,30 @@ function getDashboardTasks(){
   }
   return getVisibleTasks();
 }
+function renderDashboardPlantTabs(){
+  var bar = document.getElementById('plant-tabs-bar');
+  if(!bar || !(currentRole==='super-admin'||currentRole==='developer') || !PLANTS.length) return;
+  var html = '<div style="margin-bottom:18px;border-bottom:2px solid var(--br)">'
+    +'<div style="display:flex;gap:0;flex-wrap:wrap;align-items:center;">';
+  var tabs = [];
+  if(PLANTS.some(function(p){return p.adminId==='__superadmin__';}))
+    tabs.push({id:'corporate', label:'Corporate'});
+  tabs.push({id:'all', label:'All Plants'});
+  PLANTS.forEach(function(p){tabs.push({id:p.id, label:p.name});});
+  tabs.forEach(function(t){
+    var a = (_dashPlantFilter===t.id);
+    html += '<button onclick="switchPlantTab(\''+t.id+'\')"'
+      +' style="padding:8px 16px;font-size:12px;font-weight:'+(a?'600':'400')
+      +';border:none;border-bottom:3px solid '+(a?'var(--ac)':'transparent')
+      +';background:transparent;color:'+(a?'var(--ac)':'var(--t2)')
+      +';cursor:pointer;white-space:nowrap;transition:all .15s;">'+t.label+'</button>';
+  });
+  html += '<span style="margin-left:auto;padding:4px 8px;">'
+    +'<button class="btn bs" onclick="navigate(\'settings-plants\')" style="font-size:11px;">Manage Plants</button>'
+    +'</span></div></div>';
+  bar.innerHTML = html;
+}
+
 function switchPlantTab(plantId){
   _dashPlantFilter = plantId;
   renderDashboard();
@@ -1432,27 +1459,12 @@ function renderDashboard(){
   <style>
     @keyframes pulse-dot{0%,100%{box-shadow:0 0 0 3px rgba(22,163,74,.25);}50%{box-shadow:0 0 0 6px rgba(22,163,74,.08);}}
   </style>
-  ${currentRole==='assignee'?`<div class="alert ai" style="margin-bottom:16px;">Viewing as ${loggedInAs&&loggedInAs.name?loggedInAs.name:'Assignee'} — your personalised view. Use the sidebar to access <b>Meetings</b>, <b>My Tasks</b>, <b>Escalations</b> and <b>Calendar</b>.</div>`:currentRole==='manager'?`<div class="alert ai" style="margin-bottom:16px;">Showing tasks for your team (${loggedInAs&&loggedInAs.dept?loggedInAs.dept:'your department'}).</div>`:''}
-  ${(currentRole==='super-admin'||currentRole==='developer') && PLANTS.length ? `
-  <!-- ── Plant Filter Tabs ── -->
-  <div style="margin-bottom:18px;border-bottom:2px solid var(--br);">
-    <div style="display:flex;gap:0;flex-wrap:wrap;align-items:center;">
-      ${(()=>{
-        const hasCorporate = PLANTS.some(p=>p.adminId==='__superadmin__');
-        const tabs = [];
-        if(hasCorporate) tabs.push({id:'corporate',label:'🏢 Corporate'});
-        tabs.push({id:'all',label:'🌐 All Plants'});
-        PLANTS.forEach(p=>tabs.push({id:p.id,label:'🏭 '+p.name}));
-        return tabs.map(t=>{
-          const active = _dashPlantFilter===t.id;
-          return '<button onclick="switchPlantTab(\'' + t.id + '\')" style="padding:8px 16px;font-size:12px;font-weight:' + (active?'600':'400') + ';border:none;border-bottom:3px solid ' + (active?'var(--ac)':'transparent') + ';background:transparent;color:' + (active?'var(--ac)':'var(--t2)') + ';cursor:pointer;white-space:nowrap;transition:all .15s;">' + t.label + '</button>';
-        }).join('');
-      })()}
-      <span style="margin-left:auto;padding:4px 8px;">
-        <button class="btn bs" onclick="navigate('settings-plants')" style="font-size:11px;">Manage Plants</button>
-      </span>
-    </div>
-  </div>` : ''}
+  ${(()=>{
+    if(currentRole==='assignee') return '<div class="alert ai" style="margin-bottom:16px;">Viewing as '+(loggedInAs&&loggedInAs.name?loggedInAs.name:'Assignee')+' — your personalised view. Use the sidebar to access <b>Meetings</b>, <b>My Tasks</b>, <b>Escalations</b> and <b>Calendar</b>.</div>';
+    if(currentRole==='manager') return '<div class="alert ai" style="margin-bottom:16px;">Showing tasks for your team ('+(loggedInAs&&loggedInAs.dept?loggedInAs.dept:'your department')+').</div>';
+    return '';
+  })()}
+  <div id='plant-tabs-bar'></div>
   <!-- ── Half Speedometer + Stat Cards ── -->
   <div style="display:flex;gap:18px;margin-bottom:20px;flex-wrap:wrap;align-items:stretch;">
 
@@ -1472,7 +1484,7 @@ function renderDashboard(){
     </div>
 
   </div>
-  ${over?`<div class="alert ad" style="margin-bottom:16px;">${over} overdue task${over>1?'s':''} require attention. ${myTasks.filter(t=>t.esc>=2).length} escalated to senior management.</div>`:''}
+  ${(()=>{if(!over)return'';return'<div class="alert ad" style="margin-bottom:16px;">'+over+' overdue task'+(over>1?'s':'')+' require attention. '+myTasks.filter(t=>t.esc>=2).length+' escalated to senior management.</div>';})()}
   <div class="g2" style="margin-bottom:20px;">
     <div class="card" id="donut-card">
       <div class="ch"><div class="ctit">Task Status Breakdown</div></div>
@@ -1485,12 +1497,7 @@ function renderDashboard(){
           </svg>
         </div>
         <div style="flex:1;min-width:0;">
-          ${[['Completed','#22c55e','donut-leg-comp',comp],['In Progress','#3b82f6','donut-leg-inp',inp],['Overdue','#ef4444','donut-leg-over',over],['Pending','#94a3b8','donut-leg-pend',myTasks.filter(t=>t.status==='pending').length]].map(([l,c,lid,v])=>`
-          <div style="display:flex;align-items:center;gap:9px;margin-bottom:12px;">
-            <div style="width:10px;height:10px;border-radius:50%;background:${c};flex-shrink:0;box-shadow:0 0 6px ${c}88;"></div>
-            <span style="flex:1;color:var(--t2);font-size:12px;">${l}</span>
-            <span id="${lid}" style="font-weight:700;font-size:14px;color:var(--tx);">${v}</span>
-          </div>`).join('')}
+          ${[['Completed','#22c55e','donut-leg-comp',comp],['In Progress','#3b82f6','donut-leg-inp',inp],['Overdue','#ef4444','donut-leg-over',over],['Pending','#94a3b8','donut-leg-pend',myTasks.filter(t=>t.status==='pending').length]].map(function(row){var l=row[0],c=row[1],lid=row[2],v=row[3];return '<div style="display:flex;align-items:center;gap:9px;margin-bottom:12px;"><div style="width:10px;height:10px;border-radius:50%;background:'+c+';flex-shrink:0;box-shadow:0 0 6px '+c+'88;"></div><span style="flex:1;color:var(--t2);font-size:12px;">'+l+'</span><span id="'+lid+'" style="font-weight:700;font-size:14px;color:var(--tx);">'+v+'</span></div>';}).join('')}
           <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--br);font-size:11px;color:var(--t3);display:flex;justify-content:space-between;">
             <span>Total</span><span id="donut-leg-tot" style="font-weight:700;color:var(--tx);">${tot}</span>
           </div>
@@ -1545,7 +1552,7 @@ function renderDashboard(){
             : TASKS.filter(t=>Number(t.uid)===Number(u.id));
           const uc=ut.filter(t=>t.status==='completed').length;
           const p=ut.length?Math.round(uc/ut.length*100):0;
-          return`<div style="margin-bottom:11px;"><div style="display:flex;align-items:center;gap:7px;margin-bottom:4px;">${av(u,20)}<span style="font-size:12px;flex:1;">${u.name}</span><span style="font-size:11px;color:var(--t3);">${uc}/${ut.length}</span></div><div class="prog"><div class="pf" style="width:${p}%;background:${p===100?'var(--ok)':p>50?'var(--ac)':'var(--wn)'}"></div></div></div>`;
+          return '<div style="margin-bottom:11px;"><div style="display:flex;align-items:center;gap:7px;margin-bottom:4px;">'+av(u,20)+'<span style="font-size:12px;flex:1;">'+u.name+'</span><span style="font-size:11px;color:var(--t3);">'+uc+'/'+ut.length+'</span></div><div class="prog"><div class="pf" style="width:'+p+'%;background:'+(p===100?'var(--ok)':p>50?'var(--ac)':'var(--wn)')+'"></div></div></div>';
         }).join('')||'<div style="color:var(--t3);font-size:13px;">No workload data.</div>';
       })()}
     </div>
@@ -1553,21 +1560,15 @@ function renderDashboard(){
   <div class="g2">
     <div class="card">
       <div class="ch"><div class="ctit">Recent Meetings</div><button class="btn bs" onclick="navigate('meetings')">View all</button></div>
-      ${MEETINGS.slice(0,3).map(m=>{const chairName=typeof m.chairperson==='string'?m.chairperson:(gu(m.chairperson).name||'—');return`<div style="display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--br);">
-        <div style="width:34px;height:34px;border-radius:7px;background:var(--al);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:var(--ac);flex-shrink:0;">${m.no.split('-').pop()}</div>
-        <div style="flex:1;min-width:0;"><div style="font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${m.title}</div><div style="font-size:10px;color:var(--t3);">${m.no} · ${m.date} · Chair: ${chairName}</div></div>
-        ${sb(m.status)}</div>`}).join('')}
+      ${MEETINGS.slice(0,3).map(m=>{const chairName=typeof m.chairperson==='string'?m.chairperson:(gu(m.chairperson).name||'—');return '<div style="display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--br);"><div style="width:34px;height:34px;border-radius:7px;background:var(--al);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:var(--ac);flex-shrink:0;">'+m.no.split('-').pop()+'</div><div style="flex:1;min-width:0;"><div style="font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+m.title+'</div><div style="font-size:10px;color:var(--t3);">'+m.no+' · '+m.date+' · Chair: '+chairName+'</div></div>'+sb(m.status)+'</div>'}).join('')}
     </div>
     <div class="card">
       <div class="ch"><div class="ctit">Escalation Alerts</div></div>
-      ${TASKS.filter(t=>t.esc>0).map(t=>{const u=gu(t.uid);return`<div style="display:flex;align-items:center;gap:9px;padding:9px 0;border-bottom:1px solid var(--br);">
-        <div style="width:22px;height:22px;border-radius:50%;background:${t.esc>=2?'var(--el)':'var(--wl)'};color:${t.esc>=2?'var(--er)':'var(--wn)'};display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;flex-shrink:0;">L${t.esc}</div>
-        <div style="flex:1;min-width:0;"><div style="font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${t.title}</div><div style="font-size:10px;color:var(--t3);">${u.name} · Due ${displayDate(t.due)}</div></div>
-        <button class="btn bs" onclick="openModal('task','${t.id}')">View</button>
-      </div>`}).join('')||'<div style="color:var(--t3);font-size:13px;">No active escalations</div>'}
+      ${TASKS.filter(t=>t.esc>0).map(t=>{const u=gu(t.uid);return '<div style="display:flex;align-items:center;gap:9px;padding:9px 0;border-bottom:1px solid var(--br);"><div style="width:22px;height:22px;border-radius:50%;background:'+(t.esc>=2?'var(--el)':'var(--wl)')+';color:'+(t.esc>=2?'var(--er)':'var(--wn)')+';display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;flex-shrink:0;">L'+t.esc+'</div><div style="flex:1;min-width:0;"><div style="font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+t.title+'</div><div style="font-size:10px;color:var(--t3);">'+u.name+' · Due '+displayDate(t.due)+'</div></div><button class="btn bs" onclick="openModal(\'task\',\''+t.id+'\')" >View</button></div>'}).join('')||'<div style="color:var(--t3);font-size:13px;">No active escalations</div>'}
     </div>
   </div>
   `;
+  renderDashboardPlantTabs();
 }
 
 /* ═══════════════════════════════════════════
@@ -5135,7 +5136,7 @@ function saveTaskStatus(id){
   const t=TASKS.find(x=>x.id===id);
   if(!t)return;
   const newStatus = document.getElementById('tm-status')?.value || t.status;
-  const newPct    = parseInt(document.getElementById('tm-pct')?.value ?? t.pct);
+  const newPct    = parseInt(document.getElementById('tm-pct') ? (document.getElementById('tm-pct').value || t.pct) : t.pct);
   const cmt       = (document.getElementById('new-cmt')?.value||'').trim();
   const userName  = document.getElementById('un')?.textContent || 'Assignee';
   const oldStatus = t.status;
