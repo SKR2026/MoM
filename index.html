@@ -1445,7 +1445,7 @@ function renderDashboard(){
         PLANTS.forEach(p=>tabs.push({id:p.id,label:'🏭 '+p.name}));
         return tabs.map(t=>{
           const active = _dashPlantFilter===t.id;
-          return `<button onclick="switchPlantTab('${t.id}')" style="padding:8px 16px;font-size:12px;font-weight:${active?'600':'400'};border:none;border-bottom:3px solid ${active?'var(--ac)':'transparent'};background:transparent;color:${active?'var(--ac)':'var(--t2)'};cursor:pointer;white-space:nowrap;transition:all .15s;">${t.label}</button>`;
+          return '<button onclick="switchPlantTab(\'' + t.id + '\')" style="padding:8px 16px;font-size:12px;font-weight:' + (active?'600':'400') + ';border:none;border-bottom:3px solid ' + (active?'var(--ac)':'transparent') + ';background:transparent;color:' + (active?'var(--ac)':'var(--t2)') + ';cursor:pointer;white-space:nowrap;transition:all .15s;">' + t.label + '</button>';
         }).join('');
       })()}
       <span style="margin-left:auto;padding:4px 8px;">
