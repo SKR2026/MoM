@@ -4054,11 +4054,13 @@ function buildPlantsTable(){
   <tbody>
   ${PLANTS.map((p,idx)=>{
     const admin = p.adminId ? USERS.find(u=>u.id===Number(p.adminId)) : null;
-    // count users linked to this plant (by plant field or admin)
-    const plantUserIds = new Set(p.adminId ? [Number(p.adminId)] : []);
     // meetings tagged with this plant
     const plantMeetings = MEETINGS.filter(m=>m.plantId===p.id);
-    const plantTasks    = TASKS.filter(t=>plantMeetings.some(m=>m.id===t.mid));
+    const plantMtgIdSet = new Set(plantMeetings.map(m=>m.id));
+    const plantTasks    = TASKS.filter(t=>plantMtgIdSet.has(t.mid));
+    // Only count real USERS as assignees (exclude superadmin/hardcoded logins that have no USERS entry)
+    const validUserIds  = new Set(USERS.map(u=>u.id));
+    const assigneeCount = new Set(plantTasks.filter(t=>t.uid!=null&&validUserIds.has(Number(t.uid))).map(t=>Number(t.uid))).size;
     const comp = plantTasks.filter(t=>t.status==='completed').length;
     const pct  = plantTasks.length ? Math.round(comp/plantTasks.length*100) : 0;
 
@@ -4078,7 +4080,7 @@ function buildPlantsTable(){
           ${adminOpts}
         </select>
       </td>
-      <td style="font-size:12px;color:var(--t2);">${admin ? `<span style="display:inline-flex;align-items:center;gap:4px;">${av(admin,18)}&nbsp;${admin.name}</span>` : '<span style="color:var(--t3);">—</span>'}</td>
+      <td style="font-size:12px;color:var(--t2);">${assigneeCount > 0 ? `<span style="font-weight:600;">${assigneeCount} assignee${assigneeCount!==1?'s':''}</span>` : '<span style="color:var(--t3);">—</span>'}</td>
       <td style="font-size:13px;font-weight:600;">${plantMeetings.length}</td>
       <td style="font-size:13px;font-weight:600;">${plantTasks.length}</td>
       <td>
@@ -4108,7 +4110,8 @@ function buildPlantMeetingOverview(){
   ${PLANTS.map(p=>{
     const admin = p.adminId ? USERS.find(u=>u.id===Number(p.adminId)) : null;
     const plantMeetings = MEETINGS.filter(m=>m.plantId===p.id);
-    const plantTasks    = TASKS.filter(t=>plantMeetings.some(m=>m.id===t.mid));
+    const plantMtgSet = new Set(plantMeetings.map(m=>m.id));
+    const plantTasks    = TASKS.filter(t=>plantMtgSet.has(t.mid));
     const comp    = plantTasks.filter(t=>t.status==='completed').length;
     const inprog  = plantTasks.filter(t=>t.status==='in-progress').length;
     const overdue = plantTasks.filter(t=>t.status==='overdue').length;
@@ -4316,8 +4319,9 @@ function renderPlantDetail(plantId){
   const pending= plantTasks.filter(t=>t.status==='pending').length;
   const pct    = plantTasks.length ? Math.round(comp/plantTasks.length*100) : 0;
 
-  // Users who have tasks in this plant
-  const plantUserIds = new Set(plantTasks.filter(t=>t.uid!=null).map(t=>Number(t.uid)));
+  // Users who have tasks in this plant — only real USERS entries (exclude hardcoded superadmin/dev)
+  const _validIds = new Set(USERS.map(u=>u.id));
+  const plantUserIds = new Set(plantTasks.filter(t=>t.uid!=null && _validIds.has(Number(t.uid))).map(t=>Number(t.uid)));
   const plantUsers   = USERS.filter(u=>plantUserIds.has(u.id));
 
   document.getElementById('pt').textContent='🏭 '+plant.name;
@@ -4337,9 +4341,9 @@ function renderPlantDetail(plantId){
     <!-- Stat Cards -->
     <div class="g4">
       <div class="sc"><div class="sl-">Meetings</div><div class="sv">${plantMeetings.length}</div></div>
-      <div class="sc"><div class="sl-">Total Tasks</div><div class="sv">${plantTasks.length}</div></div>
-      <div class="sc"><div class="sl-">Completed</div><div class="sv" style="color:var(--ok);">${comp}</div><div class="sbar"><div class="sbf" style="width:${pct}%;background:var(--ok);"></div></div></div>
-      <div class="sc"><div class="sl-">Overdue</div><div class="sv" style="color:${overdue>0?'var(--er)':'var(--t3)'};">${overdue}</div></div>
+      <div class="sc"><div class="sl-">Total Tasks</div><div class="sv">${plantTasks.length}</div><div class="sc2">${comp} completed</div></div>
+      <div class="sc"><div class="sl-">Assignees</div><div class="sv">${plantUsers.length}</div><div class="sc2">users with tasks</div></div>
+      <div class="sc"><div class="sl-">Overdue</div><div class="sv" style="color:${overdue>0?'var(--er)':'var(--t3)'};">${overdue}</div><div class="sbar"><div class="sbf" style="width:${plantTasks.length?Math.round(overdue/plantTasks.length*100):0}%;background:var(--er);"></div></div></div>
     </div>
 
     <!-- Admin Info + Progress -->
@@ -4350,7 +4354,10 @@ function renderPlantDetail(plantId){
           ? `<div style="display:flex;align-items:center;gap:12px;padding:10px 0;">
               ${av(admin,40)}
               <div>
-                <div style="font-size:14px;font-weight:600;">${admin.name}</div>
+                <div style="display:flex;align-items:center;gap:6px;">
+                  <div style="font-size:14px;font-weight:600;">${admin.name}</div>
+                  <span class="bdg b-wn" style="font-size:9px;">Plant Admin</span>
+                </div>
                 <div style="font-size:12px;color:var(--t3);">${admin.email}</div>
                 <div style="font-size:11px;color:var(--t2);margin-top:2px;">${admin.dept||'—'}</div>
               </div>
