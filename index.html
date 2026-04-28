@@ -2556,7 +2556,24 @@ function renderBulkUpload(){
 /* ═══════════════════════════════════════════
    REPORTS
 ═══════════════════════════════════════════ */
+var _mtgcPage = 0;
+function mtgcNav(dir){
+  var pages = document.querySelectorAll('.mtgc-page');
+  if(!pages.length) return;
+  var total = pages.length;
+  pages[_mtgcPage].style.display = 'none';
+  _mtgcPage = Math.max(0, Math.min(total-1, _mtgcPage + dir));
+  pages[_mtgcPage].style.display = 'block';
+  var info = document.getElementById('mtgc-info');
+  if(info) info.textContent = (_mtgcPage+1) + ' / ' + total;
+  var prev = document.getElementById('mtgc-prev');
+  var next = document.getElementById('mtgc-next');
+  if(prev) prev.disabled = (_mtgcPage === 0);
+  if(next) next.disabled = (_mtgcPage === total-1);
+}
+
 function renderReports(){
+  _mtgcPage = 0; // reset pagination on re-render
   /* ── Live data computation ─────────────────── */
   // Scope to admin's plant if applicable
   const _repAdminPlant = currentRole==='admin' ? getAdminPlant() : null;
@@ -2731,6 +2748,68 @@ function renderReports(){
             ${bars}
           </svg>`}
     </div>
+  </div>
+
+  <!-- Row 2b: Meeting-wise Compliance Chart -->
+  <div class="card" style="margin-bottom:18px;padding-bottom:10px;" id="mtg-compliance-card">
+    <div class="ch" style="flex-wrap:wrap;gap:8px;">
+      <div class="ctit">Meeting-wise Task Compliance</div>
+      <div style="display:flex;align-items:center;gap:10px;font-size:10px;">
+        <span style="display:inline-flex;align-items:center;gap:3px;"><span style="width:10px;height:10px;background:#22c55e;border-radius:2px;display:inline-block;"></span>Completed</span>
+        <span style="display:inline-flex;align-items:center;gap:3px;"><span style="width:10px;height:10px;background:#3b82f6;border-radius:2px;display:inline-block;"></span>In Progress</span>
+        <span style="display:inline-flex;align-items:center;gap:3px;"><span style="width:10px;height:10px;background:#ef4444;border-radius:2px;display:inline-block;"></span>Overdue</span>
+        <span style="display:inline-flex;align-items:center;gap:3px;"><span style="width:10px;height:10px;background:#94a3b8;border-radius:2px;display:inline-block;"></span>Pending</span>
+      </div>
+    </div>
+    ${(()=>{
+      const mtgData = SCOPED_MEETINGS.map(m=>{
+        const mt = SCOPED_TASKS.filter(t=>t.mid===m.id);
+        const comp = mt.filter(t=>t.status==='completed').length;
+        const inp  = mt.filter(t=>t.status==='in-progress').length;
+        const over = mt.filter(t=>t.status==='overdue').length;
+        const pend = mt.filter(t=>t.status==='pending').length;
+        const tot  = mt.length;
+        const pct  = tot ? Math.round(comp/tot*100) : 0;
+        return {no:m.no, title:m.title, tot, comp, inp, over, pend, pct};
+      }).filter(m=>m.tot>0);
+      if(!mtgData.length) return '<div style="color:var(--t3);font-size:12px;padding:20px 0;text-align:center;">No meeting task data yet.</div>';
+      const PAGE = 10;
+      const totalPages = Math.ceil(mtgData.length/PAGE);
+      // Render all pages, show/hide via JS
+      const pages = [];
+      for(let p=0;p<totalPages;p++){
+        const slice = mtgData.slice(p*PAGE,(p+1)*PAGE);
+        const cW=560, cH=160, padL=110, padB=22, padT=12, barH=10, barGap=4;
+        const innerW = cW-padL-12;
+        const rowH = barH + barGap;
+        const svgH = Math.max(cH, slice.length*rowH + padB + padT + 20);
+        const rows = slice.map((m,i)=>{
+          const y = padT + i*rowH;
+          const cW2 = m.tot ? Math.round((m.comp/m.tot)*innerW) : 0;
+          const iW2 = m.tot ? Math.round((m.inp/m.tot)*innerW) : 0;
+          const oW2 = m.tot ? Math.round((m.over/m.tot)*innerW) : 0;
+          const pW2 = Math.max(0, innerW - cW2 - iW2 - oW2);
+          const label = (m.no||m.title||'').slice(0,18);
+          return [
+            '<text x="'+(padL-6)+'" y="'+(y+barH-1)+'" text-anchor="end" font-size="9" fill="var(--t2)" font-family="var(--fn)">'+label+'</text>',
+            cW2>0 ? '<rect x="'+padL+'" y="'+y+'" width="'+cW2+'" height="'+barH+'" fill="#22c55e" rx="1"/>' : '',
+            iW2>0 ? '<rect x="'+(padL+cW2)+'" y="'+y+'" width="'+iW2+'" height="'+barH+'" fill="#3b82f6" rx="1"/>' : '',
+            oW2>0 ? '<rect x="'+(padL+cW2+iW2)+'" y="'+y+'" width="'+oW2+'" height="'+barH+'" fill="#ef4444" rx="1"/>' : '',
+            pW2>0 ? '<rect x="'+(padL+cW2+iW2+oW2)+'" y="'+y+'" width="'+pW2+'" height="'+barH+'" fill="#94a3b8" rx="1" opacity=".5"/>' : '',
+            '<text x="'+(padL+innerW+4)+'" y="'+(y+barH-1)+'" font-size="9" fill="var(--t3)" font-family="var(--fn)">'+m.pct+'%</text>'
+          ].join('');
+        }).join('');
+        pages.push('<div class="mtgc-page" id="mtgc-p'+p+'" style="display:'+(p===0?'block':'none')+'"><svg width="100%" viewBox="0 0 '+cW+' '+svgH+'" style="overflow:visible;">'+rows+'</svg></div>');
+      }
+      const nav = totalPages>1
+        ? '<div style="display:flex;align-items:center;justify-content:center;gap:10px;margin-top:6px;">'
+          +'<button class="btn bs" id="mtgc-prev" onclick="mtgcNav(-1)" style="padding:3px 10px;font-size:13px;" disabled>&#8592;</button>'
+          +'<span id="mtgc-info" style="font-size:11px;color:var(--t3);">1 / '+totalPages+'</span>'
+          +'<button class="btn bs" id="mtgc-next" onclick="mtgcNav(1)" style="padding:3px 10px;font-size:13px;"'+(totalPages===1?' disabled':'')+'>&#8594;</button>'
+          +'</div>'
+        : '';
+      return pages.join('')+nav;
+    })()}
   </div>
 
   <!-- Row 3: Escalation summary + Performers -->
