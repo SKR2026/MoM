@@ -369,6 +369,41 @@ function deptOptions(selected){
   return DEPARTMENTS.map(d=>`<option value="${d}"${selected===d?' selected':''}>${d}</option>`).join('');
 }
 
+/* ── Plants ──────────────────────────────────────────────────────────────────
+   Each plant: { id, name, location, adminId (user id or null), createdAt }
+   Persisted to localStorage + Firestore meta
+─────────────────────────────────────────────────────────────────────────── */
+const PLANTS_STORE_KEY = 'mompro_plants_v1';
+let PLANTS = [];
+
+function loadPersistedPlants(){
+  try{
+    const saved = JSON.parse(localStorage.getItem(PLANTS_STORE_KEY) || 'null');
+    if(saved && Array.isArray(saved)) PLANTS = saved;
+  }catch(e){}
+}
+
+function persistPlants(){
+  try{ localStorage.setItem(PLANTS_STORE_KEY, JSON.stringify(PLANTS)); }catch(e){}
+  fsWriteMeta({ plants: PLANTS });
+}
+
+function plantOptions(selected){
+  return ['<option value="">-- No Plant --</option>',
+    ...PLANTS.map(p=>`<option value="${p.id}"${selected===p.id?' selected':''}>${p.name}${p.location?' ('+p.location+')':''}</option>`)
+  ].join('');
+}
+
+function getPlantAdmin(plantId){
+  const plant = PLANTS.find(p=>p.id===plantId);
+  if(!plant || !plant.adminId) return null;
+  return USERS.find(u=>u.id===Number(plant.adminId)) || null;
+}
+
+function getUserPlant(userId){
+  return PLANTS.find(p=>p.adminId===Number(userId)) || null;
+}
+
 const AUTH_CREDENTIALS={
   superadmin:{password:'admin@123',role:'super-admin',display:'Super Admin',desc:'Administrator',ini:'SA',col:'#bae6fd',tc:'#0284c7'},
   admin:     {password:'admin@456',role:'admin',      display:'Admin',       desc:'Admin',          ini:'AD',col:'#bbf7d0',tc:'#15803d'},
@@ -846,6 +881,7 @@ const NAV=[
     {id:'settings-users',label:'Users & Roles',icon:'<circle cx="8" cy="5" r="3"/><path d="M2 14c0-3.3 2.7-6 6-6s6 2.7 6 6"/>'},
     {id:'settings-escalation',label:'Escalation Rules',icon:'<path d="M8 1l2 5h5l-4 3 1.5 5L8 11l-4.5 3L5 9 1 6h5z"/>'},
     {id:'settings-notifications',label:'Notifications',icon:'<path d="M8 1a5 5 0 015 5v3l1 2H2l1-2V6a5 5 0 015-5zM6 13a2 2 0 004 0"/>'},
+    {id:'settings-plants',label:'Plants & Admins',icon:'<rect x="1" y="8" width="6" height="7" rx="1"/><rect x="9" y="4" width="6" height="11" rx="1"/><path d="M4 8V5a4 4 0 018 0v3"/>'},
     {id:'settings-company',label:'Company',icon:'<rect x="2" y="3" width="12" height="10" rx="1"/><path d="M7 13v3M5 16h6"/>'},
     {id:'settings-meeting-types',label:'Meeting Types',icon:'<path d="M3 6h10M3 10h10M3 14h6"/><circle cx="13" cy="13" r="3"/><path d="M13 11.5v3M11.5 13h3"/>'},
   ]},
@@ -897,7 +933,7 @@ function accessDenied(){
 /* pages restricted to super-admin / admin only */
 const SA_ONLY=['bulk-upload','reports','audit','email-log',
   'settings-firebase','settings-email','settings-users',
-  'settings-escalation','settings-notifications','settings-company','settings-meeting-types'];
+  'settings-escalation','settings-notifications','settings-company','settings-meeting-types','settings-plants'];
 /* pages hidden from assignee and manager */
 const NO_ASSIGNEE=[];
 
@@ -913,9 +949,9 @@ function navigate(page){
   document.querySelectorAll('.ni').forEach(n=>n.classList.remove('active'));
   const el=document.getElementById('ni-'+page);
   if(el)el.classList.add('active');
-  const titles={dashboard:'Dashboard Overview',meetings:'All Meetings',tasks:'My Tasks',escalations:'Escalation Tracker',calendar:'Calendar View','bulk-upload':'Bulk Upload',reports:'Reports & Analytics',audit:'Audit Trail','email-log':'Email Log','settings-firebase':'Firebase Configuration','settings-email':'Email — Office 365','settings-users':'Users & Roles','settings-escalation':'Escalation Rules','settings-notifications':'Notification Settings','settings-company':'Company Settings','settings-meeting-types':'Meeting Types','dev-console':'Developer Console','dev-api':'API Configuration','dev-system':'System Information'};
+  const titles={dashboard:'Dashboard Overview',meetings:'All Meetings',tasks:'My Tasks',escalations:'Escalation Tracker',calendar:'Calendar View','bulk-upload':'Bulk Upload',reports:'Reports & Analytics',audit:'Audit Trail','email-log':'Email Log','settings-firebase':'Firebase Configuration','settings-email':'Email — Office 365','settings-users':'Users & Roles','settings-escalation':'Escalation Rules','settings-notifications':'Notification Settings','settings-company':'Company Settings','settings-meeting-types':'Meeting Types','settings-plants':'Plants & Admins','dev-console':'Developer Console','dev-api':'API Configuration','dev-system':'System Information'};
   document.getElementById('pt').textContent=titles[page]||page;
-  const fns={dashboard:renderDashboard,meetings:renderMeetings,tasks:renderTasks,escalations:renderEscalations,calendar:renderCalendar,'bulk-upload':renderBulkUpload,reports:renderReports,audit:renderAudit,'email-log':renderEmailLog,'settings-firebase':renderFirebase,'settings-email':renderEmailCfg,'settings-users':renderUsers,'settings-escalation':renderEscCfg,'settings-notifications':renderNotifCfg,'settings-company':renderCompanySettings,'settings-meeting-types':renderMeetingTypes,'dev-console':renderDevConsole,'dev-api':renderDevApi,'dev-system':renderDevSystem};
+  const fns={dashboard:renderDashboard,meetings:renderMeetings,tasks:renderTasks,escalations:renderEscalations,calendar:renderCalendar,'bulk-upload':renderBulkUpload,reports:renderReports,audit:renderAudit,'email-log':renderEmailLog,'settings-firebase':renderFirebase,'settings-email':renderEmailCfg,'settings-users':renderUsers,'settings-escalation':renderEscCfg,'settings-notifications':renderNotifCfg,'settings-company':renderCompanySettings,'settings-meeting-types':renderMeetingTypes,'settings-plants':renderPlants,'dev-console':renderDevConsole,'dev-api':renderDevApi,'dev-system':renderDevSystem};
   if(fns[page])fns[page]();
 }
 
@@ -1419,7 +1455,34 @@ function renderDashboard(){
         <button class="btn bs" onclick="openModal('task','${t.id}')">View</button>
       </div>`}).join('')||'<div style="color:var(--t3);font-size:13px;">No active escalations</div>'}
     </div>
-  </div>`;
+  </div>
+  ${(currentRole==='super-admin'||currentRole==='developer') && PLANTS.length ? `
+  <div style="margin-top:18px;">
+    <div class="card" style="padding:0;">
+      <div style="padding:13px 18px;border-bottom:1px solid var(--br);display:flex;align-items:center;justify-content:space-between;">
+        <div class="ctit">🏭 Plants Overview</div>
+        <button class="btn bs" onclick="navigate('settings-plants')">Manage Plants</button>
+      </div>
+      <div style="padding:16px;display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:14px;">
+        ${PLANTS.map(p=>{
+          const admin=p.adminId?USERS.find(u=>u.id===Number(p.adminId)):null;
+          const mtgs=MEETINGS.filter(m=>m.plantId===p.id).length;
+          const ptasks=TASKS.filter(t=>MEETINGS.filter(m=>m.plantId===p.id).some(m=>m.id===t.mid));
+          const pcomp=ptasks.filter(t=>t.status==='completed').length;
+          const ppct=ptasks.length?Math.round(pcomp/ptasks.length*100):0;
+          return`<div style="padding:12px;border:1px solid var(--br);border-radius:var(--rs);background:var(--bg);">
+            <div style="font-size:13px;font-weight:600;margin-bottom:3px;">🏭 ${p.name}</div>
+            <div style="font-size:11px;color:var(--t3);margin-bottom:7px;">${p.location||'—'}</div>
+            <div style="font-size:11px;color:var(--t2);margin-bottom:5px;">${admin?`Admin: ${admin.name}`:'<span style="color:var(--er);">⚠ No Admin</span>'}</div>
+            <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--t3);margin-bottom:6px;"><span>${mtgs} meetings</span><span>${ptasks.length} tasks</span></div>
+            <div class="prog"><div class="pf" style="width:${ppct}%;background:${ppct===100?'var(--ok)':ppct>50?'var(--ac)':'var(--wn)'}"></div></div>
+            <div style="text-align:right;font-size:10px;color:var(--t3);margin-top:3px;">${ppct}% complete</div>
+          </div>`;
+        }).join('')}
+      </div>
+    </div>
+  </div>` : ''}
+  `;
 }
 
 /* ═══════════════════════════════════════════
@@ -1451,13 +1514,14 @@ function renderMeetings(){
 function meetingRows(data){
   const canDelete=currentRole==='super-admin'||currentRole==='admin'||currentRole==='developer';
   const isAssigneeView=currentRole==='assignee';
-  return`<table><thead><tr><th>No.</th><th>Title</th><th>Date</th><th>Chairperson</th><th>Venue</th><th>Attendees</th><th>Tasks</th><th>Status</th><th></th></tr></thead><tbody>
-  ${data.map(m=>{const att=m.attendees.map(id=>gu(id));const mt=TASKS.filter(t=>t.mid===m.id);const chairName=typeof m.chairperson==='string'?m.chairperson:(gu(m.chairperson).name||'—');return`<tr>
+  return`<table><thead><tr><th>No.</th><th>Title</th><th>Date</th><th>Chairperson</th><th>Venue</th><th>Plant</th><th>Attendees</th><th>Tasks</th><th>Status</th><th></th></tr></thead><tbody>
+  ${data.map(m=>{const att=m.attendees.map(id=>gu(id));const mt=TASKS.filter(t=>t.mid===m.id);const chairName=typeof m.chairperson==='string'?m.chairperson:(gu(m.chairperson).name||'—');const mPlant=PLANTS.find(p=>p.id===m.plantId);return`<tr>
     <td><span style="font-family:var(--mo);font-size:11px;color:var(--ac);">${m.no}</span></td>
     <td style="font-weight:500;max-width:160px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${m.title}</td>
     <td style="color:var(--t2);font-size:12px;">${m.date}</td>
     <td><div style="display:flex;align-items:center;gap:5px;"><span style="font-size:12px;font-weight:500;">${chairName}</span></div></td>
     <td style="font-size:12px;color:var(--t2);">${m.venue}</td>
+    <td style="font-size:11px;">${mPlant?`<span class="bdg b-in">🏭 ${mPlant.name}</span>`:'<span style="color:var(--t3);">—</span>'}</td>
     <td><div style="display:flex;gap:2px;align-items:center;">${att.slice(0,3).map(u=>`<div class="av" style="width:22px;height:22px;font-size:8px;background:${u.col};color:${u.tc};border:2px solid var(--sf);">${u.ini}</div>`).join('')}${(att.length+(m.externalAttendees||[]).length)>3?`<div class="av" style="width:22px;height:22px;font-size:8px;background:var(--bg3);color:var(--t3);">+${(att.length+(m.externalAttendees||[]).length)-3}</div>`:''}</div></td>
     <td style="font-size:12px;">${mt.length}</td>
     <td>${sb(m.status)}</td>
@@ -2847,6 +2911,11 @@ function initFirestoreListeners() {
       DEPARTMENTS = d.departments;
       try { localStorage.setItem(DEPT_STORE_KEY, JSON.stringify(DEPARTMENTS)); } catch(e2) {}
     }
+    if (Array.isArray(d.plants)) {
+      PLANTS.length = 0;
+      d.plants.forEach(p => PLANTS.push(p));
+      try { localStorage.setItem(PLANTS_STORE_KEY, JSON.stringify(PLANTS)); } catch(e2) {}
+    }
   }, e => console.warn("[MoMPro] Meta listener:", e.code));
 }
 
@@ -3596,7 +3665,7 @@ function renderUsers(){
     <div class="tw"><table>
       <thead><tr>
         <th>Avatar</th><th>Full Name</th><th>Email</th><th>Department</th>
-        <th>Login Password</th><th>Firebase Status</th><th>Role</th><th>Access Level</th><th>Actions</th>
+        <th>Plant</th><th>Login Password</th><th>Firebase Status</th><th>Role</th><th>Access Level</th><th>Actions</th>
       </tr></thead>
       <tbody>
       ${USERS.map(u=>{
@@ -3611,6 +3680,12 @@ function renderUsers(){
             <select id="udept-${u.id}" style="font-size:11px;width:120px;">
               ${deptOptions(u.dept)}
             </select>
+          </td>
+          <td>
+            ${(()=>{
+              const uPlant = PLANTS.find(p=>p.adminId===u.id);
+              return uPlant ? `<span class="bdg b-in" style="font-size:10px;">🏭 ${uPlant.name}</span>` : '<span style="font-size:11px;color:var(--t3);">—</span>';
+            })()}
           </td>
           <td>
             <div style="display:flex;gap:4px;align-items:center;">
@@ -3710,13 +3785,20 @@ function renderAddUserModal(){
       </select>
     </div>
     <div class="fg"><label>ROLE</label>
-      <select id="nu-role">
+      <select id="nu-role" onchange="togglePlantField(this.value)">
         <option value="super-admin">Super Admin</option>
         <option value="admin">Admin</option>
         <option value="top-mgmt">Top Management</option>
         <option value="manager">Manager</option>
         <option value="assignee" selected>Assignee</option>
       </select>
+    </div>
+    <div class="fg" id="nu-plant-fg" style="display:none;">
+      <label>ASSIGN PLANT <span style="font-size:10px;color:var(--t3);">(for Admin role)</span></label>
+      <select id="nu-plant">
+        ${plantOptions('')}
+      </select>
+      <div style="font-size:10px;color:var(--t3);margin-top:3px;">This admin will manage users & meetings at the selected plant.</div>
     </div>
     <div class="fg"><label>AVATAR COLOUR</label>
       <div style="display:flex;gap:7px;margin-top:4px;flex-wrap:wrap;" id="col-picker">
@@ -3741,6 +3823,11 @@ function renderAddUserModal(){
 
   window._nuCol={bg:'#dcfce7',tc:'#16a34a'};
   window._nuAuthMethod='email';
+}
+
+function togglePlantField(role){
+  const fg = document.getElementById('nu-plant-fg');
+  if(fg) fg.style.display = (role==='admin') ? '' : 'none';
 }
 
 function autoFillIni(){
@@ -3775,6 +3862,7 @@ function doAddUser(){
   const role    = document.getElementById('nu-role').value;
   const pass    = (document.getElementById('nu-pass')?.value || '').trim();
   const welcome = document.getElementById('welcome-tgl')?.classList.contains('on');
+  const plantId = (role==='admin' && document.getElementById('nu-plant')?.value) ? document.getElementById('nu-plant').value : '';
 
   if(!name)                         { showToast('Full name is required','warn'); return; }
   if(!email || !email.includes('@')){ showToast('Valid email is required','warn'); return; }
@@ -3786,6 +3874,12 @@ function doAddUser(){
 
   // Add to users list
   USERS.push({id:newId, name, role, dept, email, ini, col:col.bg, tc:col.tc});
+
+  // If admin assigned to a plant, update that plant
+  if(role==='admin' && plantId){
+    const plant = PLANTS.find(p=>p.id===plantId);
+    if(plant){ plant.adminId=newId; persistPlants(); }
+  }
 
   // Store password — user can now log in immediately
   USER_PASSWORDS[newId] = pass;
@@ -3820,6 +3914,306 @@ function doAddUser(){
   closeModal();
   renderUsers();
   showToast(`${name} added. They can now log in with their email and password.`, 'ok');
+}
+
+/* ═══════════════════════════════════════════
+   PLANTS & ADMINS
+═══════════════════════════════════════════ */
+function renderPlants(){
+  if(currentRole!=='super-admin'&&currentRole!=='developer'){
+    document.getElementById('content').innerHTML=`<div class="card" style="text-align:center;padding:48px;"><div style="font-size:30px;margin-bottom:12px;">🔒</div><div style="font-size:15px;font-weight:600;">Access Restricted</div><div style="font-size:13px;color:var(--t2);margin-top:6px;">Plant management is available to Super Admin only.</div></div>`;
+    return;
+  }
+
+  document.getElementById('content').innerHTML=`
+  <div style="display:flex;flex-direction:column;gap:20px;">
+
+    <!-- Plants List + Add -->
+    <div class="card" style="padding:0;">
+      <div style="padding:14px 18px;border-bottom:1px solid var(--br);display:flex;align-items:center;justify-content:space-between;">
+        <div>
+          <div class="ctit">Plants &amp; Admin Assignment</div>
+          <div style="font-size:11px;color:var(--t3);margin-top:2px;">Each plant has one Admin who manages users and meetings at that location.</div>
+        </div>
+        <button class="btn bp bs" onclick="openAddPlantModal()">+ Add Plant</button>
+      </div>
+      <div class="tw" id="plants-table-wrap">
+        ${buildPlantsTable()}
+      </div>
+    </div>
+
+    <!-- Plant-wise Meetings Overview -->
+    <div class="card" style="padding:0;">
+      <div style="padding:14px 18px;border-bottom:1px solid var(--br);">
+        <div class="ctit">📊 Meeting Status — All Plants</div>
+        <div style="font-size:11px;color:var(--t3);margin-top:2px;">Super Admin view: meeting completion across all plants.</div>
+      </div>
+      <div style="padding:18px;">
+        ${buildPlantMeetingOverview()}
+      </div>
+    </div>
+
+  </div>`;
+}
+
+function buildPlantsTable(){
+  if(!PLANTS.length){
+    return `<div style="padding:32px;text-align:center;color:var(--t3);font-size:13px;">
+      <div style="font-size:28px;margin-bottom:10px;">🏭</div>
+      No plants added yet. Click <strong>+ Add Plant</strong> to create your first plant.
+    </div>`;
+  }
+
+  const adminUsers = USERS.filter(u=>u.role==='admin'||u.role==='super-admin');
+
+  return `<table>
+  <thead><tr>
+    <th>#</th><th>Plant Name</th><th>Location</th><th>Plant Admin</th>
+    <th>Users</th><th>Meetings</th><th>Tasks</th><th>Status</th><th>Actions</th>
+  </tr></thead>
+  <tbody>
+  ${PLANTS.map((p,idx)=>{
+    const admin = p.adminId ? USERS.find(u=>u.id===Number(p.adminId)) : null;
+    // count users linked to this plant (by plant field or admin)
+    const plantUserIds = new Set(p.adminId ? [Number(p.adminId)] : []);
+    // meetings tagged with this plant
+    const plantMeetings = MEETINGS.filter(m=>m.plantId===p.id);
+    const plantTasks    = TASKS.filter(t=>plantMeetings.some(m=>m.id===t.mid));
+    const comp = plantTasks.filter(t=>t.status==='completed').length;
+    const pct  = plantTasks.length ? Math.round(comp/plantTasks.length*100) : 0;
+
+    const adminOpts = `<option value="">-- Unassigned --</option>`
+      + USERS.filter(u=>u.role==='admin').map(u=>`<option value="${u.id}"${(p.adminId===u.id||p.adminId===String(u.id))?'selected':''}>${u.name}</option>`).join('');
+
+    return `<tr>
+      <td style="font-family:var(--mo);font-size:11px;color:var(--t3);">${idx+1}</td>
+      <td>
+        <input id="pname-${p.id}" value="${p.name.replace(/"/g,'&quot;')}" style="width:160px;font-size:13px;font-weight:500;">
+      </td>
+      <td>
+        <input id="ploc-${p.id}" value="${(p.location||'').replace(/"/g,'&quot;')}" placeholder="City / Site" style="width:130px;font-size:12px;">
+      </td>
+      <td>
+        <select id="padmin-${p.id}" style="font-size:12px;width:160px;">
+          ${adminOpts}
+        </select>
+      </td>
+      <td style="font-size:12px;color:var(--t2);">${admin ? `<span style="display:inline-flex;align-items:center;gap:4px;">${av(admin,18)}&nbsp;${admin.name}</span>` : '<span style="color:var(--t3);">—</span>'}</td>
+      <td style="font-size:13px;font-weight:600;">${plantMeetings.length}</td>
+      <td style="font-size:13px;font-weight:600;">${plantTasks.length}</td>
+      <td>
+        ${plantTasks.length
+          ? `<div style="display:flex;align-items:center;gap:7px;">
+              <div class="prog" style="width:60px;"><div class="pf" style="width:${pct}%;background:${pct===100?'var(--ok)':pct>50?'var(--ac)':'var(--wn)'}"></div></div>
+              <span style="font-size:11px;color:var(--t2);">${pct}%</span>
+            </div>`
+          : '<span class="bdg b-df">No tasks</span>'}
+      </td>
+      <td style="display:flex;gap:4px;">
+        <button class="btn bs bok" onclick="savePlantRow('${p.id}')">Save</button>
+        <button class="btn bs" onclick="navigate('plant-detail-${p.id}')" title="View plant details" style="border-color:var(--in);color:var(--in);">Detail</button>
+        <button class="btn bs ber" onclick="deletePlant('${p.id}')" title="Delete plant">✕</button>
+      </td>
+    </tr>`;
+  }).join('')}
+  </tbody></table>`;
+}
+
+function buildPlantMeetingOverview(){
+  if(!PLANTS.length){
+    return `<div style="text-align:center;color:var(--t3);font-size:13px;padding:16px;">Add plants first to see meeting overview.</div>`;
+  }
+
+  return `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px;">
+  ${PLANTS.map(p=>{
+    const admin = p.adminId ? USERS.find(u=>u.id===Number(p.adminId)) : null;
+    const plantMeetings = MEETINGS.filter(m=>m.plantId===p.id);
+    const plantTasks    = TASKS.filter(t=>plantMeetings.some(m=>m.id===t.mid));
+    const comp    = plantTasks.filter(t=>t.status==='completed').length;
+    const inprog  = plantTasks.filter(t=>t.status==='in-progress').length;
+    const overdue = plantTasks.filter(t=>t.status==='overdue').length;
+    const pending = plantTasks.filter(t=>t.status==='pending').length;
+    const pct     = plantTasks.length ? Math.round(comp/plantTasks.length*100) : 0;
+
+    const mComp   = plantMeetings.filter(m=>m.status==='completed').length;
+    const mActive = plantMeetings.filter(m=>m.status==='active'||m.status==='in-progress').length;
+
+    return `<div class="card" style="border-left:3px solid var(--ac);">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:12px;">
+        <div>
+          <div style="font-size:14px;font-weight:600;color:var(--tx);">🏭 ${p.name}</div>
+          <div style="font-size:11px;color:var(--t3);margin-top:2px;">${p.location||'No location set'}</div>
+        </div>
+        <div style="font-size:24px;font-weight:700;color:${pct===100?'var(--ok)':pct>50?'var(--ac)':'var(--wn)'};">${pct}%</div>
+      </div>
+
+      ${admin
+        ? `<div style="display:flex;align-items:center;gap:6px;padding:6px 0;border-bottom:1px solid var(--br);margin-bottom:10px;">
+            ${av(admin,20)}
+            <span style="font-size:12px;color:var(--t2);">Admin: <strong>${admin.name}</strong></span>
+           </div>`
+        : `<div style="padding:6px 0;border-bottom:1px solid var(--br);margin-bottom:10px;font-size:12px;color:var(--er);">⚠ No Admin Assigned</div>`}
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px;">
+        <div style="text-align:center;padding:6px;background:var(--bg3);border-radius:var(--rs);">
+          <div style="font-size:18px;font-weight:700;color:var(--tx);">${plantMeetings.length}</div>
+          <div style="font-size:10px;color:var(--t3);">Meetings</div>
+        </div>
+        <div style="text-align:center;padding:6px;background:var(--bg3);border-radius:var(--rs);">
+          <div style="font-size:18px;font-weight:700;color:var(--tx);">${plantTasks.length}</div>
+          <div style="font-size:10px;color:var(--t3);">Tasks</div>
+        </div>
+      </div>
+
+      <div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:10px;">
+        ${comp    ?`<span class="bdg b-ok">✓ ${comp} Done</span>`:''}
+        ${inprog  ?`<span class="bdg b-in">⟳ ${inprog} Active</span>`:''}
+        ${overdue ?`<span class="bdg b-er">! ${overdue} Overdue</span>`:''}
+        ${pending ?`<span class="bdg b-df">${pending} Pending</span>`:''}
+        ${!plantTasks.length?`<span class="bdg b-df">No tasks yet</span>`:''}
+      </div>
+
+      <div class="prog" style="height:7px;margin-bottom:8px;">
+        <div class="pf" style="width:${pct}%;background:${pct===100?'var(--ok)':pct>50?'var(--ac)':'var(--wn)'};"></div>
+      </div>
+
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <span style="font-size:11px;color:var(--t3);">${mComp} of ${plantMeetings.length} meetings closed</span>
+        <button class="btn bs" style="font-size:11px;" onclick="showPlantMeetingDetail('${p.id}')">View Meetings</button>
+      </div>
+    </div>`;
+  }).join('')}
+  </div>`;
+}
+
+function showPlantMeetingDetail(plantId){
+  const plant = PLANTS.find(p=>p.id===plantId);
+  if(!plant) return;
+  const plantMeetings = MEETINGS.filter(m=>m.plantId===plantId);
+  const admin = plant.adminId ? USERS.find(u=>u.id===Number(plant.adminId)) : null;
+
+  document.getElementById('modal-title').textContent=`🏭 ${plant.name} — Meeting Status`;
+  document.getElementById('modal-body').innerHTML=`
+    <div style="margin-bottom:14px;">
+      <div style="font-size:12px;color:var(--t2);">Location: <strong>${plant.location||'—'}</strong> &nbsp;·&nbsp; Admin: <strong>${admin?admin.name:'Unassigned'}</strong></div>
+    </div>
+    ${plantMeetings.length
+      ? `<div class="tw"><table>
+          <thead><tr><th>No.</th><th>Title</th><th>Date</th><th>Tasks</th><th>Status</th><th></th></tr></thead>
+          <tbody>
+          ${plantMeetings.map(m=>{
+            const mt=TASKS.filter(t=>t.mid===m.id);
+            const comp=mt.filter(t=>t.status==='completed').length;
+            return `<tr>
+              <td style="font-family:var(--mo);font-size:11px;color:var(--ac);">${m.no}</td>
+              <td style="font-weight:500;max-width:160px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${m.title}</td>
+              <td style="font-size:12px;color:var(--t2);">${m.date}</td>
+              <td style="font-size:12px;">${comp}/${mt.length} done</td>
+              <td>${sb(m.status)}</td>
+              <td><button class="btn bs" onclick="closeModal();openModal('meeting-detail','${m.id}')">View MoM</button></td>
+            </tr>`;
+          }).join('')}
+          </tbody>
+        </table></div>`
+      : `<div style="text-align:center;padding:32px;color:var(--t3);">No meetings linked to this plant yet.</div>`}
+  `;
+  document.getElementById('modal-footer').innerHTML=`<button class="btn" onclick="closeModal()">Close</button>`;
+  document.getElementById('modal').classList.remove('fullscreen');
+  document.getElementById('modal-bg').style.display='flex';
+}
+
+function openAddPlantModal(){
+  document.getElementById('modal-title').textContent='Add New Plant';
+  document.getElementById('modal-body').innerHTML=`
+  <div class="fgrid">
+    <div class="fg full"><label>PLANT NAME *</label><input id="np-name" placeholder="e.g. Panipat Unit 1"></div>
+    <div class="fg full"><label>LOCATION / CITY</label><input id="np-loc" placeholder="e.g. Panipat, Haryana"></div>
+    <div class="fg full">
+      <label>PLANT ADMIN <span style="font-size:10px;color:var(--t3);">(optional — can assign later)</span></label>
+      <select id="np-admin">
+        <option value="">-- No Admin Assigned Yet --</option>
+        ${USERS.filter(u=>u.role==='admin').map(u=>`<option value="${u.id}">${u.name} (${u.email})</option>`).join('')}
+      </select>
+      <div style="font-size:10px;color:var(--t3);margin-top:3px;">Only users with Admin role are listed. You can add admins in Users &amp; Roles.</div>
+    </div>
+  </div>`;
+  document.getElementById('modal-footer').innerHTML=`
+    <button class="btn" onclick="closeModal()">Cancel</button>
+    <button class="btn bp" onclick="doAddPlant()">+ Add Plant</button>`;
+  document.getElementById('modal').classList.remove('fullscreen');
+  document.getElementById('modal-bg').style.display='flex';
+}
+
+function doAddPlant(){
+  const name    = document.getElementById('np-name')?.value.trim();
+  const loc     = document.getElementById('np-loc')?.value.trim();
+  const adminId = document.getElementById('np-admin')?.value;
+
+  if(!name){ showToast('Plant name is required','warn'); return; }
+  if(PLANTS.find(p=>p.name.toLowerCase()===name.toLowerCase())){ showToast('A plant with this name already exists','warn'); return; }
+
+  const newPlant = {
+    id: 'plant_' + Date.now(),
+    name,
+    location: loc,
+    adminId: adminId ? Number(adminId) : null,
+    createdAt: new Date().toISOString()
+  };
+  PLANTS.push(newPlant);
+  persistPlants();
+
+  AUDIT_LOG.unshift({time:new Date().toISOString().slice(0,16).replace('T',' '),user:'Super Admin',
+    action:`Added plant: ${name}${loc?' at '+loc:''}${adminId?' — admin: '+gu(Number(adminId)).name:''}`,entity:'SYSTEM',type:'create'});
+
+  closeModal();
+  showToast(`Plant "${name}" created.`,'ok');
+  renderPlants();
+}
+
+function savePlantRow(plantId){
+  const plant = PLANTS.find(p=>p.id===plantId);
+  if(!plant) return;
+  const newName  = document.getElementById('pname-'+plantId)?.value.trim();
+  const newLoc   = document.getElementById('ploc-'+plantId)?.value.trim();
+  const newAdmin = document.getElementById('padmin-'+plantId)?.value;
+
+  if(!newName){ showToast('Plant name cannot be empty','warn'); return; }
+  if(PLANTS.find(p=>p.id!==plantId&&p.name.toLowerCase()===newName.toLowerCase())){
+    showToast('Another plant already has this name','warn'); return;
+  }
+
+  plant.name     = newName;
+  plant.location = newLoc;
+  plant.adminId  = newAdmin ? Number(newAdmin) : null;
+
+  persistPlants();
+  AUDIT_LOG.unshift({time:new Date().toISOString().slice(0,16).replace('T',' '),user:'Super Admin',
+    action:`Updated plant: ${newName}${newAdmin?' — admin: '+gu(Number(newAdmin)).name:' — no admin'}`,entity:'SYSTEM',type:'update'});
+  showToast(`Plant "${newName}" saved.`,'ok');
+  document.getElementById('plants-table-wrap').innerHTML = buildPlantsTable();
+}
+
+function deletePlant(plantId){
+  const plant = PLANTS.find(p=>p.id===plantId);
+  if(!plant) return;
+  const linkedMtgs = MEETINGS.filter(m=>m.plantId===plantId).length;
+  const msg = `Delete plant "${plant.name}"?`
+    + (linkedMtgs ? `\n\nThis plant has ${linkedMtgs} linked meeting${linkedMtgs>1?'s':''}. The meetings will remain but will lose the plant tag.` : '')
+    + '\n\nThis cannot be undone.';
+  if(!confirm(msg)) return;
+
+  // Remove plant tag from meetings
+  MEETINGS.forEach(m=>{ if(m.plantId===plantId) m.plantId=''; });
+  persistMeetings();
+
+  const idx = PLANTS.findIndex(p=>p.id===plantId);
+  if(idx>-1) PLANTS.splice(idx,1);
+  persistPlants();
+
+  AUDIT_LOG.unshift({time:new Date().toISOString().slice(0,16).replace('T',' '),user:'Super Admin',
+    action:`Deleted plant: ${plant.name}`,entity:'SYSTEM',type:'delete'});
+  showToast(`Plant "${plant.name}" deleted.`,'warn');
+  renderPlants();
 }
 
 function renderEscCfg(){
@@ -4181,6 +4575,13 @@ function renderNewMeetingModal(){
     <div class="fg full"><label>MEETING TITLE / AGENDA</label><input placeholder="e.g. Q2 Strategy Review" id="nm-title"></div>
     <div class="fg"><label>VENUE / PLATFORM</label><input placeholder="e.g. Boardroom A / MS Teams" id="nm-venue"></div>
     <div class="fg"><label>MEETING TYPE</label><select id="nm-type">${MEETING_TYPES.map(t=>`<option>${t}</option>`).join('')}</select></div>
+    ${PLANTS.length ? `<div class="fg full">
+      <label>PLANT / UNIT <span style="font-size:10px;color:var(--t3);">(optional)</span></label>
+      <select id="nm-plant">
+        <option value="">-- Not linked to a Plant --</option>
+        ${PLANTS.map(p=>`<option value="${p.id}">${p.name}${p.location?' — '+p.location:''}</option>`).join('')}
+      </select>
+    </div>` : ''}
     <div class="fg full">
       <label>CHAIRPERSON / PRESIDING OFFICER</label>
       <input id="nm-chair" placeholder="e.g. Vikram Patel" style="width:100%;">
@@ -4286,6 +4687,7 @@ function saveMeeting(){
   const chairName=(document.getElementById('nm-chair')?.value||'').trim()||'—';
 
   const newMeetingId='MOM-'+String(MEETINGS.length+1).padStart(3,'0');
+  const plantIdVal = (document.getElementById('nm-plant')?.value)||'';
   const newMeeting={
     id:newMeetingId,
     no,date,title,
@@ -4294,7 +4696,8 @@ function saveMeeting(){
     attendees:intAtt,
     externalAttendees:[...extAttendees],
     status:'active',
-    venue
+    venue,
+    plantId: plantIdVal
   };
   MEETINGS.unshift(newMeeting);
   AUDIT_LOG.unshift({time:new Date().toISOString().slice(0,16).replace('T',' '),user:document.getElementById('un').textContent,action:`Created meeting ${no}: "${title}"`,entity:newMeetingId,type:'create'});
@@ -4998,6 +5401,7 @@ function renderDevSystem(){
    INIT
 ═══════════════════════════════════════════ */
 loadPersistedDepartments();
+loadPersistedPlants();
 loadPersistedUsers();
 loadPersistedMeetings();
 loadPersistedTasks();
