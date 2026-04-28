@@ -824,10 +824,10 @@ function showBellSummary(){
 const NAV=[
   {section:'Main',roles:['super-admin','admin','assignee','manager','top-mgmt','developer'],items:[
     {id:'dashboard',label:'Dashboard',icon:'<rect x="1" y="1" width="6" height="6" rx="1"/><rect x="9" y="1" width="6" height="6" rx="1"/><rect x="1" y="9" width="6" height="6" rx="1"/><rect x="9" y="9" width="6" height="6" rx="1"/>'},
-    {id:'meetings',label:'Meetings',icon:'<rect x="1" y="2" width="14" height="12" rx="2"/><path d="M1 6h14M5 1v2M11 1v2"/>',roles:['super-admin','admin','top-mgmt','manager','developer']},
+    {id:'meetings',label:'Meetings',icon:'<rect x="1" y="2" width="14" height="12" rx="2"/><path d="M1 6h14M5 1v2M11 1v2"/>',roles:['super-admin','admin','top-mgmt','manager','developer','assignee']},
     {id:'tasks',label:'My Tasks',icon:'<path d="M6 4h8M6 8h8M6 12h8M2 4h.5M2 8h.5M2 12h.5"/>'},
-    {id:'escalations',label:'Escalations',icon:'<path d="M8 1l2 5h5l-4 3 1.5 5L8 11l-4.5 3L5 9 1 6h5z"/>',roles:['super-admin','admin','top-mgmt','manager','developer']},
-    {id:'calendar',label:'Calendar',icon:'<rect x="1" y="2" width="14" height="12" rx="2"/><path d="M1 6h14M5 1v2M11 1v2"/>',roles:['super-admin','admin','top-mgmt','manager','developer']},
+    {id:'escalations',label:'Escalations',icon:'<path d="M8 1l2 5h5l-4 3 1.5 5L8 11l-4.5 3L5 9 1 6h5z"/>',roles:['super-admin','admin','top-mgmt','manager','developer','assignee']},
+    {id:'calendar',label:'Calendar',icon:'<rect x="1" y="2" width="14" height="12" rx="2"/><path d="M1 6h14M5 1v2M11 1v2"/>',roles:['super-admin','admin','top-mgmt','manager','developer','assignee']},
   ]},
   {section:'Actions',roles:['super-admin','admin','developer'],items:[
     {id:'bulk-upload',label:'Bulk Upload',icon:'<path d="M8 2v8M5 5l3-3 3 3M2 11v2a1 1 0 001 1h10a1 1 0 001-1v-2"/>'},
@@ -894,7 +894,7 @@ const SA_ONLY=['bulk-upload','reports','audit','email-log',
   'settings-firebase','settings-email','settings-users',
   'settings-escalation','settings-notifications','settings-company','settings-meeting-types'];
 /* pages hidden from assignee and manager */
-const NO_ASSIGNEE=['meetings','escalations','calendar'];
+const NO_ASSIGNEE=[];
 
 let _currentPage = 'dashboard';
 
@@ -1329,7 +1329,7 @@ function renderDashboard(){
   <style>
     @keyframes pulse-dot{0%,100%{box-shadow:0 0 0 3px rgba(22,163,74,.25);}50%{box-shadow:0 0 0 6px rgba(22,163,74,.08);}}
   </style>
-  ${currentRole==='assignee'?`<div class="alert ai" style="margin-bottom:16px;">Viewing as ${loggedInAs&&loggedInAs.name?loggedInAs.name:'Assignee'} — showing only your assigned tasks.</div>`:currentRole==='manager'?`<div class="alert ai" style="margin-bottom:16px;">Showing tasks for your team (${loggedInAs&&loggedInAs.dept?loggedInAs.dept:'your department'}).</div>`:''}
+  ${currentRole==='assignee'?`<div class="alert ai" style="margin-bottom:16px;">Viewing as ${loggedInAs&&loggedInAs.name?loggedInAs.name:'Assignee'} — your personalised view. Use the sidebar to access <b>Meetings</b>, <b>My Tasks</b>, <b>Escalations</b> and <b>Calendar</b>.</div>`:currentRole==='manager'?`<div class="alert ai" style="margin-bottom:16px;">Showing tasks for your team (${loggedInAs&&loggedInAs.dept?loggedInAs.dept:'your department'}).</div>`:''}
   <!-- ── Half Speedometer + Stat Cards ── -->
   <div style="display:flex;gap:18px;margin-bottom:20px;flex-wrap:wrap;align-items:stretch;">
 
@@ -1421,20 +1421,31 @@ function renderDashboard(){
    MEETINGS
 ═══════════════════════════════════════════ */
 function renderMeetings(){
+  const isAssignee = currentRole === 'assignee';
+  const myUid = (loggedInAs && loggedInAs.id != null) ? Number(loggedInAs.id) : null;
+  const myMeetingIds = isAssignee && myUid != null
+    ? new Set([
+        ...MEETINGS.filter(m => m.attendees && m.attendees.map(Number).includes(myUid)).map(m=>m.id),
+        ...TASKS.filter(t => Number(t.uid)===myUid).map(t=>t.mid)
+      ])
+    : null;
+  const visibleMeetings = isAssignee ? MEETINGS.filter(m => myMeetingIds.has(m.id)) : MEETINGS;
   document.getElementById('content').innerHTML=`
+  ${isAssignee ? `<div class="alert ai" style="margin-bottom:14px;">Showing meetings you are assigned to or attend.</div>` : ''}
   <div class="card">
     <div class="ch">
-      <div class="ctit">All Meetings</div>
+      <div class="ctit">${isAssignee ? 'My Meetings' : 'All Meetings'}</div>
       <div style="display:flex;gap:8px;">
         <input placeholder="Search…" style="width:200px;" oninput="filterMeetings(this.value)">
-        <button class="btn bp" onclick="openModal('new-meeting')">+ New Meeting</button>
+        ${!isAssignee ? `<button class="btn bp" onclick="openModal('new-meeting')">+ New Meeting</button>` : ''}
       </div>
     </div>
-    <div class="tw" id="mtbl">${meetingRows(MEETINGS)}</div>
+    <div class="tw" id="mtbl">${meetingRows(visibleMeetings)}</div>
   </div>`;
 }
 function meetingRows(data){
   const canDelete=currentRole==='super-admin'||currentRole==='admin'||currentRole==='developer';
+  const isAssigneeView=currentRole==='assignee';
   return`<table><thead><tr><th>No.</th><th>Title</th><th>Date</th><th>Chairperson</th><th>Venue</th><th>Attendees</th><th>Tasks</th><th>Status</th><th></th></tr></thead><tbody>
   ${data.map(m=>{const att=m.attendees.map(id=>gu(id));const mt=TASKS.filter(t=>t.mid===m.id);const chairName=typeof m.chairperson==='string'?m.chairperson:(gu(m.chairperson).name||'—');return`<tr>
     <td><span style="font-family:var(--mo);font-size:11px;color:var(--ac);">${m.no}</span></td>
@@ -1447,14 +1458,23 @@ function meetingRows(data){
     <td>${sb(m.status)}</td>
     <td style="white-space:nowrap;display:flex;gap:4px;flex-wrap:wrap;align-items:center;">
       <button class="btn bs" onclick="openModal('meeting-detail','${m.id}')">View MoM</button>
-      ${canDelete?`<button class="btn bs" style="border-color:var(--in);color:var(--in);" onclick="renderEditMeetingModal('${m.id}')" title="Edit meeting details">✎ Edit</button>`:''}
-      ${canDelete?`<button class="btn bs bok" onclick="renderAddTaskToMeetingModal('${m.id}')" title="Add action item to this meeting">+ Task</button>`:''}
-      ${canDelete?`<button class="btn bs ber" onclick="deleteMeeting('${m.id}')" title="Delete meeting and all its tasks">✕</button>`:''}
+      ${(!isAssigneeView && canDelete)?`<button class="btn bs" style="border-color:var(--in);color:var(--in);" onclick="renderEditMeetingModal('${m.id}')" title="Edit meeting details">✎ Edit</button>`:''}
+      ${(!isAssigneeView && canDelete)?`<button class="btn bs bok" onclick="renderAddTaskToMeetingModal('${m.id}')" title="Add action item to this meeting">+ Task</button>`:''}
+      ${(!isAssigneeView && canDelete)?`<button class="btn bs ber" onclick="deleteMeeting('${m.id}')" title="Delete meeting and all its tasks">✕</button>`:''}
     </td>
   </tr>`}).join('')}</tbody></table>`;
 }
 function filterMeetings(q){
-  const f=MEETINGS.filter(m=>m.title.toLowerCase().includes(q.toLowerCase())||m.no.toLowerCase().includes(q.toLowerCase()));
+  const isAssignee = currentRole === 'assignee';
+  const myUid = (loggedInAs && loggedInAs.id != null) ? Number(loggedInAs.id) : null;
+  const myMeetingIds = isAssignee && myUid != null
+    ? new Set([
+        ...MEETINGS.filter(m => m.attendees && m.attendees.map(Number).includes(myUid)).map(m=>m.id),
+        ...TASKS.filter(t => Number(t.uid)===myUid).map(t=>t.mid)
+      ])
+    : null;
+  const pool = isAssignee ? MEETINGS.filter(m => myMeetingIds.has(m.id)) : MEETINGS;
+  const f=pool.filter(m=>m.title.toLowerCase().includes(q.toLowerCase())||m.no.toLowerCase().includes(q.toLowerCase()));
   document.getElementById('mtbl').innerHTML=meetingRows(f);
 }
 function deleteMeeting(id){
@@ -1823,8 +1843,14 @@ function deleteSelectedTasks(){
    ESCALATIONS
 ═══════════════════════════════════════════ */
 function renderEscalations(){
-  const esc=getVisibleTasks().filter(t=>t.esc>0);
+  const isAssignee = currentRole === 'assignee';
+  const myUid = (loggedInAs && loggedInAs.id != null) ? Number(loggedInAs.id) : null;
+  const baseTasks = isAssignee && myUid != null
+    ? TASKS.filter(t => Number(t.uid) === myUid)
+    : getVisibleTasks();
+  const esc = baseTasks.filter(t=>t.esc>0);
   document.getElementById('content').innerHTML=`
+  ${isAssignee ? `<div class="alert ai" style="margin-bottom:14px;">Showing your escalated tasks only.</div>` : ''}
   <div class="card" style="margin-bottom:18px;">
     <div class="ctit" style="margin-bottom:14px;">Escalation Policy</div>
     <div class="g3">
@@ -1838,7 +1864,7 @@ function renderEscalations(){
   </div>
   <div class="card" style="padding:0;margin-bottom:18px;">
     <div style="padding:14px 18px;border-bottom:1px solid var(--br);display:flex;align-items:center;justify-content:space-between;">
-      <div class="ctit">Active Escalations (${esc.length})</div>
+      <div class="ctit">${isAssignee ? "My Escalated Tasks" : "Active Escalations"} (${esc.length})</div>
     </div>
     <div class="tw"><table><thead><tr><th>Task</th><th>Assignee</th><th>Meeting</th><th>Due</th><th>Level</th><th>Actions</th></tr></thead><tbody>
     ${esc.map(t=>{const u=gu(t.uid);return`<tr>
@@ -1849,7 +1875,7 @@ function renderEscalations(){
       <td>${eb(t.esc)}</td>
       <td style="display:flex;gap:5px;">
         <button class="btn bs" onclick="openModal('task','${t.id}')">Update</button>
-        <button class="btn bs" onclick="notifyEscalation('${t.id}')">Notify</button>
+        ${!isAssignee ? `<button class="btn bs" onclick="notifyEscalation('${t.id}')">Notify</button>` : ''}
       </td>
     </tr>`}).join('')}</tbody></table></div>
   </div>
@@ -1880,6 +1906,19 @@ let _calYear = new Date().getFullYear();
 let _calMonth = new Date().getMonth(); // 0-indexed
 
 function renderCalendar(year, month){
+  const _calIsAssignee = currentRole === 'assignee';
+  const _calMyUid = (loggedInAs && loggedInAs.id != null) ? Number(loggedInAs.id) : null;
+  // For assignees: only show their tasks and their meetings
+  const _calTasks = _calIsAssignee && _calMyUid != null
+    ? TASKS.filter(t => Number(t.uid) === _calMyUid)
+    : TASKS;
+  const _calMeetingIds = _calIsAssignee && _calMyUid != null
+    ? new Set([
+        ...MEETINGS.filter(m => m.attendees && m.attendees.map(Number).includes(_calMyUid)).map(m=>m.id),
+        ...TASKS.filter(t => Number(t.uid)===_calMyUid).map(t=>t.mid)
+      ])
+    : null;
+  const _calMeetings = _calIsAssignee ? MEETINGS.filter(m => _calMeetingIds.has(m.id)) : MEETINGS;
   // Default to the month that has the most active (non-completed) tasks,
   // falling back to current month on first load
   if(year === undefined || month === undefined){
@@ -1887,7 +1926,7 @@ function renderCalendar(year, month){
     // but only if it differs from today (so the user sees something meaningful)
     const now = new Date();
     const counts = {};
-    TASKS.forEach(t => {
+    _calTasks.forEach(t => {
       if(t.status === 'completed') return;
       const d = toISODate(t.due);
       if(!d) return;
@@ -1922,13 +1961,13 @@ function renderCalendar(year, month){
   let totalTasks=0, doneTasks=0, overdueTasks=0, pendingTasks=0, meetingCount=0;
   for(let d=1;d<=last;d++){
     const key=`${_calYear}-${String(_calMonth+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
-    TASKS.filter(t=>toISODate(t.due)===key).forEach(t=>{
+    _calTasks.filter(t=>toISODate(t.due)===key).forEach(t=>{
       totalTasks++;
       if(t.status==='completed') doneTasks++;
       else if(t.status==='overdue') overdueTasks++;
       else pendingTasks++;
     });
-    meetingCount += MEETINGS.filter(m=>m.date===key).length;
+    meetingCount += _calMeetings.filter(m=>m.date===key).length;
   }
 
   let cells=[];
@@ -1979,8 +2018,8 @@ function renderCalendar(year, month){
         const isToday = isCurrentMonth && d===todayD;
         const isPast  = (_calYear < todayY) || (_calYear===todayY && _calMonth < todayM) || (isCurrentMonth && d < todayD);
         const key=`${_calYear}-${String(_calMonth+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
-        const dt=TASKS.filter(t=>toISODate(t.due)===key);
-        const dm=MEETINGS.filter(m=>m.date===key);
+        const dt=_calTasks.filter(t=>toISODate(t.due)===key);
+        const dm=_calMeetings.filter(m=>m.date===key);
         const hasOverdue = dt.some(t=>t.status==='overdue');
         const allDone = dt.length>0 && dt.every(t=>t.status==='completed');
         let cellBorder = '';
