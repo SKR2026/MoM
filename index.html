@@ -338,6 +338,7 @@ const COMMENTS={};
 const AUDIT_LOG=[];
 const EMAIL_LOG=[];
 let currentRole='super-admin';
+let baseRole='super-admin'; // the role the user actually logged in as — never changes during a session
 let darkMode=false;
 let aiItemCount=2;
 
@@ -541,6 +542,7 @@ function doLogin(){
       errEl.style.display = 'none';
       loggedInAs  = uVal;
       currentRole = cred.role;
+      baseRole    = cred.role;
       hideLoginScreen();
       applySession(cred.display, cred.desc, cred.ini, cred.col, cred.tc, true);
       return;
@@ -590,6 +592,7 @@ function doLogin(){
       loggedInAs  = matchUser;
       const roleMap = {'super-admin':'super-admin','admin':'admin','top-mgmt':'top-mgmt','manager':'manager','assignee':'assignee'};
       currentRole = roleMap[matchUser.role] || matchUser.role;
+      baseRole    = currentRole;
       hideLoginScreen();
       applySession(matchUser.name, matchUser.dept, matchUser.ini, matchUser.col, matchUser.tc, true);
       return;
@@ -616,6 +619,7 @@ function loginAsUser(uid){
   loggedInAs=u;
   const roleMap={'super-admin':'super-admin','admin':'admin','top-mgmt':'top-mgmt','manager':'manager','assignee':'assignee'};
   currentRole=roleMap[u.role]||'assignee';
+  baseRole=currentRole;
   hideLoginScreen();
   applySession(u.name,u.dept,u.ini,u.col,u.tc,true);
 }
@@ -698,7 +702,7 @@ function populateRoleSwitcher(){
     'assignee': [{v:'assignee',l:'Assignee View'}],
     'developer':[{v:'developer',l:'Developer Mode'}],
   };
-  const opts=ROLE_OPTIONS[currentRole]||[{v:currentRole,l:currentRole}];
+  const opts=ROLE_OPTIONS[baseRole]||[{v:currentRole,l:currentRole}];
   opts.forEach(o=>{
     const opt=document.createElement('option');
     opt.value=o.v;opt.textContent=o.l;
@@ -710,6 +714,7 @@ function populateRoleSwitcher(){
 function doLogout(){
   loggedInAs=null;
   currentRole='super-admin';
+  baseRole='super-admin';
   const sw=document.getElementById('role-sw');
   sw.innerHTML='';
   sw.style.display='none';
@@ -1260,7 +1265,7 @@ function switchRole(r){
     'assignee':['assignee'],
     'developer':['developer'],
   };
-  const allowed=ALLOWED_ROLES[currentRole]||[currentRole];
+  const allowed=ALLOWED_ROLES[baseRole]||[currentRole];
   if(!allowed.includes(r)){showToast('Role switch not permitted','err');return;}
   currentRole=r;
   const roleLabels={'super-admin':'Super Admin','assignee':'Assignee','manager':'Manager','top-mgmt':'Top Management','developer':'Developer','admin':'Admin'};
