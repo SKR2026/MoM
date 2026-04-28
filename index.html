@@ -4119,7 +4119,7 @@ function showPlantMeetingDetail(plantId){
   `;
   document.getElementById('modal-footer').innerHTML=`<button class="btn" onclick="closeModal()">Close</button>`;
   document.getElementById('modal').classList.remove('fullscreen');
-  document.getElementById('modal-bg').style.display='flex';
+  document.getElementById('modal').style.display='flex';
 }
 
 function openAddPlantModal(){
@@ -4141,7 +4141,7 @@ function openAddPlantModal(){
     <button class="btn" onclick="closeModal()">Cancel</button>
     <button class="btn bp" onclick="doAddPlant()">+ Add Plant</button>`;
   document.getElementById('modal').classList.remove('fullscreen');
-  document.getElementById('modal-bg').style.display='flex';
+  document.getElementById('modal').style.display='flex';
 }
 
 function doAddPlant(){
