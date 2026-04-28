@@ -338,6 +338,7 @@ const COMMENTS={};
 const AUDIT_LOG=[];
 const EMAIL_LOG=[];
 let currentRole='super-admin';
+let _dashPlantFilter = 'all'; // 'all' or a plant ID — used in super-admin dashboard
 let baseRole='super-admin'; // the role the user actually logged in as — never changes during a session
 let darkMode=false;
 let aiItemCount=2;
@@ -1379,8 +1380,18 @@ function getDashboardTasks(){
   }
   return getVisibleTasks();
 }
+function switchPlantTab(plantId){
+  _dashPlantFilter = plantId;
+  renderDashboard();
+}
+
 function renderDashboard(){
-  const myTasks = getDashboardTasks();
+  let myTasks = getDashboardTasks();
+  // If super-admin has selected a specific plant tab, scope all KPIs to that plant
+  if((currentRole==='super-admin'||currentRole==='developer') && _dashPlantFilter !== 'all'){
+    const _selPlantMtgIds = new Set(MEETINGS.filter(m=>m.plantId===_dashPlantFilter).map(m=>m.id));
+    myTasks = myTasks.filter(t=>_selPlantMtgIds.has(t.mid));
+  }
   const comp=myTasks.filter(t=>t.status==='completed').length;
   const over=myTasks.filter(t=>t.status==='overdue').length;
   const inp=myTasks.filter(t=>t.status==='in-progress').length;
@@ -1479,14 +1490,20 @@ function renderDashboard(){
           const _plantTaskUids = new Set(TASKS.filter(t=>_plantMtgIds.has(t.mid)).map(t=>Number(t.uid)));
           _wlUsers = USERS.filter(u=>_plantTaskUids.has(Number(u.id)));
         } else {
-          // Super admin / developer: show any user who has at least one task
-          const _assignedUids = new Set(TASKS.map(t=>Number(t.uid)));
+          // Super admin / developer: filter by selected plant tab if active
+          const _saPlantMtgIds = (currentRole==='super-admin'||currentRole==='developer') && _dashPlantFilter!=='all'
+            ? new Set(MEETINGS.filter(m=>m.plantId===_dashPlantFilter).map(m=>m.id))
+            : null;
+          const _scopedTasks = _saPlantMtgIds ? TASKS.filter(t=>_saPlantMtgIds.has(t.mid)) : TASKS;
+          const _assignedUids = new Set(_scopedTasks.map(t=>Number(t.uid)));
           _wlUsers = USERS.filter(u=>_assignedUids.has(Number(u.id)));
         }
         const _wlAdminPlant = currentRole==='admin' ? getAdminPlant() : null;
         const _wlPlantMtgIds = _wlAdminPlant
           ? new Set(MEETINGS.filter(m=>m.plantId===_wlAdminPlant.id).map(m=>m.id))
-          : null;
+          : (currentRole!=='admin' && _dashPlantFilter!=='all'
+              ? new Set(MEETINGS.filter(m=>m.plantId===_dashPlantFilter).map(m=>m.id))
+              : null);
         return _wlUsers.map(u=>{
           const ut = _wlPlantMtgIds
             ? TASKS.filter(t=>Number(t.uid)===Number(u.id)&&_wlPlantMtgIds.has(t.mid))
@@ -1521,16 +1538,17 @@ function renderDashboard(){
       <div style="padding:13px 18px;border-bottom:1px solid var(--br);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
         <div class="ctit">🏭 Plants Overview</div>
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-          <div id="plant-tab-bar" style="display:flex;gap:4px;flex-wrap:wrap;">
-            <button class="btn bs" id="ptab-all" onclick="switchPlantTab('all')" style="font-size:11px;background:var(--ac);color:#fff;border-color:var(--ac);">All Plants</button>
-            ${PLANTS.map(p=>`<button class="btn bs" id="ptab-${p.id}" onclick="switchPlantTab('${p.id}')" style="font-size:11px;">🏭 ${p.name}</button>`).join('')}
+          <div style="display:flex;gap:4px;flex-wrap:wrap;">
+            <button class="btn bs" onclick="switchPlantTab('all')" style="font-size:11px;${_dashPlantFilter==='all'?'background:var(--ac);color:#fff;border-color:var(--ac);':''}">All Plants</button>
+            ${PLANTS.map(p=>`<button class="btn bs" onclick="switchPlantTab('${p.id}')" style="font-size:11px;${_dashPlantFilter===p.id?'background:var(--ac);color:#fff;border-color:var(--ac);':''}">🏭 ${p.name}</button>`).join('')}
           </div>
           <button class="btn bs" onclick="navigate('settings-plants')" style="font-size:11px;">Manage</button>
         </div>
       </div>
-      <div id="plant-tab-content" style="padding:16px;">
+      <div style="padding:16px;display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:14px;">
         ${(()=>{
-          return PLANTS.map(p=>{
+          const plantsToShow = _dashPlantFilter==='all' ? PLANTS : PLANTS.filter(p=>p.id===_dashPlantFilter);
+          return plantsToShow.map(p=>{
             const admin=p.adminId==='__superadmin__'?{name:'Super Admin (Corporate)'}:(p.adminId?USERS.find(u=>u.id===Number(p.adminId)):null);
             const mtgs=MEETINGS.filter(m=>m.plantId===p.id).length;
             const ptasks=TASKS.filter(t=>MEETINGS.filter(m=>m.plantId===p.id).some(m=>m.id===t.mid));
@@ -1538,7 +1556,7 @@ function renderDashboard(){
             const pover=ptasks.filter(t=>t.status==='overdue').length;
             const pinp=ptasks.filter(t=>t.status==='in-progress').length;
             const ppct=ptasks.length?Math.round(pcomp/ptasks.length*100):0;
-            return`<div class="plant-tab-panel" data-plant="${p.id}" style="padding:12px;border:1px solid var(--br);border-radius:var(--rs);background:var(--bg);">
+            return`<div style="padding:12px;border:1px solid var(--br);border-radius:var(--rs);background:var(--bg);">
               <div style="font-size:13px;font-weight:600;margin-bottom:3px;">🏭 ${p.name}</div>
               <div style="font-size:11px;color:var(--t3);margin-bottom:7px;">${p.location||'—'}</div>
               <div style="font-size:11px;color:var(--t2);margin-bottom:5px;">${admin?`Admin: ${admin.name}`:'<span style="color:var(--er);">⚠ No Admin</span>'}</div>
@@ -1555,43 +1573,7 @@ function renderDashboard(){
         })()}
       </div>
     </div>
-  </div>
-  <script>
-  (function(){
-    window._activePlantTab = window._activePlantTab || 'all';
-    window.switchPlantTab = function(plantId){
-      window._activePlantTab = plantId;
-      // Update tab button styles
-      document.querySelectorAll('[id^="ptab-"]').forEach(btn=>{
-        const isActive = btn.id === 'ptab-' + plantId;
-        btn.style.background = isActive ? 'var(--ac)' : '';
-        btn.style.color = isActive ? '#fff' : '';
-        btn.style.borderColor = isActive ? 'var(--ac)' : '';
-      });
-      // Show/hide plant panels
-      const panels = document.querySelectorAll('.plant-tab-panel');
-      const content = document.getElementById('plant-tab-content');
-      if(plantId === 'all'){
-        content.style.display = 'grid';
-        content.style.gridTemplateColumns = 'repeat(auto-fill,minmax(220px,1fr))';
-        content.style.gap = '14px';
-        panels.forEach(p=>p.style.display='block');
-      } else {
-        content.style.display = 'block';
-        panels.forEach(p=>{
-          p.style.display = (p.dataset.plant === plantId) ? 'block' : 'none';
-        });
-      }
-    };
-    // Init grid layout
-    const content = document.getElementById('plant-tab-content');
-    if(content){
-      content.style.display = 'grid';
-      content.style.gridTemplateColumns = 'repeat(auto-fill,minmax(220px,1fr))';
-      content.style.gap = '14px';
-    }
-  })();
-  </script>` : ''}
+  </div>` : ''}
   `;
 }
 
