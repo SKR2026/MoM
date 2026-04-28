@@ -1300,7 +1300,35 @@ function renderDashboard(){
   const inp=myTasks.filter(t=>t.status==='in-progress').length;
   const tot=myTasks.length;
   const pct=tot?Math.round(comp/tot*100):0;
+  // ── Firebase live status ──
+  const _fbOnline  = !!(_db && _listenersStarted);
+  const _fbProject = (typeof _FB_CFG !== 'undefined' && _FB_CFG.projectId) ? _FB_CFG.projectId : '—';
+  const _fbUserCount = USERS.length;
+  const _fbLastSync  = _listenersStarted ? 'Live' : 'Not synced';
+  const _fbAuthUser  = _authFs && _authFs.currentUser ? (_authFs.currentUser.email || (_authFs.currentUser.isAnonymous ? 'Anonymous session' : _authFs.currentUser.uid.slice(0,10)+'…')) : 'Not signed in';
+
   document.getElementById('content').innerHTML=`
+  <!-- ── Firebase Status Bar ── -->
+  <div id="fb-status-bar" style="display:flex;align-items:center;gap:10px;padding:9px 14px;margin-bottom:16px;border-radius:var(--rs);border:1px solid ${_fbOnline?'var(--ok)':'var(--br2)'};background:${_fbOnline?'var(--ol)':'var(--bg3)'};flex-wrap:wrap;">
+    <div style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:${_fbOnline?'var(--ok)':'var(--t2)'};">
+      <span style="width:9px;height:9px;border-radius:50%;background:${_fbOnline?'var(--ok)':'var(--t3)'};display:inline-block;${_fbOnline?'box-shadow:0 0 0 3px rgba(22,163,74,.25);animation:pulse-dot 2s infinite;':''}"></span>
+      Firestore ${_fbOnline?'Live':'Offline'}
+    </div>
+    <div style="width:1px;height:14px;background:var(--br);flex-shrink:0;"></div>
+    <span style="font-size:11px;color:var(--t2);">Project: <b>${_fbProject}</b></span>
+    <div style="width:1px;height:14px;background:var(--br);flex-shrink:0;"></div>
+    <span style="font-size:11px;color:var(--t2);">Auth: <b>${_fbAuthUser}</b></span>
+    <div style="width:1px;height:14px;background:var(--br);flex-shrink:0;"></div>
+    <span style="font-size:11px;color:var(--t2);">Users synced: <b>${_fbUserCount}</b></span>
+    <div style="width:1px;height:14px;background:var(--br);flex-shrink:0;"></div>
+    <span style="font-size:11px;color:var(--t2);">Sync: <b>${_fbLastSync}</b></span>
+    <div style="margin-left:auto;">
+      <button class="btn bs" style="font-size:11px;padding:3px 10px;" onclick="renderDashboard()">↻ Refresh</button>
+    </div>
+  </div>
+  <style>
+    @keyframes pulse-dot{0%,100%{box-shadow:0 0 0 3px rgba(22,163,74,.25);}50%{box-shadow:0 0 0 6px rgba(22,163,74,.08);}}
+  </style>
   ${currentRole==='assignee'?`<div class="alert ai" style="margin-bottom:16px;">Viewing as ${loggedInAs&&loggedInAs.name?loggedInAs.name:'Assignee'} — showing only your assigned tasks.</div>`:currentRole==='manager'?`<div class="alert ai" style="margin-bottom:16px;">Showing tasks for your team (${loggedInAs&&loggedInAs.dept?loggedInAs.dept:'your department'}).</div>`:''}
   <!-- ── Half Speedometer + Stat Cards ── -->
   <div style="display:flex;gap:18px;margin-bottom:20px;flex-wrap:wrap;align-items:stretch;">
@@ -1980,27 +2008,55 @@ function showCalDayDetail(dateKey, day){
   const MONTH_NAMES=['January','February','March','April','May','June','July','August','September','October','November','December'];
   const [y,m,d] = dateKey.split('-').map(Number);
   const dt = TASKS.filter(t=>toISODate(t.due)===dateKey);
-  const dm = MEETINGS.filter(m=>m.date===dateKey);
+  const dm = MEETINGS.filter(mx=>mx.date===dateKey);
   const label = `${MONTH_NAMES[m-1]} ${d}, ${y}`;
-  openModal(`📅 ${label}`,`
-    ${dm.length?`<div class="divl">Meetings (${dm.length})</div>
-    ${dm.map(m=>`<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--br);">
-      <span class="bdg b-in">${m.no}</span>
-      <span style="font-size:13px;flex:1;">${m.title||'—'}</span>
-      ${m.location?`<span style="font-size:11px;color:var(--t3);">📍${m.location}</span>`:''}
-    </div>`).join('')}`:''}
-    ${dt.length?`<div class="divl" style="margin-top:${dm.length?'14px':'0'};">Tasks (${dt.length})</div>
-    ${dt.map(t=>`<div style="padding:8px 0;border-bottom:1px solid var(--br);">
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
-        <span class="bdg b-in">${t.id}</span>
-        <span class="bdg ${t.status==='completed'?'b-ok':t.status==='overdue'?'b-er':'b-wn'}">${t.status||'pending'}</span>
-        ${t.priority?`<span class="bdg ${t.priority==='high'?'b-er':t.priority==='medium'?'b-wn':'b-df'}">${t.priority}</span>`:''}
+
+  // Remove any existing day-detail overlay
+  const old = document.getElementById('cal-day-overlay');
+  if(old) old.remove();
+
+  const overlay = document.createElement('div');
+  overlay.id = 'cal-day-overlay';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:600;backdrop-filter:blur(2px);';
+  overlay.onclick = function(e){ if(e.target===overlay) overlay.remove(); };
+
+  overlay.innerHTML = `
+    <div style="background:var(--bg2);border:1px solid var(--br);border-radius:14px;width:520px;max-width:95vw;max-height:85vh;overflow-y:auto;box-shadow:0 8px 40px rgba(0,0,0,.25);">
+      <div style="padding:16px 20px 12px;border-bottom:1px solid var(--br);display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;background:var(--bg2);z-index:1;">
+        <div style="font-size:15px;font-weight:600;">📅 ${label}</div>
+        <button onclick="document.getElementById('cal-day-overlay').remove()" style="width:26px;height:26px;border-radius:6px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--t3);border:1px solid var(--br);background:none;font-size:15px;transition:all .15s;font-family:var(--fn);">✕</button>
       </div>
-      <div style="font-size:13px;color:var(--tx);margin-bottom:2px;">${t.action||'—'}</div>
-      ${t.assignee?`<div style="font-size:11px;color:var(--t3);">👤 ${t.assignee}</div>`:''}
-    </div>`).join('')}`:''}
-    ${!dt.length&&!dm.length?'<p style="color:var(--t3);font-size:13px;">No items on this day.</p>':''}
-  `,[]);
+      <div style="padding:16px 20px;">
+        ${dm.length ? `
+          <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--t3);padding:0 0 7px;border-bottom:1px solid var(--br);margin-bottom:14px;">Meetings (${dm.length})</div>
+          ${dm.map(mx=>`
+            <div style="display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--br);cursor:pointer;" onclick="document.getElementById('cal-day-overlay').remove();openModal('meeting-detail','${mx.id}')">
+              <span class="bdg b-in">${mx.no}</span>
+              <span style="font-size:13px;flex:1;">${mx.title||'—'}</span>
+              ${mx.location?`<span style="font-size:11px;color:var(--t3);">📍 ${mx.location}</span>`:''}
+              <span style="font-size:11px;color:var(--ac);">View →</span>
+            </div>`).join('')}` : ''}
+        ${dt.length ? `
+          <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--t3);padding:0 0 7px;border-bottom:1px solid var(--br);margin-bottom:14px;margin-top:${dm.length?'16px':'0'};">Tasks (${dt.length})</div>
+          ${dt.map(t=>`
+            <div style="padding:10px 0;border-bottom:1px solid var(--br);cursor:pointer;" onclick="document.getElementById('cal-day-overlay').remove();openModal('task','${t.id}')">
+              <div style="display:flex;align-items:center;gap:8px;margin-bottom:5px;">
+                <span class="bdg b-in">${t.id}</span>
+                <span class="bdg ${t.status==='completed'?'b-ok':t.status==='overdue'?'b-er':'b-wn'}">${t.status||'pending'}</span>
+                ${t.priority?`<span class="bdg ${t.priority==='high'?'b-er':t.priority==='medium'?'b-wn':'b-df'}">${t.priority}</span>`:''}
+                <span style="margin-left:auto;font-size:11px;color:var(--ac);">Update →</span>
+              </div>
+              <div style="font-size:13px;color:var(--tx);margin-bottom:3px;">${t.action||t.title||'—'}</div>
+              ${t.assignee?`<div style="font-size:11px;color:var(--t3);">👤 ${t.assignee}</div>`:''}
+            </div>`).join('')}` : ''}
+        ${!dt.length&&!dm.length?'<p style="color:var(--t3);font-size:13px;">No items on this day.</p>':''}
+      </div>
+      <div style="padding:10px 20px;border-top:1px solid var(--br);display:flex;justify-content:flex-end;">
+        <button onclick="document.getElementById('cal-day-overlay').remove()" style="padding:6px 16px;border-radius:6px;font-size:13px;font-weight:500;cursor:pointer;border:1px solid var(--br2);background:var(--bg2);color:var(--tx);font-family:var(--fn);">Close</button>
+      </div>
+    </div>`;
+
+  document.body.appendChild(overlay);
 }
 
 /* ═══════════════════════════════════════════
