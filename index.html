@@ -969,13 +969,36 @@ function refreshCurrentPage() {
    manager                                    → tasks of users in same dept
    assignee                                   → only own tasks
 ─────────────────────────────────────────────────────────────────────────── */
+function getAdminPlantMeetingIds(){
+  // Returns Set of meeting IDs for the plant this admin manages, or null if unassigned.
+  if(currentRole !== 'admin') return null;
+  const uid = loggedInAs && loggedInAs.id != null ? Number(loggedInAs.id) : null;
+  if(uid == null) return null;
+  const plant = PLANTS.find(p => Number(p.adminId) === uid);
+  if(!plant) return new Set(); // admin not assigned to any plant
+  return new Set(MEETINGS.filter(m => m.plantId === plant.id).map(m => m.id));
+}
+
+function getAdminPlant(){
+  if(currentRole !== 'admin') return null;
+  const uid = loggedInAs && loggedInAs.id != null ? Number(loggedInAs.id) : null;
+  if(uid == null) return null;
+  return PLANTS.find(p => Number(p.adminId) === uid) || null;
+}
+
 function getVisibleTasks(allTasks){
   allTasks = allTasks || TASKS;
   const role = currentRole;
   const uid  = (loggedInAs && loggedInAs.id != null) ? Number(loggedInAs.id) : null;
 
-  if(role === 'super-admin' || role === 'admin' || role === 'top-mgmt' || role === 'developer'){
+  if(role === 'super-admin' || role === 'top-mgmt' || role === 'developer'){
     return allTasks; // see everything
+  }
+  if(role === 'admin'){
+    // Plant admin sees only tasks from meetings in their assigned plant
+    const plantMtgIds = getAdminPlantMeetingIds();
+    if(!plantMtgIds) return [];
+    return allTasks.filter(t => plantMtgIds.has(t.mid));
   }
   if(role === 'manager'){
     // Manager sees tasks belonging to users in the same department
@@ -1488,21 +1511,35 @@ function renderDashboard(){
 /* ═══════════════════════════════════════════
    MEETINGS
 ═══════════════════════════════════════════ */
+function getVisibleMeetings(){
+  const myUid = (loggedInAs && loggedInAs.id != null) ? Number(loggedInAs.id) : null;
+  if(currentRole === 'admin'){
+    const plant = getAdminPlant();
+    if(!plant) return [];
+    return MEETINGS.filter(m => m.plantId === plant.id);
+  }
+  if(currentRole === 'assignee' && myUid != null){
+    const myMeetingIds = new Set([
+      ...MEETINGS.filter(m => m.attendees && m.attendees.map(Number).includes(myUid)).map(m=>m.id),
+      ...TASKS.filter(t => Number(t.uid)===myUid).map(t=>t.mid)
+    ]);
+    return MEETINGS.filter(m => myMeetingIds.has(m.id));
+  }
+  return MEETINGS;
+}
+
 function renderMeetings(){
   const isAssignee = currentRole === 'assignee';
-  const myUid = (loggedInAs && loggedInAs.id != null) ? Number(loggedInAs.id) : null;
-  const myMeetingIds = isAssignee && myUid != null
-    ? new Set([
-        ...MEETINGS.filter(m => m.attendees && m.attendees.map(Number).includes(myUid)).map(m=>m.id),
-        ...TASKS.filter(t => Number(t.uid)===myUid).map(t=>t.mid)
-      ])
-    : null;
-  const visibleMeetings = isAssignee ? MEETINGS.filter(m => myMeetingIds.has(m.id)) : MEETINGS;
+  const isPlantAdmin = currentRole === 'admin';
+  const visibleMeetings = getVisibleMeetings();
+  const plant = isPlantAdmin ? getAdminPlant() : null;
+
   document.getElementById('content').innerHTML=`
   ${isAssignee ? `<div class="alert ai" style="margin-bottom:14px;">Showing meetings you are assigned to or attend.</div>` : ''}
+  ${isPlantAdmin ? `<div class="alert ai" style="margin-bottom:14px;">🏭 Showing meetings for your plant: <strong>${plant ? plant.name : 'Unassigned'}</strong></div>` : ''}
   <div class="card">
     <div class="ch">
-      <div class="ctit">${isAssignee ? 'My Meetings' : 'All Meetings'}</div>
+      <div class="ctit">${isAssignee ? 'My Meetings' : isPlantAdmin ? (plant ? plant.name+' — Meetings' : 'Meetings') : 'All Meetings'}</div>
       <div style="display:flex;gap:8px;">
         <input placeholder="Search…" style="width:200px;" oninput="filterMeetings(this.value)">
         ${!isAssignee ? `<button class="btn bp" onclick="openModal('new-meeting')">+ New Meeting</button>` : ''}
@@ -1534,15 +1571,7 @@ function meetingRows(data){
   </tr>`}).join('')}</tbody></table>`;
 }
 function filterMeetings(q){
-  const isAssignee = currentRole === 'assignee';
-  const myUid = (loggedInAs && loggedInAs.id != null) ? Number(loggedInAs.id) : null;
-  const myMeetingIds = isAssignee && myUid != null
-    ? new Set([
-        ...MEETINGS.filter(m => m.attendees && m.attendees.map(Number).includes(myUid)).map(m=>m.id),
-        ...TASKS.filter(t => Number(t.uid)===myUid).map(t=>t.mid)
-      ])
-    : null;
-  const pool = isAssignee ? MEETINGS.filter(m => myMeetingIds.has(m.id)) : MEETINGS;
+  const pool = getVisibleMeetings();
   const f=pool.filter(m=>m.title.toLowerCase().includes(q.toLowerCase())||m.no.toLowerCase().includes(q.toLowerCase()));
   document.getElementById('mtbl').innerHTML=meetingRows(f);
 }
@@ -3642,6 +3671,21 @@ async function testGraphConnection() {
 
 function renderUsers(){
   if(currentRole!=='super-admin'&&currentRole!=='admin'){document.getElementById('content').innerHTML=`<div class="card" style="text-align:center;padding:48px;"><div style="font-size:30px;margin-bottom:12px;">🔒</div><div style="font-size:15px;font-weight:600;">Access Restricted</div><div style="font-size:13px;color:var(--t2);margin-top:6px;">User management is available to Admins only.</div></div>`;return;}
+
+  // Plant admin: determine which users belong to their plant's meetings
+  const isPlantAdmin = currentRole === 'admin';
+  const myPlant = isPlantAdmin ? getAdminPlant() : null;
+  let visibleUserIds = null;
+  if(isPlantAdmin){
+    if(!myPlant){
+      document.getElementById('content').innerHTML=`<div class="card" style="text-align:center;padding:48px;"><div style="font-size:30px;margin-bottom:12px;">🏭</div><div style="font-size:15px;font-weight:600;">No Plant Assigned</div><div style="font-size:13px;color:var(--t2);margin-top:6px;">You have not been assigned to a plant yet. Ask Super Admin to assign you.</div></div>`;
+      return;
+    }
+    const plantMtgIds = new Set(MEETINGS.filter(m=>m.plantId===myPlant.id).map(m=>m.id));
+    visibleUserIds = new Set(TASKS.filter(t=>plantMtgIds.has(t.mid)&&t.uid!=null).map(t=>Number(t.uid)));
+  }
+  const usersToShow = isPlantAdmin ? USERS.filter(u=>visibleUserIds.has(u.id)) : USERS;
+
   const roleOptions=[
     {v:'super-admin', l:'Super Admin'},
     {v:'admin',       l:'Admin'},
@@ -3657,10 +3701,11 @@ function renderUsers(){
     'assignee':    '<span class="bdg b-df">Own Tasks Only</span>',
   };
   document.getElementById('content').innerHTML=`
+  ${isPlantAdmin ? `<div class="alert ai" style="margin-bottom:14px;">🏭 Showing users with tasks in your plant: <strong>${myPlant.name}</strong></div>` : ''}
   <div class="card" style="padding:0;">
     <div style="padding:13px 18px;border-bottom:1px solid var(--br);display:flex;justify-content:space-between;align-items:center;">
-      <div class="ctit">Users &amp; Access Control</div>
-      <button class="btn bp bs" onclick="openModal('add-user')">+ Add User</button>
+      <div class="ctit">${isPlantAdmin ? myPlant.name+' — Users' : 'Users & Access Control'}</div>
+      ${!isPlantAdmin ? `<button class="btn bp bs" onclick="openModal('add-user')">+ Add User</button>` : ''}
     </div>
     <div class="tw"><table>
       <thead><tr>
@@ -3668,7 +3713,7 @@ function renderUsers(){
         <th>Plant</th><th>Login Password</th><th>Firebase Status</th><th>Role</th><th>Access Level</th><th>Actions</th>
       </tr></thead>
       <tbody>
-      ${USERS.map(u=>{
+      ${usersToShow.map(u=>{
         const s=FB_STATUS[u.id]||null;
         const fbBadge=s?(s.online?`<span class="bdg b-ok">● Online</span>`:`<span class="bdg b-df">○ ${s.lastSeen||'Offline'}</span>`):'<span class="bdg b-df">—</span>';
         const opts=roleOptions.map(r=>`<option value="${r.v}" ${u.role===r.v?'selected':''}>${r.l}</option>`).join('');
