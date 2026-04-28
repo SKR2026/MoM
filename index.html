@@ -1470,13 +1470,27 @@ function renderDashboard(){
           _wlUsers = USERS.filter(u=>Number(u.id)===_wlUid);
         } else if(currentRole==='manager'){
           _wlUsers = _wlDept ? USERS.filter(u=>u.dept&&u.dept.trim().toLowerCase()===_wlDept) : USERS.filter(u=>Number(u.id)===_wlUid);
+        } else if(currentRole==='admin'){
+          // Plant admin: scope to assignees with tasks in this plant only
+          const _adminPlant = getAdminPlant();
+          const _plantMtgIds = _adminPlant
+            ? new Set(MEETINGS.filter(m=>m.plantId===_adminPlant.id).map(m=>m.id))
+            : new Set();
+          const _plantTaskUids = new Set(TASKS.filter(t=>_plantMtgIds.has(t.mid)).map(t=>Number(t.uid)));
+          _wlUsers = USERS.filter(u=>_plantTaskUids.has(Number(u.id)));
         } else {
-          // Show any user who has at least one task, regardless of role
+          // Super admin / developer: show any user who has at least one task
           const _assignedUids = new Set(TASKS.map(t=>Number(t.uid)));
           _wlUsers = USERS.filter(u=>_assignedUids.has(Number(u.id)));
         }
+        const _wlAdminPlant = currentRole==='admin' ? getAdminPlant() : null;
+        const _wlPlantMtgIds = _wlAdminPlant
+          ? new Set(MEETINGS.filter(m=>m.plantId===_wlAdminPlant.id).map(m=>m.id))
+          : null;
         return _wlUsers.map(u=>{
-          const ut=TASKS.filter(t=>Number(t.uid)===Number(u.id));
+          const ut = _wlPlantMtgIds
+            ? TASKS.filter(t=>Number(t.uid)===Number(u.id)&&_wlPlantMtgIds.has(t.mid))
+            : TASKS.filter(t=>Number(t.uid)===Number(u.id));
           const uc=ut.filter(t=>t.status==='completed').length;
           const p=ut.length?Math.round(uc/ut.length*100):0;
           return`<div style="margin-bottom:11px;"><div style="display:flex;align-items:center;gap:7px;margin-bottom:4px;">${av(u,20)}<span style="font-size:12px;flex:1;">${u.name}</span><span style="font-size:11px;color:var(--t3);">${uc}/${ut.length}</span></div><div class="prog"><div class="pf" style="width:${p}%;background:${p===100?'var(--ok)':p>50?'var(--ac)':'var(--wn)'}"></div></div></div>`;
