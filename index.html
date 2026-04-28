@@ -2593,12 +2593,12 @@ function renderReports(){
   // 4. Status distribution donut (for a mini summary card)
   const statCounts={completed:0,'in-progress':0,overdue:0,pending:0};
   SCOPED_TASKS.forEach(t=>{ if(statCounts[t.status]!==undefined) statCounts[t.status]++; });
-  const totalTasks = TASKS.length || 1;
+  const totalTasks = SCOPED_TASKS.length || 1;
   const completionRate = Math.round((statCounts.completed/totalTasks)*100);
 
   // 5. Overdue rate per user for Top/Bottom performers
   const userPerf = USERS.map(u=>{
-    const ut = TASKS.filter(t=>t.uid===u.id);
+    const ut = SCOPED_TASKS.filter(t=>t.uid===u.id);
     const done = ut.filter(t=>t.status==='completed').length;
     const over = ut.filter(t=>t.status==='overdue').length;
     return {...u, total:ut.length, done, over,
@@ -2611,8 +2611,8 @@ function renderReports(){
   <div class="g4" style="margin-bottom:18px;">
     <div class="sc">
       <div class="sl-">Total Tasks</div>
-      <div class="sv">${TASKS.length}</div>
-      <div class="sc2">${MEETINGS.length} meeting${MEETINGS.length!==1?'s':''}</div>
+      <div class="sv">${SCOPED_TASKS.length}</div>
+      <div class="sc2">${SCOPED_MEETINGS.length} meeting${SCOPED_MEETINGS.length!==1?'s':''}</div>
     </div>
     <div class="sc">
       <div class="sl-">Completion Rate</div>
@@ -2694,7 +2694,7 @@ function renderReports(){
           </tr>
           </tbody></table>
           <div style="margin-top:12px;">
-            ${TASKS.filter(t=>t.esc>0).map(t=>{const u=gu(t.uid);return`
+            ${SCOPED_TASKS.filter(t=>t.esc>0).map(t=>{const u=gu(t.uid);return`
             <div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--br);font-size:12px;">
               <span style="font-family:var(--mo);color:var(--ac);min-width:56px;">${t.id}</span>
               <div style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${t.title}">${t.title}</div>
