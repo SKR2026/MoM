@@ -820,6 +820,13 @@ function loginAsUser(uid){
   const c=FS_USERS();
   const _doLogin=(u)=>{
     if(!u){ showToast('User not found','warn'); return; }
+    // SECURITY: super-admin and admin must always authenticate via the Staff tab with a password.
+    // The User Access tab (click-to-login) is only for non-privileged roles.
+    if(u.role==='super-admin'||u.role==='admin'){
+      showToast('Admin accounts require a password. Please use the Staff login tab.','warn');
+      switchLoginTab('staff');
+      return;
+    }
     loggedInAs={...u}; delete loggedInAs._pw;
     const roleMap={'super-admin':'super-admin','admin':'admin','top-mgmt':'top-mgmt','manager':'manager','assignee':'assignee'};
     currentRole=roleMap[u.role]||'assignee';
@@ -839,8 +846,14 @@ function loginAsUser(uid){
 }
 
 function simulateLinkAccess(){
-  const u=USERS[0];
-  if(!u){showToast('No users exist yet — add users first','warn');return;}
+  // Deep-link access must NEVER auto-login as super-admin or admin.
+  // Only non-privileged roles (assignee / manager / top-mgmt) may be opened this way.
+  const ALLOWED_ROLES = ['assignee','manager','top-mgmt'];
+  const u = USERS.find(u => ALLOWED_ROLES.includes(u.role));
+  if(!u){
+    showToast('No staff users exist yet. Ask Super Admin to add users in Settings → Users & Roles.','warn');
+    return;
+  }
   loginAsUser(u.id);
   showToast('Opened via shared link — logged in as '+u.name,'info');
 }
