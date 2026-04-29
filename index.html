@@ -665,9 +665,19 @@ function doLogin(){
   if(cred){
     if(cred.password===pVal){
       errEl.style.display='none';
-      loggedInAs=uVal; currentRole=cred.role; baseRole=cred.role;
+      // Try to resolve to a real USERS entry for plant-scoping (admin role)
+      const matchedUser = cred.role==='admin' ? USERS.find(u=>u.role==='admin') : null;
+      loggedInAs = matchedUser || uVal;
+      currentRole=cred.role; baseRole=cred.role;
       hideLoginScreen();
-      applySession(cred.display,cred.desc,cred.ini,cred.col,cred.tc,true);
+      applySession(
+        matchedUser ? matchedUser.name : cred.display,
+        matchedUser ? matchedUser.role : cred.desc,
+        matchedUser ? matchedUser.ini  : cred.ini,
+        matchedUser ? matchedUser.col  : cred.col,
+        matchedUser ? matchedUser.tc   : cred.tc,
+        true
+      );
       return;
     }
     errEl.textContent='Incorrect password.'; errEl.style.display='block'; return;
@@ -1159,8 +1169,11 @@ function getAdminPlantMeetingIds(){
 function getAdminPlant(){
   if(currentRole !== 'admin') return null;
   const uid = loggedInAs && loggedInAs.id != null ? Number(loggedInAs.id) : null;
-  if(uid == null) return null;
-  return PLANTS.find(p => Number(p.adminId) === uid) || null;
+  if(uid != null) return PLANTS.find(p => Number(p.adminId) === uid) || null;
+  // Fallback: hardcoded admin login (loggedInAs is a string) — find first plant with any admin assigned
+  // or the only plant if there's one plant, so the admin can still manage it
+  const adminPlants = PLANTS.filter(p => p.adminId && p.adminId !== '__superadmin__');
+  return adminPlants.length === 1 ? adminPlants[0] : (PLANTS.length === 1 ? PLANTS[0] : null);
 }
 
 function getVisibleTasks(allTasks){
@@ -4435,7 +4448,15 @@ function renderUsers(){
   let visibleUserIds = null;
   if(isPlantAdmin){
     if(!myPlant){
-      document.getElementById('content').innerHTML=`<div class="card" style="text-align:center;padding:48px;"><div style="font-size:30px;margin-bottom:12px;">🏭</div><div style="font-size:15px;font-weight:600;">No Plant Assigned</div><div style="font-size:13px;color:var(--t2);margin-top:6px;">You have not been assigned to a plant yet. Ask Super Admin to assign you.</div></div>`;
+      document.getElementById('content').innerHTML=`
+      <div class="alert aw" style="margin-bottom:14px;">⚠ You are not assigned to a plant yet. Ask Super Admin to assign you, or use <b>+ Add User</b> to start adding users.</div>
+      <div class="card" style="padding:0;">
+        <div style="padding:13px 18px;border-bottom:1px solid var(--br);display:flex;justify-content:space-between;align-items:center;">
+          <div class="ctit">Users</div>
+          <button class="btn bp bs" onclick="openModal('add-user')">+ Add User</button>
+        </div>
+        <div style="padding:32px;text-align:center;color:var(--t3);font-size:13px;">No users yet in your plant.</div>
+      </div>`;
       return;
     }
     const plantMtgIds = new Set(MEETINGS.filter(m=>m.plantId===myPlant.id).map(m=>m.id));
