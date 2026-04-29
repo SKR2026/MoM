@@ -4517,8 +4517,13 @@ function renderUsers(){
           </td>
           <td>
             ${(()=>{
-              const uPlant = PLANTS.find(p=>p.adminId===u.id);
-              return uPlant ? `<span class="bdg b-in" style="font-size:10px;">🏭 ${uPlant.name}</span>` : '<span style="font-size:11px;color:var(--t3);">—</span>';
+              // Plant where this user IS the admin
+              const adminOfPlant = PLANTS.find(p=>p.adminId===u.id);
+              if(adminOfPlant) return `<span class="bdg b-wn" style="font-size:10px;">🏭 ${adminOfPlant.name} <span style="opacity:.7;">(Admin)</span></span>`;
+              // Plant the user was assigned to when created by a plant admin
+              const memberOfPlant = u.plantId ? PLANTS.find(p=>p.id===u.plantId) : null;
+              if(memberOfPlant) return `<span class="bdg b-in" style="font-size:10px;">🏭 ${memberOfPlant.name}</span>`;
+              return '<span style="font-size:11px;color:var(--t3);">—</span>';
             })()}
           </td>
           <td>
