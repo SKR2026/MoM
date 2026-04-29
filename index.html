@@ -1640,126 +1640,6 @@ function renderDashboard(){
   </div>
   ${(()=>{if(!over)return'';return'<div class="alert ad" style="margin-bottom:16px;">'+over+' overdue task'+(over>1?'s':'')+' require attention. '+myTasks.filter(t=>t.esc>=2).length+' escalated to senior management.</div>';})()}
 
-  <!-- ── Plant-wise Meeting Status Panels ── -->
-  ${(()=>{
-    // Only show for super-admin / developer / top-mgmt who can see all plants
-    const canSeeAllPlants = (currentRole==='super-admin'||currentRole==='developer'||currentRole==='top-mgmt');
-    if(!canSeeAllPlants || !PLANTS.length) return '';
-
-    const plantList = PLANTS;
-    const statusColors = {
-      'completed':   {bg:'var(--ol)',  border:'var(--ok)', text:'var(--ok)'},
-      'in-progress': {bg:'var(--al)',  border:'var(--ac)', text:'var(--ac)'},
-      'scheduled':   {bg:'var(--il)',  border:'var(--in)', text:'var(--in)'},
-      'cancelled':   {bg:'var(--el)', border:'var(--er)', text:'var(--er)'},
-      'pending':     {bg:'var(--bg3)', border:'var(--br2)','text':'var(--t3)'},
-    };
-
-    const plantCards = plantList.map(plant => {
-      const plantMeetings = MEETINGS.filter(m => m.plantId === plant.id);
-      const ptasks = TASKS.filter(t => plantMeetings.some(m => m.id === t.mid));
-      const ptot   = ptasks.length;
-      const pcomp  = ptasks.filter(t => t.status === 'completed').length;
-      const pinp   = ptasks.filter(t => t.status === 'in-progress').length;
-      const pover  = ptasks.filter(t => t.status === 'overdue').length;
-      const ppend  = ptasks.filter(t => t.status === 'pending').length;
-      const ppct   = ptot ? Math.round(pcomp / ptot * 100) : 0;
-
-      // Meeting status counts
-      const mComp  = plantMeetings.filter(m => m.status === 'completed').length;
-      const mInProg= plantMeetings.filter(m => m.status === 'in-progress').length;
-      const mSched = plantMeetings.filter(m => m.status === 'scheduled').length;
-      const mOther = plantMeetings.length - mComp - mInProg - mSched;
-
-      // Completion bar gradient
-      const compW = ptot ? Math.round(pcomp/ptot*100) : 0;
-      const inpW  = ptot ? Math.round(pinp/ptot*100)  : 0;
-      const overW = ptot ? Math.round(pover/ptot*100) : 0;
-      const pendW = Math.max(0, 100 - compW - inpW - overW);
-
-      const admin = USERS.find(u => Number(u.id) === Number(plant.adminId));
-
-      return `
-        <div class="card" style="padding:14px 16px;">
-          <!-- Plant header -->
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;gap:8px;">
-            <div style="display:flex;align-items:center;gap:8px;min-width:0;">
-              <div style="width:32px;height:32px;border-radius:8px;background:var(--al);display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0;">🏭</div>
-              <div style="min-width:0;">
-                <div style="font-size:13px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${plant.name}</div>
-                <div style="font-size:10px;color:var(--t3);">${plant.location||''}${admin?' · Admin: '+admin.name:''}</div>
-              </div>
-            </div>
-            <div style="text-align:right;flex-shrink:0;">
-              <div style="font-size:22px;font-weight:800;color:${ppct>=80?'var(--ok)':ppct>=50?'var(--ac)':'var(--er)'};">${ppct}%</div>
-              <div style="font-size:10px;color:var(--t3);">completion</div>
-            </div>
-          </div>
-
-          <!-- Stacked progress bar -->
-          <div style="height:7px;border-radius:4px;overflow:hidden;display:flex;margin-bottom:10px;background:var(--bg3);">
-            ${compW>0?`<div style="width:${compW}%;background:#22c55e;transition:width .4s;"></div>`:''}
-            ${inpW>0 ?`<div style="width:${inpW}%;background:#3b82f6;transition:width .4s;"></div>`:''}
-            ${overW>0?`<div style="width:${overW}%;background:#ef4444;transition:width .4s;"></div>`:''}
-            ${pendW>0?`<div style="width:${pendW}%;background:#94a3b8;opacity:.5;transition:width .4s;"></div>`:''}
-          </div>
-
-          <!-- Task stats row -->
-          <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin-bottom:12px;">
-            ${[['✅','Completed',pcomp,'var(--ok)'],['🔄','In-Progress',pinp,'var(--ac)'],['🔴','Overdue',pover,'var(--er)'],['⏳','Pending',ppend,'var(--t3)']].map(([ic,lb,val,col])=>
-              `<div style="text-align:center;padding:5px 2px;background:var(--bg3);border-radius:var(--rs);">
-                <div style="font-size:13px;font-weight:700;color:${col};">${val}</div>
-                <div style="font-size:9px;color:var(--t3);">${lb}</div>
-              </div>`).join('')}
-          </div>
-
-          <!-- Meeting status row -->
-          <div style="border-top:1px solid var(--br);padding-top:9px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px;">
-            <div style="font-size:10px;font-weight:600;color:var(--t2);">Meetings (${plantMeetings.length})</div>
-            <div style="display:flex;gap:5px;flex-wrap:wrap;">
-              ${mComp ?`<span style="font-size:10px;padding:2px 7px;border-radius:10px;background:var(--ol);color:var(--ok);font-weight:600;">${mComp} Done</span>`:''}
-              ${mInProg?`<span style="font-size:10px;padding:2px 7px;border-radius:10px;background:var(--al);color:var(--ac);font-weight:600;">${mInProg} In-Progress</span>`:''}
-              ${mSched?`<span style="font-size:10px;padding:2px 7px;border-radius:10px;background:var(--il);color:var(--in);font-weight:600;">${mSched} Scheduled</span>`:''}
-              ${mOther?`<span style="font-size:10px;padding:2px 7px;border-radius:10px;background:var(--bg3);color:var(--t3);font-weight:600;">${mOther} Other</span>`:''}
-              ${!plantMeetings.length?'<span style="font-size:10px;color:var(--t3);">No meetings yet</span>':''}
-            </div>
-            <button class="btn bs" style="font-size:10px;padding:3px 9px;" onclick="navigate('meetings')">View →</button>
-          </div>
-        </div>`;
-    }).join('');
-
-    // Unassigned meetings (no plantId)
-    const unassignedMeetings = MEETINGS.filter(m => !m.plantId || !PLANTS.find(p=>p.id===m.plantId));
-    const uaTasks  = TASKS.filter(t => unassignedMeetings.some(m=>m.id===t.mid));
-    const uaComp   = uaTasks.filter(t=>t.status==='completed').length;
-    const uaPct    = uaTasks.length ? Math.round(uaComp/uaTasks.length*100) : 0;
-    const unassignedCard = (unassignedMeetings.length > 0) ? `
-      <div class="card" style="padding:14px 16px;border-style:dashed;">
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
-          <div style="width:32px;height:32px;border-radius:8px;background:var(--bg3);display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0;">📋</div>
-          <div><div style="font-size:13px;font-weight:700;">Unassigned / Corporate</div>
-            <div style="font-size:10px;color:var(--t3);">${unassignedMeetings.length} meeting${unassignedMeetings.length!==1?'s':''} not linked to a plant</div>
-          </div>
-        </div>
-        <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:4px;">
-          <div style="padding:6px;background:var(--bg3);border-radius:var(--rs);text-align:center;"><div style="font-size:13px;font-weight:700;">${unassignedMeetings.length}</div><div style="font-size:9px;color:var(--t3);">Meetings</div></div>
-          <div style="padding:6px;background:var(--bg3);border-radius:var(--rs);text-align:center;"><div style="font-size:13px;font-weight:700;color:${uaPct>=80?'var(--ok)':uaPct>=50?'var(--ac)':'var(--er)'};">${uaPct}%</div><div style="font-size:9px;color:var(--t3);">Tasks done</div></div>
-        </div>
-      </div>` : '';
-
-    return `
-      <div style="margin-bottom:20px;">
-        <div style="font-size:13px;font-weight:700;color:var(--tx);margin-bottom:10px;display:flex;align-items:center;gap:8px;">
-          🏭 Plant-wise Meeting Status
-          <span style="font-size:10px;font-weight:400;color:var(--t3);">${plantList.length} plant${plantList.length!==1?'s':''}</span>
-        </div>
-        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px;">
-          ${plantCards}
-          ${unassignedCard}
-        </div>
-      </div>`;
-  })()}
-
   <div class="g2" style="margin-bottom:20px;">
     <div class="card" id="donut-card">
       <div class="ch"><div class="ctit">Task Status Breakdown</div></div>
@@ -1942,7 +1822,7 @@ function renderDashboard(){
       for(let p=0;p<totalPages;p++){
         const slice=mtgData.slice(p*PAGE,(p+1)*PAGE);
         const cW=560,padL=110,padB=8,padT=12,barH=12,barGap=6;
-        const innerW=cW-padL-16;
+        const innerW=cW-padL-65;
         const rowH=barH+barGap;
         const svgH=slice.length*rowH+padB+padT+20;
         const rows=slice.map((m,i)=>{
@@ -1978,6 +1858,126 @@ function renderDashboard(){
       return pages.join('')+nav;
     })()}
   </div>
+
+  <!-- ── Plant-wise Meeting Status Panels ── -->
+  ${(()=>{
+    // Only show for super-admin / developer / top-mgmt who can see all plants
+    const canSeeAllPlants = (currentRole==='super-admin'||currentRole==='developer'||currentRole==='top-mgmt');
+    if(!canSeeAllPlants || !PLANTS.length) return '';
+
+    const plantList = PLANTS;
+    const statusColors = {
+      'completed':   {bg:'var(--ol)',  border:'var(--ok)', text:'var(--ok)'},
+      'in-progress': {bg:'var(--al)',  border:'var(--ac)', text:'var(--ac)'},
+      'scheduled':   {bg:'var(--il)',  border:'var(--in)', text:'var(--in)'},
+      'cancelled':   {bg:'var(--el)', border:'var(--er)', text:'var(--er)'},
+      'pending':     {bg:'var(--bg3)', border:'var(--br2)','text':'var(--t3)'},
+    };
+
+    const plantCards = plantList.map(plant => {
+      const plantMeetings = MEETINGS.filter(m => m.plantId === plant.id);
+      const ptasks = TASKS.filter(t => plantMeetings.some(m => m.id === t.mid));
+      const ptot   = ptasks.length;
+      const pcomp  = ptasks.filter(t => t.status === 'completed').length;
+      const pinp   = ptasks.filter(t => t.status === 'in-progress').length;
+      const pover  = ptasks.filter(t => t.status === 'overdue').length;
+      const ppend  = ptasks.filter(t => t.status === 'pending').length;
+      const ppct   = ptot ? Math.round(pcomp / ptot * 100) : 0;
+
+      // Meeting status counts
+      const mComp  = plantMeetings.filter(m => m.status === 'completed').length;
+      const mInProg= plantMeetings.filter(m => m.status === 'in-progress').length;
+      const mSched = plantMeetings.filter(m => m.status === 'scheduled').length;
+      const mOther = plantMeetings.length - mComp - mInProg - mSched;
+
+      // Completion bar gradient
+      const compW = ptot ? Math.round(pcomp/ptot*100) : 0;
+      const inpW  = ptot ? Math.round(pinp/ptot*100)  : 0;
+      const overW = ptot ? Math.round(pover/ptot*100) : 0;
+      const pendW = Math.max(0, 100 - compW - inpW - overW);
+
+      const admin = USERS.find(u => Number(u.id) === Number(plant.adminId));
+
+      return `
+        <div class="card" style="padding:14px 16px;">
+          <!-- Plant header -->
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;gap:8px;">
+            <div style="display:flex;align-items:center;gap:8px;min-width:0;">
+              <div style="width:32px;height:32px;border-radius:8px;background:var(--al);display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0;">🏭</div>
+              <div style="min-width:0;">
+                <div style="font-size:13px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${plant.name}</div>
+                <div style="font-size:10px;color:var(--t3);">${plant.location||''}${admin?' · Admin: '+admin.name:''}</div>
+              </div>
+            </div>
+            <div style="text-align:right;flex-shrink:0;">
+              <div style="font-size:22px;font-weight:800;color:${ppct>=80?'var(--ok)':ppct>=50?'var(--ac)':'var(--er)'};">${ppct}%</div>
+              <div style="font-size:10px;color:var(--t3);">completion</div>
+            </div>
+          </div>
+
+          <!-- Stacked progress bar -->
+          <div style="height:7px;border-radius:4px;overflow:hidden;display:flex;margin-bottom:10px;background:var(--bg3);">
+            ${compW>0?`<div style="width:${compW}%;background:#22c55e;transition:width .4s;"></div>`:''}
+            ${inpW>0 ?`<div style="width:${inpW}%;background:#3b82f6;transition:width .4s;"></div>`:''}
+            ${overW>0?`<div style="width:${overW}%;background:#ef4444;transition:width .4s;"></div>`:''}
+            ${pendW>0?`<div style="width:${pendW}%;background:#94a3b8;opacity:.5;transition:width .4s;"></div>`:''}
+          </div>
+
+          <!-- Task stats row -->
+          <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin-bottom:12px;">
+            ${[['✅','Completed',pcomp,'var(--ok)'],['🔄','In-Progress',pinp,'var(--ac)'],['🔴','Overdue',pover,'var(--er)'],['⏳','Pending',ppend,'var(--t3)']].map(([ic,lb,val,col])=>
+              `<div style="text-align:center;padding:5px 2px;background:var(--bg3);border-radius:var(--rs);">
+                <div style="font-size:13px;font-weight:700;color:${col};">${val}</div>
+                <div style="font-size:9px;color:var(--t3);">${lb}</div>
+              </div>`).join('')}
+          </div>
+
+          <!-- Meeting status row -->
+          <div style="border-top:1px solid var(--br);padding-top:9px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px;">
+            <div style="font-size:10px;font-weight:600;color:var(--t2);">Meetings (${plantMeetings.length})</div>
+            <div style="display:flex;gap:5px;flex-wrap:wrap;">
+              ${mComp ?`<span style="font-size:10px;padding:2px 7px;border-radius:10px;background:var(--ol);color:var(--ok);font-weight:600;">${mComp} Done</span>`:''}
+              ${mInProg?`<span style="font-size:10px;padding:2px 7px;border-radius:10px;background:var(--al);color:var(--ac);font-weight:600;">${mInProg} In-Progress</span>`:''}
+              ${mSched?`<span style="font-size:10px;padding:2px 7px;border-radius:10px;background:var(--il);color:var(--in);font-weight:600;">${mSched} Scheduled</span>`:''}
+              ${mOther?`<span style="font-size:10px;padding:2px 7px;border-radius:10px;background:var(--bg3);color:var(--t3);font-weight:600;">${mOther} Other</span>`:''}
+              ${!plantMeetings.length?'<span style="font-size:10px;color:var(--t3);">No meetings yet</span>':''}
+            </div>
+            <button class="btn bs" style="font-size:10px;padding:3px 9px;" onclick="navigate('meetings')">View →</button>
+          </div>
+        </div>`;
+    }).join('');
+
+    // Unassigned meetings (no plantId)
+    const unassignedMeetings = MEETINGS.filter(m => !m.plantId || !PLANTS.find(p=>p.id===m.plantId));
+    const uaTasks  = TASKS.filter(t => unassignedMeetings.some(m=>m.id===t.mid));
+    const uaComp   = uaTasks.filter(t=>t.status==='completed').length;
+    const uaPct    = uaTasks.length ? Math.round(uaComp/uaTasks.length*100) : 0;
+    const unassignedCard = (unassignedMeetings.length > 0) ? `
+      <div class="card" style="padding:14px 16px;border-style:dashed;">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+          <div style="width:32px;height:32px;border-radius:8px;background:var(--bg3);display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0;">📋</div>
+          <div><div style="font-size:13px;font-weight:700;">Unassigned / Corporate</div>
+            <div style="font-size:10px;color:var(--t3);">${unassignedMeetings.length} meeting${unassignedMeetings.length!==1?'s':''} not linked to a plant</div>
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:4px;">
+          <div style="padding:6px;background:var(--bg3);border-radius:var(--rs);text-align:center;"><div style="font-size:13px;font-weight:700;">${unassignedMeetings.length}</div><div style="font-size:9px;color:var(--t3);">Meetings</div></div>
+          <div style="padding:6px;background:var(--bg3);border-radius:var(--rs);text-align:center;"><div style="font-size:13px;font-weight:700;color:${uaPct>=80?'var(--ok)':uaPct>=50?'var(--ac)':'var(--er)'};">${uaPct}%</div><div style="font-size:9px;color:var(--t3);">Tasks done</div></div>
+        </div>
+      </div>` : '';
+
+    return `
+      <div style="margin-top:20px;margin-bottom:20px;">
+        <div style="font-size:13px;font-weight:700;color:var(--tx);margin-bottom:10px;display:flex;align-items:center;gap:8px;">
+          🏭 Plant-wise Meeting Status
+          <span style="font-size:10px;font-weight:400;color:var(--t3);">${plantList.length} plant${plantList.length!==1?'s':''}</span>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px;">
+          ${plantCards}
+          ${unassignedCard}
+        </div>
+      </div>`;
+  })()}
   `;
   renderDashboardPlantTabs();
 }
