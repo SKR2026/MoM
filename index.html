@@ -545,17 +545,43 @@ function cancelCompanyEdit(){
 }
 
 function initLogin(){
-  const ul=document.getElementById('user-list');
-  if(!ul)return;
-  ul.innerHTML=USERS.filter(u=>u.role!=='super-admin'&&u.role!=='admin').map(u=>`
-    <button class="login-user-btn" onclick="loginAsUser(${u.id})">
-      ${av(u,32)}
-      <div class="lub-info">
-        <div class="lname">${u.name}</div>
-        <div class="lrole">${u.dept} · ${u.role}</div>
-      </div>
-      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 3l5 5-5 5"/></svg>
-    </button>`).join('');
+  const ul = document.getElementById('user-list');
+  if(!ul) return;
+
+  // All non-hardcoded users (anyone in the USERS array)
+  const allUsers = USERS.slice().sort((a,b) => {
+    const ro = ['super-admin','admin','top-mgmt','manager','assignee'];
+    return (ro.indexOf(a.role)||99) - (ro.indexOf(b.role)||99) || (a.name||'').localeCompare(b.name||'');
+  });
+
+  if(!allUsers.length){
+    ul.innerHTML = '<div style="color:var(--t3);font-size:12px;text-align:center;padding:14px 0;">No users yet — admins can add users in Settings → Users & Roles.</div>';
+    return;
+  }
+
+  // Render search + list
+  ul.innerHTML =
+    `<input id="ul-search" placeholder="Search name or dept…" style="width:100%;box-sizing:border-box;margin-bottom:10px;font-size:12px;padding:7px 10px;border:1px solid var(--br);border-radius:var(--rs);background:var(--bg2);color:var(--tx);outline:none;" oninput="_filterUserList(this.value)">
+    <div id="ul-rows">
+      ${allUsers.map(u=>`
+      <button class="login-user-btn" onclick="loginAsUser(${u.id})" data-name="${(u.name||'').toLowerCase()}" data-dept="${(u.dept||'').toLowerCase()}">
+        ${av(u,32)}
+        <div class="lub-info">
+          <div class="lname">${u.name}</div>
+          <div class="lrole">${[u.dept, u.role].filter(Boolean).join(' · ')}</div>
+        </div>
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 3l5 5-5 5"/></svg>
+      </button>`).join('')}
+    </div>`;
+}
+
+function _filterUserList(q){
+  const term = (q||'').toLowerCase().trim();
+  document.querySelectorAll('#ul-rows .login-user-btn').forEach(btn => {
+    const name = btn.dataset.name || '';
+    const dept = btn.dataset.dept || '';
+    btn.style.display = (!term || name.includes(term) || dept.includes(term)) ? '' : 'none';
+  });
 }
 
 function switchLoginTab(tab){
@@ -568,14 +594,16 @@ function switchLoginTab(tab){
 }
 
 function doLogin(){
-  const uVal = document.getElementById('l-user').value.trim().toLowerCase();
-  const pVal = document.getElementById('l-pass').value;
+  const uVal = (document.getElementById('l-user').value || '').trim().toLowerCase();
+  const pVal = document.getElementById('l-pass').value || '';
   const errEl = document.getElementById('login-err');
   const btn   = document.getElementById('login-btn');
 
+  if(!uVal){ errEl.textContent='Please enter your username or email.'; errEl.style.display='block'; return; }
+
   console.log('[Login] attempt:', uVal, '| FS loaded:', _fsUsersLoaded, '| USERS:', USERS.length, '| PWDs:', Object.keys(USER_PASSWORDS).length);
 
-  // ── STEP 1: Hardcoded staff (superadmin / admin / developer) ─────────────
+  // ── STEP 1: Hardcoded staff (superadmin / admin / developer) — always works offline ──
   const cred = AUTH_CREDENTIALS[uVal];
   if(cred){
     if(cred.password === pVal){
@@ -587,84 +615,93 @@ function doLogin(){
       applySession(cred.display, cred.desc, cred.ini, cred.col, cred.tc, true);
       return;
     } else {
-      // Username matched but password wrong — definitive failure
-      errEl.textContent = 'Incorrect password.';
+      errEl.textContent = 'Incorrect password for "' + uVal + '".';
       errEl.style.display = 'block';
+      if(btn){ btn.disabled = false; btn.textContent = 'Sign In'; }
       return;
     }
   }
 
-  // ── STEP 2: If Firestore not yet loaded, wait and retry ──────────────────
-  if (!_fsUsersLoaded) {
-    console.log('[Login] Firestore not ready — waiting...');
-    if(btn){ btn.disabled = true; btn.textContent = 'Connecting…'; }
-    errEl.textContent = 'Connecting to server — please wait...';
-    errEl.style.display = 'block';
-    const _wait = (attempt) => {
-      if (_fsUsersLoaded) {
-        if(btn){ btn.disabled = false; btn.textContent = 'Sign In'; }
-        errEl.style.display = 'none';
-        doLogin();
-      } else if (attempt < 30) {
-        setTimeout(() => _wait(attempt + 1), 500);
+  // ── STEP 2: Try matching from USERS array (may already be loaded from localStorage) ──
+  const _tryMatchUser = () => {
+    const matchUser = USERS.find(u =>
+      (u.email && u.email.toLowerCase() === uVal) ||
+      (u.name  && u.name.toLowerCase()  === uVal)
+    );
+
+    console.log('[Login] matched user:', matchUser ? matchUser.name : 'none',
+      '| stored pw:', matchUser ? (USER_PASSWORDS[Number(matchUser.id)] !== undefined ? 'SET' : 'MISSING') : 'n/a');
+
+    if(matchUser){
+      const storedPw = USER_PASSWORDS[Number(matchUser.id)];
+      const roleMap  = {'super-admin':'super-admin','admin':'admin','top-mgmt':'top-mgmt','manager':'manager','assignee':'assignee'};
+      const resolvedRole = roleMap[matchUser.role] || matchUser.role;
+      const requiresPassword = resolvedRole === 'super-admin' || resolvedRole === 'admin';
+
+      if(requiresPassword){
+        if(storedPw === undefined){
+          errEl.textContent = `"${matchUser.name}" has no password set. Ask Super Admin to set one in Users & Roles.`;
+          errEl.style.display = 'block';
+          if(btn){ btn.disabled=false; btn.textContent='Sign In'; }
+          return;
+        }
+        if(storedPw !== pVal){
+          errEl.textContent = 'Incorrect password.';
+          errEl.style.display = 'block';
+          if(btn){ btn.disabled=false; btn.textContent='Sign In'; }
+          return;
+        }
       } else {
-        if(btn){ btn.disabled = false; btn.textContent = 'Sign In'; }
-        errEl.textContent = 'Server unreachable. Check internet and try again.';
+        if(storedPw !== undefined && pVal !== '' && storedPw !== pVal){
+          errEl.textContent = 'Incorrect password.';
+          errEl.style.display = 'block';
+          if(btn){ btn.disabled=false; btn.textContent='Sign In'; }
+          return;
+        }
       }
-    };
-    setTimeout(() => _wait(0), 400);
-    return;
-  }
-
-  // ── STEP 3: Match against USERS array ────────────────────────────────────
-  const matchUser = USERS.find(u =>
-    (u.email  && u.email.toLowerCase()  === uVal) ||
-    (u.name   && u.name.toLowerCase()   === uVal)
-  );
-
-  console.log('[Login] matched user:', matchUser ? matchUser.name : 'none',
-    '| stored pw:', matchUser ? (USER_PASSWORDS[Number(matchUser.id)] !== undefined ? 'SET' : 'MISSING') : 'n/a');
-
-  if(matchUser){
-    const storedPw = USER_PASSWORDS[Number(matchUser.id)];
-    const roleMap = {'super-admin':'super-admin','admin':'admin','top-mgmt':'top-mgmt','manager':'manager','assignee':'assignee'};
-    const resolvedRole = roleMap[matchUser.role] || matchUser.role;
-    const requiresPassword = resolvedRole === 'super-admin' || resolvedRole === 'admin';
-
-    if(requiresPassword){
-      // super-admin and admin MUST have a password and enter it correctly
-      if(storedPw === undefined){
-        errEl.textContent = `Account exists for "${matchUser.name}" but no password has been set. Ask the Super Admin to set one in Users & Roles.`;
-        errEl.style.display = 'block';
-        return;
-      }
-      if(storedPw !== pVal){
-        errEl.textContent = 'Incorrect password.';
-        errEl.style.display = 'block';
-        return;
-      }
-    } else {
-      // top-mgmt, manager, assignee — password optional; if set, validate it
-      if(storedPw !== undefined && pVal !== '' && storedPw !== pVal){
-        errEl.textContent = 'Incorrect password.';
-        errEl.style.display = 'block';
-        return;
-      }
+      // Accepted
+      errEl.style.display = 'none';
+      loggedInAs  = matchUser;
+      currentRole = resolvedRole;
+      baseRole    = currentRole;
+      if(btn){ btn.disabled=false; btn.textContent='Sign In'; }
+      hideLoginScreen();
+      applySession(matchUser.name, matchUser.dept, matchUser.ini, matchUser.col, matchUser.tc, true);
+      return;
     }
 
-    // Credentials accepted
-    errEl.style.display = 'none';
-    loggedInAs  = matchUser;
-    currentRole = resolvedRole;
-    baseRole    = currentRole;
-    hideLoginScreen();
-    applySession(matchUser.name, matchUser.dept, matchUser.ini, matchUser.col, matchUser.tc, true);
+    // No user found at all
+    errEl.textContent = 'User not found. Use your registered email or full name.';
+    errEl.style.display = 'block';
+    if(btn){ btn.disabled=false; btn.textContent='Sign In'; }
+  };
+
+  // ── STEP 3: If we already have users (from localStorage or Firestore), try immediately ──
+  if(USERS.length > 0){
+    _tryMatchUser();
     return;
   }
 
-  // No match at all
-  errEl.textContent = 'User not found. Use your registered email address or full name.';
+  // ── STEP 4: No users yet — wait for Firestore to load (max 20 seconds) ──────────────
+  if(btn){ btn.disabled = true; btn.textContent = 'Connecting…'; }
+  errEl.textContent = 'Connecting to server — please wait…';
   errEl.style.display = 'block';
+
+  let _attempts = 0;
+  const _wait = () => {
+    if(USERS.length > 0 || _fsUsersLoaded){
+      errEl.style.display = 'none';
+      if(btn){ btn.disabled=false; btn.textContent='Sign In'; }
+      _tryMatchUser();
+    } else if(_attempts < 40){ // 40 × 500 ms = 20 s
+      _attempts++;
+      setTimeout(_wait, 500);
+    } else {
+      if(btn){ btn.disabled=false; btn.textContent='Sign In'; }
+      errEl.textContent = 'Server unreachable. Check internet or try again. Admin logins (superadmin/admin/developer) work offline.';
+    }
+  };
+  setTimeout(_wait, 400);
 }
 
 function loginAsUser(uid){
@@ -1489,6 +1526,127 @@ function renderDashboard(){
 
   </div>
   ${(()=>{if(!over)return'';return'<div class="alert ad" style="margin-bottom:16px;">'+over+' overdue task'+(over>1?'s':'')+' require attention. '+myTasks.filter(t=>t.esc>=2).length+' escalated to senior management.</div>';})()}
+
+  <!-- ── Plant-wise Meeting Status Panels ── -->
+  ${(()=>{
+    // Only show for super-admin / developer / top-mgmt who can see all plants
+    const canSeeAllPlants = (currentRole==='super-admin'||currentRole==='developer'||currentRole==='top-mgmt');
+    if(!canSeeAllPlants || !PLANTS.length) return '';
+
+    const plantList = PLANTS;
+    const statusColors = {
+      'completed':   {bg:'var(--ol)',  border:'var(--ok)', text:'var(--ok)'},
+      'in-progress': {bg:'var(--al)',  border:'var(--ac)', text:'var(--ac)'},
+      'scheduled':   {bg:'var(--il)',  border:'var(--in)', text:'var(--in)'},
+      'cancelled':   {bg:'var(--el)', border:'var(--er)', text:'var(--er)'},
+      'pending':     {bg:'var(--bg3)', border:'var(--br2)','text':'var(--t3)'},
+    };
+
+    const plantCards = plantList.map(plant => {
+      const plantMeetings = MEETINGS.filter(m => m.plantId === plant.id);
+      const ptasks = TASKS.filter(t => plantMeetings.some(m => m.id === t.mid));
+      const ptot   = ptasks.length;
+      const pcomp  = ptasks.filter(t => t.status === 'completed').length;
+      const pinp   = ptasks.filter(t => t.status === 'in-progress').length;
+      const pover  = ptasks.filter(t => t.status === 'overdue').length;
+      const ppend  = ptasks.filter(t => t.status === 'pending').length;
+      const ppct   = ptot ? Math.round(pcomp / ptot * 100) : 0;
+
+      // Meeting status counts
+      const mComp  = plantMeetings.filter(m => m.status === 'completed').length;
+      const mInProg= plantMeetings.filter(m => m.status === 'in-progress').length;
+      const mSched = plantMeetings.filter(m => m.status === 'scheduled').length;
+      const mOther = plantMeetings.length - mComp - mInProg - mSched;
+
+      // Completion bar gradient
+      const compW = ptot ? Math.round(pcomp/ptot*100) : 0;
+      const inpW  = ptot ? Math.round(pinp/ptot*100)  : 0;
+      const overW = ptot ? Math.round(pover/ptot*100) : 0;
+      const pendW = Math.max(0, 100 - compW - inpW - overW);
+
+      const admin = USERS.find(u => Number(u.id) === Number(plant.adminId));
+
+      return `
+        <div class="card" style="padding:14px 16px;">
+          <!-- Plant header -->
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;gap:8px;">
+            <div style="display:flex;align-items:center;gap:8px;min-width:0;">
+              <div style="width:32px;height:32px;border-radius:8px;background:var(--al);display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0;">🏭</div>
+              <div style="min-width:0;">
+                <div style="font-size:13px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${plant.name}</div>
+                <div style="font-size:10px;color:var(--t3);">${plant.location||''}${admin?' · Admin: '+admin.name:''}</div>
+              </div>
+            </div>
+            <div style="text-align:right;flex-shrink:0;">
+              <div style="font-size:22px;font-weight:800;color:${ppct>=80?'var(--ok)':ppct>=50?'var(--ac)':'var(--er)'};">${ppct}%</div>
+              <div style="font-size:10px;color:var(--t3);">completion</div>
+            </div>
+          </div>
+
+          <!-- Stacked progress bar -->
+          <div style="height:7px;border-radius:4px;overflow:hidden;display:flex;margin-bottom:10px;background:var(--bg3);">
+            ${compW>0?`<div style="width:${compW}%;background:#22c55e;transition:width .4s;"></div>`:''}
+            ${inpW>0 ?`<div style="width:${inpW}%;background:#3b82f6;transition:width .4s;"></div>`:''}
+            ${overW>0?`<div style="width:${overW}%;background:#ef4444;transition:width .4s;"></div>`:''}
+            ${pendW>0?`<div style="width:${pendW}%;background:#94a3b8;opacity:.5;transition:width .4s;"></div>`:''}
+          </div>
+
+          <!-- Task stats row -->
+          <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin-bottom:12px;">
+            ${[['✅','Completed',pcomp,'var(--ok)'],['🔄','In-Progress',pinp,'var(--ac)'],['🔴','Overdue',pover,'var(--er)'],['⏳','Pending',ppend,'var(--t3)']].map(([ic,lb,val,col])=>
+              `<div style="text-align:center;padding:5px 2px;background:var(--bg3);border-radius:var(--rs);">
+                <div style="font-size:13px;font-weight:700;color:${col};">${val}</div>
+                <div style="font-size:9px;color:var(--t3);">${lb}</div>
+              </div>`).join('')}
+          </div>
+
+          <!-- Meeting status row -->
+          <div style="border-top:1px solid var(--br);padding-top:9px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px;">
+            <div style="font-size:10px;font-weight:600;color:var(--t2);">Meetings (${plantMeetings.length})</div>
+            <div style="display:flex;gap:5px;flex-wrap:wrap;">
+              ${mComp ?`<span style="font-size:10px;padding:2px 7px;border-radius:10px;background:var(--ol);color:var(--ok);font-weight:600;">${mComp} Done</span>`:''}
+              ${mInProg?`<span style="font-size:10px;padding:2px 7px;border-radius:10px;background:var(--al);color:var(--ac);font-weight:600;">${mInProg} In-Progress</span>`:''}
+              ${mSched?`<span style="font-size:10px;padding:2px 7px;border-radius:10px;background:var(--il);color:var(--in);font-weight:600;">${mSched} Scheduled</span>`:''}
+              ${mOther?`<span style="font-size:10px;padding:2px 7px;border-radius:10px;background:var(--bg3);color:var(--t3);font-weight:600;">${mOther} Other</span>`:''}
+              ${!plantMeetings.length?'<span style="font-size:10px;color:var(--t3);">No meetings yet</span>':''}
+            </div>
+            <button class="btn bs" style="font-size:10px;padding:3px 9px;" onclick="navigate('meetings')">View →</button>
+          </div>
+        </div>`;
+    }).join('');
+
+    // Unassigned meetings (no plantId)
+    const unassignedMeetings = MEETINGS.filter(m => !m.plantId || !PLANTS.find(p=>p.id===m.plantId));
+    const uaTasks  = TASKS.filter(t => unassignedMeetings.some(m=>m.id===t.mid));
+    const uaComp   = uaTasks.filter(t=>t.status==='completed').length;
+    const uaPct    = uaTasks.length ? Math.round(uaComp/uaTasks.length*100) : 0;
+    const unassignedCard = (unassignedMeetings.length > 0) ? `
+      <div class="card" style="padding:14px 16px;border-style:dashed;">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+          <div style="width:32px;height:32px;border-radius:8px;background:var(--bg3);display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0;">📋</div>
+          <div><div style="font-size:13px;font-weight:700;">Unassigned / Corporate</div>
+            <div style="font-size:10px;color:var(--t3);">${unassignedMeetings.length} meeting${unassignedMeetings.length!==1?'s':''} not linked to a plant</div>
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:4px;">
+          <div style="padding:6px;background:var(--bg3);border-radius:var(--rs);text-align:center;"><div style="font-size:13px;font-weight:700;">${unassignedMeetings.length}</div><div style="font-size:9px;color:var(--t3);">Meetings</div></div>
+          <div style="padding:6px;background:var(--bg3);border-radius:var(--rs);text-align:center;"><div style="font-size:13px;font-weight:700;color:${uaPct>=80?'var(--ok)':uaPct>=50?'var(--ac)':'var(--er)'};">${uaPct}%</div><div style="font-size:9px;color:var(--t3);">Tasks done</div></div>
+        </div>
+      </div>` : '';
+
+    return `
+      <div style="margin-bottom:20px;">
+        <div style="font-size:13px;font-weight:700;color:var(--tx);margin-bottom:10px;display:flex;align-items:center;gap:8px;">
+          🏭 Plant-wise Meeting Status
+          <span style="font-size:10px;font-weight:400;color:var(--t3);">${plantList.length} plant${plantList.length!==1?'s':''}</span>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px;">
+          ${plantCards}
+          ${unassignedCard}
+        </div>
+      </div>`;
+  })()}
+
   <div class="g2" style="margin-bottom:20px;">
     <div class="card" id="donut-card">
       <div class="ch"><div class="ctit">Task Status Breakdown</div></div>
