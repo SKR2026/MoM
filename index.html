@@ -13,6 +13,7 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-storage-compat.js"></script>
 <!-- MSAL loaded on-demand in getMSGraphToken() — not blocking -->
 <!-- SheetJS – for reading .xlsx files in bulk upload -->
 <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
@@ -1432,6 +1433,7 @@ function renderDashboard(){
   const pct=tot?Math.round(comp/tot*100):0;
   // ── Firebase live status ──
   const _fbOnline  = !!(_db && _listenersStarted);
+  const _fbStorage = !!_storage;
   const _fbProject = (typeof _FB_CFG !== 'undefined' && _FB_CFG.projectId) ? _FB_CFG.projectId : '—';
   const _fbUserCount = USERS.length;
   const _fbLastSync  = _listenersStarted ? 'Live' : 'Not synced';
@@ -1452,6 +1454,8 @@ function renderDashboard(){
     <span style="font-size:11px;color:var(--t2);">Users synced: <b>${_fbUserCount}</b></span>
     <div style="width:1px;height:14px;background:var(--br);flex-shrink:0;"></div>
     <span style="font-size:11px;color:var(--t2);">Sync: <b>${_fbLastSync}</b></span>
+    <div style="width:1px;height:14px;background:var(--br);flex-shrink:0;"></div>
+    <span style="font-size:11px;color:${_fbStorage?'var(--ok)':'var(--er)'};">Storage: <b>${_fbStorage?'Ready ✓':'Not loaded ✗'}</b></span>
     <div style="margin-left:auto;">
       <button class="btn bs" style="font-size:11px;padding:3px 10px;" onclick="renderDashboard()">↻ Refresh</button>
     </div>
@@ -3116,14 +3120,15 @@ const _FB_CFG = {
   measurementId:     "G-P4QD3VEXDW"
 };
 
-let _db = null, _authFs = null, _listenersStarted = false;
+let _db = null, _authFs = null, _storage = null, _listenersStarted = false;
 let FB_STATUS = {};
 let _fsUsersLoaded = false; // true once Firestore users snapshot has arrived
 
 try {
   const _fbapp = firebase.apps.length ? firebase.app() : firebase.initializeApp(_FB_CFG);
-  _db     = firebase.firestore();
-  _authFs = firebase.auth();
+  _db      = firebase.firestore();
+  _authFs  = firebase.auth();
+  _storage = firebase.storage();  // Firebase Storage — uses storageBucket from config
   // Enable offline persistence — suppress Firebase SDK deprecation warning permanently
   // The compat SDK 10.x always emits it async; patch console.warn to filter it out
   (function() {
@@ -3168,6 +3173,9 @@ let _firstUsersSnap    = false;
 function initFirestoreListeners() {
   if (_listenersStarted || !_db) return;
   _listenersStarted = true;
+
+  // ── Evidence ──────────────────────────────────────────────────────────────
+  loadEvidenceFromFirestore();
 
   // ── Users ──────────────────────────────────────────────────────────────────
   const fu = FS_USERS();
@@ -3480,9 +3488,10 @@ function renderFirebase(){
         ">Copy Rules</button>
       </div>
       <div style="background:var(--bg3);border-radius:var(--rs);padding:10px 14px;font-size:12px;color:var(--t2);margin-bottom:10px;line-height:1.9;">
-        <b>2-step setup (do once in Firebase Console):</b><br>
+        <b>3-step setup (do once in Firebase Console):</b><br>
         <b>①</b> <b>Authentication → Sign-in method → Anonymous → Enable &amp; Save</b><br>
-        <b>②</b> <b>Firestore Database → Rules</b> — paste the rules below and click <b>Publish</b>
+        <b>②</b> <b>Firestore Database → Rules</b> — paste the rules below and click <b>Publish</b><br>
+        <b>③</b> <b>Storage → Get Started → Rules</b> — paste: <code style="font-family:var(--mo);font-size:10px;">allow read, write: if request.auth != null;</code> and click <b>Publish</b>
       </div>
       <pre id="fs-rules-pre" style="background:#0d1117;color:#e5e7eb;border-radius:var(--rs);padding:14px;font-family:var(--mo);font-size:11px;line-height:1.8;overflow-x:auto;white-space:pre;margin:0;">${RULES}</pre>
     </div>
@@ -5355,19 +5364,7 @@ function renderTaskModal(taskId){
     <!-- Evidence Upload -->
     <div class="divl" style="margin-top:14px;">Evidence / Attachments</div>
     <div id="ev-list-${taskId}" style="margin-bottom:10px;">
-    ${(()=>{
-      const evs=(EVIDENCE[taskId]||[]);
-      if(!evs.length) return '<div style="font-size:12px;color:var(--t3);margin-bottom:8px;">No evidence uploaded yet.</div>';
-      return evs.map(function(ev,i){
-        const isImg=/^image\//.test(ev.type);
-        return '<div style="display:flex;align-items:center;gap:8px;padding:7px 10px;background:var(--bg3);border-radius:var(--rs);margin-bottom:6px;border-left:3px solid var(--ac);">'
-          +(isImg?'<img src="'+ev.dataUrl+'" style="width:36px;height:36px;object-fit:cover;border-radius:4px;flex-shrink:0;">':'<div style="width:36px;height:36px;background:var(--al);border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0;">📄</div>')
-          +'<div style="flex:1;min-width:0;"><div style="font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+ev.name+'</div>'
-            +'<div style="font-size:10px;color:var(--t3);">'+ev.uploadedBy+' · '+ev.time+'</div></div>'
-          +'<a href="'+ev.dataUrl+'" download="'+ev.name+'" class="btn bs" style="font-size:11px;text-decoration:none;">↓</a>'
-          +'</div>';
-      }).join('');
-    })()}
+      ${buildEvidenceList(taskId, true)}
     </div>
     <div style="background:var(--bg3);border:2px dashed var(--br2);border-radius:var(--rs);padding:14px;text-align:center;cursor:pointer;transition:all .15s;"
       id="ev-dropzone"
@@ -5375,8 +5372,8 @@ function renderTaskModal(taskId){
       ondragleave="this.style.borderColor='var(--br2)';"
       ondrop="handleEvidenceDrop(event,'${taskId}','${(gu(t.uid).name||loggedInAs&&loggedInAs.name||'Assignee').replace(/'/g,"\\'")}')">
       <div style="font-size:13px;color:var(--t2);margin-bottom:6px;">📎 Drop files here or <label for="ev-file-${taskId}" style="color:var(--ac);cursor:pointer;text-decoration:underline;">browse</label></div>
-      <div style="font-size:10px;color:var(--t3);">Images, PDF, Word, Excel — max 5 MB each</div>
-      <input type="file" id="ev-file-${taskId}" multiple accept="image/*,.pdf,.doc,.docx,.xls,.xlsx" style="display:none;"
+      <div style="font-size:10px;color:var(--t3);">Images, PDF, Word, Excel, ZIP — up to 50 MB · stored in Firebase Storage</div>
+      <input type="file" id="ev-file-${taskId}" multiple accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.zip,.txt" style="display:none;"
         onchange="handleEvidenceFiles(this.files,'${taskId}','${(gu(t.uid).name||loggedInAs&&loggedInAs.name||'Assignee').replace(/'/g,"\\'")}')">
     </div>
     <div class="divl" style="margin-top:16px;">Comments (${existingCmts.length})</div>
@@ -5405,20 +5402,7 @@ function renderTaskModal(taskId){
   </div>
   <!-- Evidence Attachments (admin view) -->
   <div class="divl">Evidence / Attachments (${(EVIDENCE[taskId]||[]).length})</div>
-  ${(()=>{
-    const evs=(EVIDENCE[taskId]||[]);
-    if(!evs.length) return '<div style="font-size:12px;color:var(--t3);margin-bottom:12px;">No evidence uploaded yet.</div>';
-    return '<div style="margin-bottom:12px;">'+evs.map(function(ev,i){
-      const isImg=/^image\//.test(ev.type);
-      return '<div style="display:flex;align-items:center;gap:8px;padding:7px 10px;background:var(--bg3);border-radius:var(--rs);margin-bottom:6px;border-left:3px solid var(--ac);">'
-        +(isImg?'<img src="'+ev.dataUrl+'" style="width:36px;height:36px;object-fit:cover;border-radius:4px;flex-shrink:0;">':'<div style="width:36px;height:36px;background:var(--al);border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0;">📄</div>')
-        +'<div style="flex:1;min-width:0;"><div style="font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+ev.name+'</div>'
-          +'<div style="font-size:10px;color:var(--t3);">'+ev.uploadedBy+' · '+ev.time+'</div></div>'
-        +'<a href="'+ev.dataUrl+'" download="'+ev.name+'" class="btn bs" style="font-size:11px;text-decoration:none;">↓</a>'
-        +'<button class="btn bs" style="font-size:11px;color:var(--er);border-color:var(--er);" onclick="deleteEvidence(\''+taskId+'\','+i+')">✕</button>'
-        +'</div>';
-    }).join('')+'</div>';
-  })()}
+  <div id="ev-list-${taskId}" style="margin-bottom:12px;">${buildEvidenceList(taskId, true)}</div>
   <div class="divl">Comments (${cmts.length})</div>
   ${cmts.map(c=>{const cu=gu(c.uid);return`<div style="background:var(--bg3);border-radius:7px;padding:9px 11px;margin-bottom:8px;"><div style="display:flex;align-items:center;gap:6px;margin-bottom:3px;">${av(cu,18)}<span style="font-size:12px;font-weight:500;">${cu.name}</span><span style="font-size:10px;color:var(--t3);margin-left:4px;">${c.time}</span></div><div style="font-size:12px;">${c.text.replace(/@(\w+)/g,'<span style="color:var(--ac);font-weight:500;">@$1</span>')}</div></div>`}).join('')||'<div style="color:var(--t3);font-size:12px;margin-bottom:12px;">No comments yet.</div>'}
   <textarea id="new-cmt" placeholder="Add a comment…" style="margin-top:4px;"></textarea>`;
@@ -5439,66 +5423,6 @@ function _logAndNotify(t, oldStatus, newStatus, cmt, userName){
     ? `<strong>${userName}</strong> updated status <strong>${oldStatus} → ${newStatus}</strong> and commented: <em>${cmt}</em>`
     : `<strong>${userName}</strong> updated status from <strong>${oldStatus}</strong> to <strong>${newStatus}</strong> (${t.pct}% complete).`;
   sendGroupedTaskNotifications([t.id], 'updated', null, extraNote);
-}
-
-/* ═══════════════════════════════════════════
-   EVIDENCE UPLOAD HELPERS
-═══════════════════════════════════════════ */
-function handleEvidenceFiles(files, taskId, uploaderName){
-  var arr=Array.from(files);
-  arr.forEach(function(file){
-    if(file.size>5*1024*1024){showToast(file.name+' exceeds 5 MB limit.','warn');return;}
-    var reader=new FileReader();
-    reader.onload=function(e){
-      if(!EVIDENCE[taskId]) EVIDENCE[taskId]=[];
-      EVIDENCE[taskId].push({
-        name:file.name,
-        type:file.type,
-        dataUrl:e.target.result,
-        uploadedBy:uploaderName,
-        time:new Date().toLocaleString()
-      });
-      persistEvidence();
-      // Refresh the evidence list inside the open modal
-      var listEl=document.getElementById('ev-list-'+taskId);
-      if(listEl) listEl.innerHTML=buildEvidenceList(taskId, false);
-      showToast('Evidence "'+file.name+'" uploaded.','ok');
-    };
-    reader.readAsDataURL(file);
-  });
-}
-
-function handleEvidenceDrop(event, taskId, uploaderName){
-  event.preventDefault();
-  document.getElementById('ev-dropzone').style.borderColor='var(--br2)';
-  handleEvidenceFiles(event.dataTransfer.files, taskId, uploaderName);
-}
-
-function buildEvidenceList(taskId, allowDelete){
-  var evs=EVIDENCE[taskId]||[];
-  if(!evs.length) return '<div style="font-size:12px;color:var(--t3);margin-bottom:8px;">No evidence uploaded yet.</div>';
-  return evs.map(function(ev,i){
-    var isImg=/^image\//.test(ev.type);
-    return '<div style="display:flex;align-items:center;gap:8px;padding:7px 10px;background:var(--bg3);border-radius:var(--rs);margin-bottom:6px;border-left:3px solid var(--ac);">'
-      +(isImg?'<img src="'+ev.dataUrl+'" style="width:36px;height:36px;object-fit:cover;border-radius:4px;flex-shrink:0;">':'<div style="width:36px;height:36px;background:var(--al);border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0;">📄</div>')
-      +'<div style="flex:1;min-width:0;"><div style="font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+ev.name+'</div>'
-        +'<div style="font-size:10px;color:var(--t3);">'+ev.uploadedBy+' · '+ev.time+'</div></div>'
-      +'<a href="'+ev.dataUrl+'" download="'+ev.name+'" class="btn bs" style="font-size:11px;text-decoration:none;">↓</a>'
-      +(allowDelete?'<button class="btn bs" style="font-size:11px;color:var(--er);border-color:var(--er);" onclick="deleteEvidence(\''+taskId+'\','+i+')">✕</button>':'')
-      +'</div>';
-  }).join('');
-}
-
-function deleteEvidence(taskId, idx){
-  if(!EVIDENCE[taskId]) return;
-  var name=EVIDENCE[taskId][idx]&&EVIDENCE[taskId][idx].name;
-  EVIDENCE[taskId].splice(idx,1);
-  if(!EVIDENCE[taskId].length) delete EVIDENCE[taskId];
-  persistEvidence();
-  // Refresh list
-  var listEl=document.getElementById('ev-list-'+taskId);
-  if(listEl) listEl.innerHTML=buildEvidenceList(taskId, true);
-  showToast((name||'File')+' removed.','info');
 }
 
 function saveTaskStatus(id){
@@ -5554,9 +5478,173 @@ function saveTask(id){
   closeModal();
 }
 
-/* ─── Evidence Store: taskId → [{name, dataUrl, type, uploadedBy, time}] ─── */
-var EVIDENCE = (function(){try{return JSON.parse(localStorage.getItem('mompro_evidence')||'{}')}catch(e){return{}}})();
-function persistEvidence(){try{localStorage.setItem('mompro_evidence',JSON.stringify(EVIDENCE))}catch(e){}}
+/* ═══════════════════════════════════════════════════════════════════
+   EVIDENCE — Firebase Storage (binary file) + Firestore (metadata)
+   Storage path : evidence/{taskId}/{evId}/{filename}
+   Firestore doc: mompro_evidence/{evId}
+     { id, taskId, name, type, size, downloadURL, uploadedBy, uploadedById, time }
+═══════════════════════════════════════════════════════════════════ */
+var EVIDENCE = {};  // in-memory cache: taskId → [evMetadata, …]
+
+const FS_EVIDENCE  = () => _db      && _db.collection('mompro_evidence');
+const ST_EVIDENCE  = (taskId, evId, name) =>
+  _storage && _storage.ref(`evidence/${taskId}/${evId}/${name}`);
+
+/* ── Load all metadata from Firestore on startup ── */
+function loadEvidenceFromFirestore() {
+  const c = FS_EVIDENCE();
+  if (!c) return;
+  c.orderBy('time').get().then(snap => {
+    EVIDENCE = {};
+    snap.docs.forEach(d => {
+      const ev = d.data();
+      if (!EVIDENCE[ev.taskId]) EVIDENCE[ev.taskId] = [];
+      EVIDENCE[ev.taskId].push(ev);
+    });
+  }).catch(e => console.warn('[MoMPro] Load evidence:', e.code));
+}
+
+/* ── Upload file → Storage, then write metadata → Firestore ── */
+function handleEvidenceFiles(files, taskId, uploaderName) {
+  if (!_storage || !_db) { showToast('Firebase Storage not ready. Check your connection.', 'warn'); return; }
+  Array.from(files).forEach(function(file) {
+    if (file.size > 20 * 1024 * 1024) { showToast(file.name + ' exceeds 20 MB limit.', 'warn'); return; }
+
+    const evId    = 'EV-' + Date.now() + '-' + Math.random().toString(36).slice(2,6);
+    const stRef   = ST_EVIDENCE(taskId, evId, file.name);
+    const uploaderUser = loggedInAs || {};
+
+    // Show upload progress in list
+    if (!EVIDENCE[taskId]) EVIDENCE[taskId] = [];
+    const placeholder = { id: evId, taskId, name: file.name, type: file.type,
+      size: file.size, downloadURL: null, uploadedBy: uploaderName,
+      uploadedById: uploaderUser.id || null, time: new Date().toLocaleString(), _uploading: true };
+    EVIDENCE[taskId].push(placeholder);
+    _refreshEvList(taskId);
+
+    const uploadTask = stRef.put(file);
+
+    uploadTask.on('state_changed',
+      function(snapshot) {
+        const pct = Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100);
+        const prog = document.getElementById('ev-prog-' + evId);
+        if (prog) prog.style.width = pct + '%';
+        const lbl  = document.getElementById('ev-prog-lbl-' + evId);
+        if (lbl)  lbl.textContent = pct + '%';
+      },
+      function(error) {
+        // Remove placeholder on error
+        EVIDENCE[taskId] = (EVIDENCE[taskId] || []).filter(e => e.id !== evId);
+        _refreshEvList(taskId);
+        console.error('[MoMPro] Storage upload error:', error.code, error.message);
+        const tips = {
+          'storage/unauthorized': 'Storage rules block the upload. In Firebase Console → Storage → Rules, add: allow read, write: if request.auth != null;',
+          'storage/canceled':     'Upload was cancelled.',
+          'storage/unknown':      'Unknown storage error — check your internet connection.',
+        };
+        showToast((tips[error.code] || 'Upload failed: ' + error.code), 'err');
+      },
+      function() {
+        // Upload complete — get download URL, write Firestore metadata doc
+        uploadTask.snapshot.ref.getDownloadURL().then(function(url) {
+          const evMeta = {
+            id: evId, taskId, name: file.name, type: file.type,
+            size: file.size, downloadURL: url,
+            uploadedBy: uploaderName, uploadedById: uploaderUser.id || null,
+            time: new Date().toLocaleString(),
+            storagePath: 'evidence/' + taskId + '/' + evId + '/' + file.name,
+          };
+          // Update in-memory: swap placeholder → real metadata
+          const idx = (EVIDENCE[taskId] || []).findIndex(e => e.id === evId);
+          if (idx > -1) EVIDENCE[taskId][idx] = evMeta;
+          // Write metadata to Firestore
+          FS_EVIDENCE().doc(evId).set(evMeta)
+            .catch(e => console.warn('[MoMPro] FW evidence meta:', e.code));
+          _refreshEvList(taskId);
+          showToast('"' + file.name + '" uploaded to Firebase Storage.', 'ok');
+          AUDIT_LOG.unshift({ time: new Date().toISOString().slice(0,16).replace('T',' '),
+            user: uploaderName, action: 'Uploaded evidence "' + file.name + '" for task ' + taskId,
+            entity: taskId, type: 'update' });
+        });
+      }
+    );
+  });
+}
+
+function handleEvidenceDrop(event, taskId, uploaderName) {
+  event.preventDefault();
+  const dz = document.getElementById('ev-dropzone');
+  if (dz) dz.style.borderColor = 'var(--br2)';
+  handleEvidenceFiles(event.dataTransfer.files, taskId, uploaderName);
+}
+
+/* ── Delete: remove from Storage + Firestore + memory ── */
+function deleteEvidence(taskId, evId) {
+  const evList = EVIDENCE[taskId] || [];
+  const ev = evList.find(e => e.id === evId);
+  if (!ev) return;
+  if (!confirm('Delete "' + ev.name + '"? This cannot be undone.')) return;
+
+  // Remove from Firestore
+  FS_EVIDENCE().doc(evId).delete().catch(e => console.warn('[MoMPro] FD evidence:', e.code));
+
+  // Remove from Storage
+  if (ev.storagePath && _storage) {
+    _storage.ref(ev.storagePath).delete()
+      .catch(e => console.warn('[MoMPro] Storage delete:', e.code));
+  }
+
+  // Remove from memory
+  EVIDENCE[taskId] = evList.filter(e => e.id !== evId);
+  if (!EVIDENCE[taskId].length) delete EVIDENCE[taskId];
+
+  _refreshEvList(taskId);
+  showToast('"' + ev.name + '" deleted.', 'info');
+}
+
+/* ── Refresh the evidence list DOM inside an open modal ── */
+function _refreshEvList(taskId) {
+  const el = document.getElementById('ev-list-' + taskId);
+  if (el) el.innerHTML = buildEvidenceList(taskId, true);
+}
+
+/* ── Build the evidence list HTML ── */
+function buildEvidenceList(taskId, allowDelete) {
+  const evs = EVIDENCE[taskId] || [];
+  if (!evs.length) return '<div style="font-size:12px;color:var(--t3);margin-bottom:8px;">No evidence uploaded yet.</div>';
+  return evs.map(function(ev) {
+    const isImg  = /^image\//.test(ev.type);
+    const isPdf  = ev.type === 'application/pdf';
+    const icon   = isImg ? '🖼️' : isPdf ? '📕' : ev.type.includes('word') ? '📝' : ev.type.includes('sheet') || ev.type.includes('excel') ? '📊' : '📄';
+    const sizeKB = ev.size ? (ev.size > 1048576 ? (ev.size/1048576).toFixed(1)+' MB' : Math.round(ev.size/1024)+' KB') : '';
+    const uploading = !!ev._uploading;
+
+    return '<div style="display:flex;align-items:center;gap:9px;padding:9px 12px;background:var(--bg3);border-radius:var(--rs);margin-bottom:6px;border-left:3px solid '+(uploading?'var(--wn)':'var(--ac)')+';">'
+      // Icon / thumbnail
+      +(isImg && ev.downloadURL
+        ? '<img src="'+ev.downloadURL+'" style="width:38px;height:38px;object-fit:cover;border-radius:4px;flex-shrink:0;" onerror="this.style.display=\'none\'">'
+        : '<div style="width:38px;height:38px;background:var(--al);border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0;">'+icon+'</div>')
+      // Info
+      +'<div style="flex:1;min-width:0;">'
+        +'<div style="font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="'+ev.name+'">'+ev.name+'</div>'
+        +'<div style="font-size:10px;color:var(--t3);margin-top:1px;">'+ev.uploadedBy+(sizeKB?' · '+sizeKB:'')+(uploading?'':' · '+ev.time)+'</div>'
+        // Progress bar while uploading
+        +(uploading
+          ? '<div style="height:3px;background:var(--br);border-radius:2px;margin-top:5px;overflow:hidden;">'
+              +'<div id="ev-prog-'+ev.id+'" style="height:100%;background:var(--wn);border-radius:2px;width:0%;transition:width .3s;"></div></div>'
+              +'<div id="ev-prog-lbl-'+ev.id+'" style="font-size:9px;color:var(--wn);margin-top:2px;">Uploading…</div>'
+          : '')
+      +'</div>'
+      // Actions
+      +(uploading ? '<span style="font-size:11px;color:var(--wn);">⏳</span>'
+        : '<a href="'+ev.downloadURL+'" target="_blank" class="btn bs" style="font-size:11px;text-decoration:none;flex-shrink:0;" title="Open in new tab">↗ Open</a>'
+          +(allowDelete ? '<button class="btn bs" style="font-size:11px;color:var(--er);border-color:var(--er);flex-shrink:0;" onclick="deleteEvidence(\''+taskId+'\',\''+ev.id+'\')">✕</button>' : ''))
+      +'</div>';
+  }).join('');
+}
+
+/* No-op stub — kept so any stray old calls don't crash */
+function persistEvidence() {}
 
 var _momId=null;
 function renderMeetingDetailModal(meetingId){_momId=meetingId;
@@ -5942,18 +6030,18 @@ function renderDevApi(){
 
     <div class="card">
       <div class="ch"><div class="ctit">Firestore Collections</div>${isLive?'<span class="bdg b-ok">Live</span>':'<span class="bdg b-wn">Offline</span>'}</div>
-      ${['mompro_meetings','mompro_tasks','mompro_users','mompro_meta','mompro_roles'].map(col=>`
+      ${['mompro_meetings','mompro_tasks','mompro_users','mompro_meta','mompro_roles','mompro_evidence'].map(col=>`
       <div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--br);font-size:12px;">
         <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><ellipse cx="8" cy="4" rx="6" ry="2"/><path d="M2 4v4c0 1.1 2.7 2 6 2s6-.9 6-2V4"/><path d="M2 8v4c0 1.1 2.7 2 6 2s6-.9 6-2V8"/></svg>
         <code style="font-family:var(--mo);color:var(--ac);flex:1;">${col}</code>
-        <span style="color:var(--t3);">${col==='mompro_meetings'?MEETINGS.length+' docs':col==='mompro_tasks'?TASKS.length+' docs':col==='mompro_users'?USERS.length+' docs':'—'}</span>
+        <span style="color:var(--t3);">${col==='mompro_meetings'?MEETINGS.length+' docs':col==='mompro_tasks'?TASKS.length+' docs':col==='mompro_users'?USERS.length+' docs':col==='mompro_evidence'?Object.values(EVIDENCE).reduce((s,a)=>s+a.length,0)+' docs':'—'}</span>
         <button class="btn bs" onclick="window.open('https://console.firebase.google.com/project/${_FB_CFG.projectId}/firestore/data/~2F${col}','_blank')">Open ↗</button>
       </div>`).join('')}
     </div>
 
     <div class="card">
       <div class="ch"><div class="ctit">Firestore Rules</div></div>
-      <div style="font-size:12px;color:var(--t2);margin-bottom:10px;"><b>①</b> Firebase Console → Authentication → Sign-in method → <b>Anonymous → Enable</b><br><b>②</b> Firestore → Rules → paste below → <b>Publish</b></div>
+      <div style="font-size:12px;color:var(--t2);margin-bottom:10px;"><b>①</b> Firebase Console → Authentication → Sign-in method → <b>Anonymous → Enable</b><br><b>②</b> Firestore → Rules → paste below → <b>Publish</b><br><b>③</b> Storage → Get Started → Rules → set <code style="font-family:var(--mo);font-size:10px;">allow read, write: if request.auth != null;</code> → <b>Publish</b></div>
       <pre style="background:#0d1117;color:#e5e7eb;border-radius:var(--rs);padding:14px;font-family:var(--mo);font-size:11px;line-height:1.8;overflow-x:auto;margin:0;">rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
