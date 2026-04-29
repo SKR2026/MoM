@@ -348,7 +348,7 @@ const COMMENTS={};
 const AUDIT_LOG=[];
 const EMAIL_LOG=[];
 let currentRole='super-admin';
-let _dashPlantFilter = 'all'; // 'all' or a plant ID — used in super-admin dashboard
+let _dashPlantFilter = 'all'; // 'all' or a plant ID — used in super-admin / top-mgmt dashboard
 let baseRole='super-admin'; // the role the user actually logged in as — never changes during a session
 let darkMode=false;
 let aiItemCount=2;
@@ -1582,7 +1582,7 @@ function switchPlantTab(plantId){
 function renderDashboard(){
   let myTasks = getDashboardTasks();
   // If super-admin has selected a specific plant tab, scope all KPIs to that plant
-  if((currentRole==='super-admin'||currentRole==='developer') && _dashPlantFilter !== 'all'){
+  if((currentRole==='super-admin'||currentRole==='developer'||currentRole==='top-mgmt') && _dashPlantFilter !== 'all'){
     let _filterPlantIds;
     if(_dashPlantFilter === 'corporate'){
       _filterPlantIds = new Set(PLANTS.filter(p=>p.adminId==='__superadmin__').map(p=>p.id));
@@ -1696,7 +1696,7 @@ function renderDashboard(){
         } else {
           // Super admin / developer: filter by selected plant tab if active
           let _saPlantMtgIds = null;
-          if((currentRole==='super-admin'||currentRole==='developer') && _dashPlantFilter!=='all'){
+          if((currentRole==='super-admin'||currentRole==='developer'||currentRole==='top-mgmt') && _dashPlantFilter!=='all'){
             const _filterPids = _dashPlantFilter==='corporate'
               ? new Set(PLANTS.filter(p=>p.adminId==='__superadmin__').map(p=>p.id))
               : new Set([_dashPlantFilter]);
