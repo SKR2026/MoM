@@ -4440,6 +4440,8 @@ function renderUsers(){
     }
     const plantMtgIds = new Set(MEETINGS.filter(m=>m.plantId===myPlant.id).map(m=>m.id));
     visibleUserIds = new Set(TASKS.filter(t=>plantMtgIds.has(t.mid)&&t.uid!=null).map(t=>Number(t.uid)));
+    // Also include users explicitly tagged with this plant (added directly by this admin)
+    USERS.filter(u=>u.plantId===myPlant.id).forEach(u=>visibleUserIds.add(u.id));
   }
   const usersToShow = isPlantAdmin ? USERS.filter(u=>visibleUserIds.has(u.id)) : USERS;
 
@@ -4462,7 +4464,7 @@ function renderUsers(){
   <div class="card" style="padding:0;">
     <div style="padding:13px 18px;border-bottom:1px solid var(--br);display:flex;justify-content:space-between;align-items:center;">
       <div class="ctit">${isPlantAdmin ? myPlant.name+' — Users' : 'Users & Access Control'}</div>
-      ${!isPlantAdmin ? `<button class="btn bp bs" onclick="openModal('add-user')">+ Add User</button>` : ''}
+      <button class="btn bp bs" onclick="openModal('add-user')">+ Add User</button>
     </div>
     <div class="tw"><table>
       <thead><tr>
@@ -4473,15 +4475,21 @@ function renderUsers(){
       ${usersToShow.map(u=>{
         const s=FB_STATUS[u.id]||null;
         const fbBadge=s?(s.online?`<span class="bdg b-ok">● Online</span>`:`<span class="bdg b-df">○ ${s.lastSeen||'Offline'}</span>`):'<span class="bdg b-df">—</span>';
-        const opts=roleOptions.map(r=>`<option value="${r.v}" ${u.role===r.v?'selected':''}>${r.l}</option>`).join('');
+        // For plant admin: restrict editable roles to non-admin, non-super-admin options
+        const allowedRoles = isPlantAdmin
+          ? roleOptions.filter(r=>r.v!=='super-admin'&&r.v!=='admin')
+          : roleOptions;
+        const opts = allowedRoles.map(r=>`<option value="${r.v}" ${u.role===r.v?'selected':''}>${r.l}</option>`).join('');
+        // Plant admin can only edit users in their plant (not super-admins or other admins)
+        const canEdit = !isPlantAdmin || (u.role!=='super-admin' && u.role!=='admin');
         return`<tr id="urow-${u.id}">
           <td>${av(u,28)}</td>
-          <td><input id="uname-${u.id}" value="${u.name}" style="width:140px;font-size:12px;font-weight:500;"></td>
-          <td><input id="uemail-${u.id}" value="${u.email}" type="email" style="width:180px;font-size:11px;"></td>
+          <td><input id="uname-${u.id}" value="${u.name}" style="width:140px;font-size:12px;font-weight:500;" ${canEdit?'':'readonly'}></td>
+          <td><input id="uemail-${u.id}" value="${u.email}" type="email" style="width:180px;font-size:11px;" ${canEdit?'':'readonly'}></td>
           <td>
-            <select id="udept-${u.id}" style="font-size:11px;width:120px;">
-              ${deptOptions(u.dept)}
-            </select>
+            ${canEdit
+              ? `<select id="udept-${u.id}" style="font-size:11px;width:120px;">${deptOptions(u.dept)}</select>`
+              : `<span style="font-size:12px;color:var(--t2);">${u.dept||'—'}</span>`}
           </td>
           <td>
             ${(()=>{
@@ -4490,21 +4498,25 @@ function renderUsers(){
             })()}
           </td>
           <td>
-            <div style="display:flex;gap:4px;align-items:center;">
-              <input id="upw-${u.id}" type="password" placeholder="${USER_PASSWORDS[u.id]?'••••••••':'(not set)'}" style="width:110px;font-size:11px;" title="Leave blank to keep current password">
-              <span style="font-size:10px;color:${USER_PASSWORDS[u.id]?'var(--ok)':'var(--er)'};" title="${USER_PASSWORDS[u.id]?'Password set — user can log in':'No password — user cannot log in'}">&#${USER_PASSWORDS[u.id]?'10003':'10007'};</span>
-            </div>
+            ${canEdit
+              ? `<div style="display:flex;gap:4px;align-items:center;">
+                  <input id="upw-${u.id}" type="password" placeholder="${USER_PASSWORDS[u.id]?'••••••••':'(not set)'}" style="width:110px;font-size:11px;" title="Leave blank to keep current password">
+                  <span style="font-size:10px;color:${USER_PASSWORDS[u.id]?'var(--ok)':'var(--er)'};" title="${USER_PASSWORDS[u.id]?'Password set':'No password'}">&#${USER_PASSWORDS[u.id]?'10003':'10007'};</span>
+                </div>`
+              : `<span style="font-size:11px;color:var(--t3);">—</span>`}
           </td>
           <td>${fbBadge}</td>
           <td>
-            <select id="urole-${u.id}" style="font-size:11px;width:140px;" onchange="updateAccessBadge(${u.id},this.value)">
-              ${opts}
-            </select>
+            ${canEdit
+              ? `<select id="urole-${u.id}" style="font-size:11px;width:140px;" onchange="updateAccessBadge(${u.id},this.value)">${opts}</select>`
+              : `${accessLabel[u.role]||'<span class="bdg b-df">—</span>'}`}
           </td>
           <td id="uaccess-${u.id}">${accessLabel[u.role]||'<span class="bdg b-df">—</span>'}</td>
           <td style="display:flex;gap:5px;">
-            <button class="btn bs bok" onclick="saveUserRow(${u.id})">Save</button>
-            <button class="btn bs ber" onclick="deleteUserRow(${u.id})" title="Remove user">✕</button>
+            ${canEdit
+              ? `<button class="btn bs bok" onclick="saveUserRow(${u.id})">Save</button>
+                 <button class="btn bs ber" onclick="deleteUserRow(${u.id})" title="Remove user">✕</button>`
+              : `<span style="font-size:11px;color:var(--t3);">Read-only</span>`}
           </td>
         </tr>`;
       }).join('')}
@@ -4528,6 +4540,16 @@ function updateAccessBadge(uid, role){
 function saveUserRow(uid){
   const u=USERS.find(x=>x.id===uid);
   if(!u)return;
+  // Plant admin: can only save users in their plant, not other admins/super-admins
+  if(currentRole==='admin'){
+    const myPlant=getAdminPlant();
+    if(!myPlant){showToast('No plant assigned to you','warn');return;}
+    if(u.role==='super-admin'||u.role==='admin'){showToast('You cannot edit admin-level users','warn');return;}
+    // Check user belongs to this plant via tasks
+    const plantMtgIds=new Set(MEETINGS.filter(m=>m.plantId===myPlant.id).map(m=>m.id));
+    const inPlant=TASKS.some(t=>plantMtgIds.has(t.mid)&&Number(t.uid)===uid);
+    if(!inPlant&&!u.plantId!==myPlant.id){showToast('You can only edit users in your plant','warn');return;}
+  }
   const newName  = document.getElementById('uname-'+uid)?.value.trim();
   const newEmail = document.getElementById('uemail-'+uid)?.value.trim();
   const newDept  = document.getElementById('udept-'+uid)?.value;
@@ -4545,7 +4567,7 @@ function saveUserRow(uid){
   u.ini = parts.length>=2 ? (parts[0][0]+parts[parts.length-1][0]).toUpperCase() : newName.slice(0,2).toUpperCase();
   // Save new password if provided
   if(newPass) USER_PASSWORDS[uid] = newPass;
-  AUDIT_LOG.unshift({time:new Date().toISOString().slice(0,16).replace('T',' '),user:'Super Admin',
+  AUDIT_LOG.unshift({time:new Date().toISOString().slice(0,16).replace('T',' '),user:loggedInAs?.name||currentRole,
     action:`Updated user ${uid}: name="${newName}", role="${newRole}"${newPass?' + password reset':''}`,entity:'SYSTEM',type:'update'});
   persistUsers();   // save changes to localStorage
   showToast(`${newName} saved.${newPass?' Password updated.':USER_PASSWORDS[uid]?'':' No password set — user cannot log in yet.'}`,'ok');
@@ -4555,11 +4577,20 @@ function saveUserRow(uid){
 function deleteUserRow(uid){
   const u=USERS.find(x=>x.id===uid);
   if(!u)return;
+  // Plant admin: can only delete users in their plant, not admins/super-admins
+  if(currentRole==='admin'){
+    const myPlant=getAdminPlant();
+    if(!myPlant){showToast('No plant assigned to you','warn');return;}
+    if(u.role==='super-admin'||u.role==='admin'){showToast('You cannot remove admin-level users','warn');return;}
+    const plantMtgIds=new Set(MEETINGS.filter(m=>m.plantId===myPlant.id).map(m=>m.id));
+    const inPlant=TASKS.some(t=>plantMtgIds.has(t.mid)&&Number(t.uid)===uid);
+    if(!inPlant){showToast('You can only remove users in your plant','warn');return;}
+  }
   if(!confirm(`Remove ${u.name} from the system? This cannot be undone.`))return;
   const idx=USERS.findIndex(x=>x.id===uid);
   if(idx>-1)USERS.splice(idx,1);
   delete USER_PASSWORDS[uid];   // remove password entry too
-  AUDIT_LOG.unshift({time:new Date().toISOString().slice(0,16).replace('T',' '),user:'Super Admin',action:`Deleted user: ${u.name} (${u.email})`,entity:'SYSTEM',type:'delete'});
+  AUDIT_LOG.unshift({time:new Date().toISOString().slice(0,16).replace('T',' '),user:loggedInAs?.name||currentRole,action:`Deleted user: ${u.name} (${u.email})`,entity:'SYSTEM',type:'delete'});
   persistUsers();
   fsDeleteUser(uid);
   showToast(`${u.name} removed.`,'warn');
@@ -4568,7 +4599,10 @@ function deleteUserRow(uid){
 
 function renderAddUserModal(){
   document.getElementById('modal-title').textContent='Add New User';
+  // Show plant context if admin
+  const adminPlantForModal = currentRole==='admin' ? getAdminPlant() : null;
   document.getElementById('modal-body').innerHTML=`
+  ${adminPlantForModal ? `<div class="alert ai" style="margin-bottom:14px;">🏭 Adding user to your plant: <strong>${adminPlantForModal.name}</strong></div>` : ''}
   <div class="fgrid">
     <div class="fg"><label>FULL NAME *</label><input id="nu-name" placeholder="e.g. Arjun Mehta" oninput="autoFillIni()"></div>
     <div class="fg"><label>DISPLAY INITIALS</label><input id="nu-ini" placeholder="AM" maxlength="2" style="text-transform:uppercase;"></div>
@@ -4588,11 +4622,15 @@ function renderAddUserModal(){
     </div>
     <div class="fg"><label>ROLE</label>
       <select id="nu-role" onchange="togglePlantField(this.value)">
-        <option value="super-admin">Super Admin</option>
-        <option value="admin">Admin</option>
-        <option value="top-mgmt">Top Management</option>
-        <option value="manager">Manager</option>
-        <option value="assignee" selected>Assignee</option>
+        ${currentRole==='admin'
+          ? `<option value="top-mgmt">Top Management</option>
+             <option value="manager">Manager</option>
+             <option value="assignee" selected>Assignee</option>`
+          : `<option value="super-admin">Super Admin</option>
+             <option value="admin">Admin</option>
+             <option value="top-mgmt">Top Management</option>
+             <option value="manager">Manager</option>
+             <option value="assignee" selected>Assignee</option>`}
       </select>
     </div>
     <div class="fg" id="nu-plant-fg" style="display:none;">
@@ -4666,6 +4704,14 @@ function doAddUser(){
   const welcome = document.getElementById('welcome-tgl')?.classList.contains('on');
   const plantId = (role==='admin' && document.getElementById('nu-plant')?.value) ? document.getElementById('nu-plant').value : '';
 
+  // If current user is plant admin, enforce their plant and restrict role
+  const isPlantAdminAdding = currentRole === 'admin';
+  if(isPlantAdminAdding){
+    const myPlant = getAdminPlant();
+    if(!myPlant){ showToast('You have no plant assigned — cannot add users','warn'); return; }
+    if(role==='super-admin'||role==='admin'){ showToast('You cannot create admin-level users','warn'); return; }
+  }
+
   if(!name)                         { showToast('Full name is required','warn'); return; }
   if(!email || !email.includes('@')){ showToast('Valid email is required','warn'); return; }
   if(pass.length < 6)               { showToast('Password must be at least 6 characters','warn'); return; }
@@ -4675,7 +4721,8 @@ function doAddUser(){
   const col   = window._nuCol || {bg:'#e0f2fe', tc:'#0284c7'};
 
   // Add to users list
-  USERS.push({id:newId, name, role, dept, email, ini, col:col.bg, tc:col.tc});
+  const newUserPlantId = (isPlantAdminAdding && getAdminPlant()) ? getAdminPlant().id : (role==='admin' && plantId ? plantId : '');
+  USERS.push({id:newId, name, role, dept, email, ini, col:col.bg, tc:col.tc, plantId: newUserPlantId||undefined});
 
   // If admin assigned to a plant, update that plant
   if(role==='admin' && plantId){
@@ -4692,8 +4739,8 @@ function doAddUser(){
   // Audit log
   AUDIT_LOG.unshift({
     time: new Date().toISOString().slice(0,16).replace('T',' '),
-    user: 'Super Admin',
-    action: `Added user ${name} (${email}) with role: ${role}`,
+    user: loggedInAs?.name||currentRole,
+    action: `Added user ${name} (${email}) with role: ${role}${newUserPlantId?' in plant: '+newUserPlantId:''}`,
     entity: 'SYSTEM',
     type: 'create'
   });
