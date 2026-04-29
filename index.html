@@ -247,8 +247,14 @@ input[type=checkbox].task-cb{width:15px;height:15px;accent-color:var(--ac);curso
       </div>
       <!-- User access pane -->
       <div id="lpane-user" style="display:none;">
-        <div style="font-size:12px;color:var(--t3);margin-bottom:14px;">Select your account to continue, or open directly from your shared link.</div>
-        <div id="user-list"></div>
+        <div style="font-size:12px;color:var(--t3);margin-bottom:10px;">Select your account to continue, or open directly from your shared link.</div>
+        <div id="user-list">
+          <input id="ul-search" placeholder="Search name or dept…"
+            style="width:100%;box-sizing:border-box;margin-bottom:10px;font-size:12px;padding:7px 10px;
+                   border:1px solid var(--br);border-radius:var(--rs);background:var(--bg2);color:var(--tx);outline:none;"
+            oninput="_filterUserList(this.value)">
+          <div id="ul-rows"><div style="color:var(--t3);font-size:12px;text-align:center;padding:10px 0;">Loading users…</div></div>
+        </div>
         <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--br);font-size:11px;color:var(--t3);text-align:center;">
           Received a direct link? <span style="color:var(--ac);cursor:pointer;font-weight:500;" onclick="simulateLinkAccess()">Click here to open via link</span>
         </div>
@@ -544,43 +550,94 @@ function cancelCompanyEdit(){
   document.getElementById('lh-company-edit').style.display='none';
 }
 
+/* ═══════════════════════════════════════════════════════════════════
+   LOGIN — Fully live: queries Firestore directly on every attempt.
+   No dependency on snapshot pipeline, _fsUsersLoaded, or localStorage.
+   Flow:
+     1. Hardcoded staff (superadmin/admin/developer) → instant, offline-safe
+     2. Ensure anonymous Firebase auth (needed to read Firestore)
+     3. Query mompro_users collection for name or email match
+     4. Validate password from Firestore _pw field
+     5. Merge found user into local USERS array + USER_PASSWORDS cache
+═══════════════════════════════════════════════════════════════════ */
+
 function initLogin(){
   const ul = document.getElementById('user-list');
   if(!ul) return;
+  _loadUsersForLoginTab();
+}
 
-  // All non-hardcoded users (anyone in the USERS array)
-  const allUsers = USERS.slice().sort((a,b) => {
-    const ro = ['super-admin','admin','top-mgmt','manager','assignee'];
-    return (ro.indexOf(a.role)||99) - (ro.indexOf(b.role)||99) || (a.name||'').localeCompare(b.name||'');
-  });
+// Load users for the "User Access" tab — tries Firestore first, falls back to USERS cache
+function _loadUsersForLoginTab(){
+  const ul = document.getElementById('ul-rows') || document.getElementById('user-list');
+  if(!ul) return;
 
-  if(!allUsers.length){
-    ul.innerHTML = '<div style="color:var(--t3);font-size:12px;text-align:center;padding:14px 0;">No users yet — admins can add users in Settings → Users & Roles.</div>';
-    return;
-  }
-
-  // Render search + list
-  ul.innerHTML =
-    `<input id="ul-search" placeholder="Search name or dept…" style="width:100%;box-sizing:border-box;margin-bottom:10px;font-size:12px;padding:7px 10px;border:1px solid var(--br);border-radius:var(--rs);background:var(--bg2);color:var(--tx);outline:none;" oninput="_filterUserList(this.value)">
-    <div id="ul-rows">
-      ${allUsers.map(u=>`
+  const _render = (users) => {
+    const sorted = users.slice().sort((a,b)=>{
+      const ro=['super-admin','admin','top-mgmt','manager','assignee'];
+      return (ro.indexOf(a.role)||99)-(ro.indexOf(b.role)||99)||(a.name||'').localeCompare(b.name||'');
+    });
+    const listEl = document.getElementById('ul-rows');
+    if(!listEl) return;
+    if(!sorted.length){
+      listEl.innerHTML='<div style="color:var(--t3);font-size:12px;text-align:center;padding:14px 0;">No users found. Ask Super Admin to add users in Settings → Users & Roles.</div>';
+      return;
+    }
+    listEl.innerHTML = sorted.map(u=>`
       <button class="login-user-btn" onclick="loginAsUser(${u.id})" data-name="${(u.name||'').toLowerCase()}" data-dept="${(u.dept||'').toLowerCase()}">
         ${av(u,32)}
         <div class="lub-info">
-          <div class="lname">${u.name}</div>
-          <div class="lrole">${[u.dept, u.role].filter(Boolean).join(' · ')}</div>
+          <div class="lname">${u.name||'Unknown'}</div>
+          <div class="lrole">${[u.dept,u.role].filter(Boolean).join(' · ')}</div>
         </div>
         <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 3l5 5-5 5"/></svg>
-      </button>`).join('')}
-    </div>`;
+      </button>`).join('');
+  };
+
+  // Build the tab shell first
+  const container = document.getElementById('user-list');
+  if(container && !document.getElementById('ul-rows')){
+    container.innerHTML = `
+      <input id="ul-search" placeholder="Search name or dept…"
+        style="width:100%;box-sizing:border-box;margin-bottom:10px;font-size:12px;padding:7px 10px;
+               border:1px solid var(--br);border-radius:var(--rs);background:var(--bg2);color:var(--tx);outline:none;"
+        oninput="_filterUserList(this.value)">
+      <div id="ul-rows"><div style="color:var(--t3);font-size:12px;text-align:center;padding:10px 0;">Loading users from server…</div></div>`;
+  }
+
+  // Try Firestore first (live)
+  const c = FS_USERS();
+  if(c && _authFs && _authFs.currentUser){
+    c.get().then(snap=>{
+      if(snap.empty){ _render(USERS); return; }
+      const fsUsers = snap.docs.map(d=>{ const u={...d.data()}; u.id=Number(u.id); return u; });
+      // Merge into USERS cache
+      fsUsers.forEach(u=>{
+        const idx=USERS.findIndex(x=>Number(x.id)===u.id);
+        if(idx>-1) USERS[idx]=u; else USERS.push(u);
+        if(u._pw!=null) USER_PASSWORDS[u.id]=u._pw;
+      });
+      _render(fsUsers);
+    }).catch(()=>_render(USERS));
+  } else {
+    // Not yet authed — render from cache, will refresh when auth arrives
+    _render(USERS);
+    // Retry once auth is ready
+    let _retries=0;
+    const _retry=()=>{
+      if(_authFs&&_authFs.currentUser){ _loadUsersForLoginTab(); return; }
+      if(_retries++<20) setTimeout(_retry,400);
+    };
+    setTimeout(_retry,400);
+  }
 }
 
 function _filterUserList(q){
-  const term = (q||'').toLowerCase().trim();
-  document.querySelectorAll('#ul-rows .login-user-btn').forEach(btn => {
-    const name = btn.dataset.name || '';
-    const dept = btn.dataset.dept || '';
-    btn.style.display = (!term || name.includes(term) || dept.includes(term)) ? '' : 'none';
+  const term=(q||'').toLowerCase().trim();
+  document.querySelectorAll('#ul-rows .login-user-btn').forEach(btn=>{
+    const name=btn.dataset.name||'';
+    const dept=btn.dataset.dept||'';
+    btn.style.display=(!term||name.includes(term)||dept.includes(term))?'':'none';
   });
 }
 
@@ -591,128 +648,184 @@ function switchLoginTab(tab){
   document.getElementById('lpane-staff').style.display=tab==='staff'?'block':'none';
   document.getElementById('lpane-user').style.display=tab==='user'?'block':'none';
   document.getElementById('login-err').style.display='none';
+  if(tab==='user') _loadUsersForLoginTab();
 }
 
+/* ── Main login handler — queries Firestore directly ── */
 function doLogin(){
-  const uVal = (document.getElementById('l-user').value || '').trim().toLowerCase();
-  const pVal = document.getElementById('l-pass').value || '';
-  const errEl = document.getElementById('login-err');
-  const btn   = document.getElementById('login-btn');
+  const uVal=(document.getElementById('l-user').value||'').trim().toLowerCase();
+  const pVal=document.getElementById('l-pass').value||'';
+  const errEl=document.getElementById('login-err');
+  const btn=document.getElementById('login-btn');
 
   if(!uVal){ errEl.textContent='Please enter your username or email.'; errEl.style.display='block'; return; }
 
-  console.log('[Login] attempt:', uVal, '| FS loaded:', _fsUsersLoaded, '| USERS:', USERS.length, '| PWDs:', Object.keys(USER_PASSWORDS).length);
-
-  // ── STEP 1: Hardcoded staff (superadmin / admin / developer) — always works offline ──
-  const cred = AUTH_CREDENTIALS[uVal];
+  // ── Step 1: Hardcoded credentials — instant, works offline ──────────────
+  const cred=AUTH_CREDENTIALS[uVal];
   if(cred){
-    if(cred.password === pVal){
-      errEl.style.display = 'none';
-      loggedInAs  = uVal;
-      currentRole = cred.role;
-      baseRole    = cred.role;
+    if(cred.password===pVal){
+      errEl.style.display='none';
+      loggedInAs=uVal; currentRole=cred.role; baseRole=cred.role;
       hideLoginScreen();
-      applySession(cred.display, cred.desc, cred.ini, cred.col, cred.tc, true);
-      return;
-    } else {
-      errEl.textContent = 'Incorrect password for "' + uVal + '".';
-      errEl.style.display = 'block';
-      if(btn){ btn.disabled = false; btn.textContent = 'Sign In'; }
+      applySession(cred.display,cred.desc,cred.ini,cred.col,cred.tc,true);
       return;
     }
+    errEl.textContent='Incorrect password.'; errEl.style.display='block'; return;
   }
 
-  // ── STEP 2: Try matching from USERS array (may already be loaded from localStorage) ──
-  const _tryMatchUser = () => {
-    const matchUser = USERS.find(u =>
-      (u.email && u.email.toLowerCase() === uVal) ||
-      (u.name  && u.name.toLowerCase()  === uVal)
-    );
+  // ── Step 2: Show loading state ───────────────────────────────────────────
+  if(btn){ btn.disabled=true; btn.textContent='Signing in…'; }
+  errEl.textContent='Verifying with server…'; errEl.style.display='block';
 
-    console.log('[Login] matched user:', matchUser ? matchUser.name : 'none',
-      '| stored pw:', matchUser ? (USER_PASSWORDS[Number(matchUser.id)] !== undefined ? 'SET' : 'MISSING') : 'n/a');
+  const _resetBtn=()=>{ if(btn){ btn.disabled=false; btn.textContent='Sign In'; } };
 
-    if(matchUser){
-      const storedPw = USER_PASSWORDS[Number(matchUser.id)];
-      const roleMap  = {'super-admin':'super-admin','admin':'admin','top-mgmt':'top-mgmt','manager':'manager','assignee':'assignee'};
-      const resolvedRole = roleMap[matchUser.role] || matchUser.role;
-      const requiresPassword = resolvedRole === 'super-admin' || resolvedRole === 'admin';
+  // ── Step 3: Ensure Firebase anonymous auth is ready, then query ──────────
+  const _doFSQuery=()=>{
+    const c=FS_USERS();
+    if(!c){
+      // Firestore not initialised — try localStorage cache
+      _tryLocalMatch(uVal, pVal, errEl, _resetBtn);
+      return;
+    }
 
-      if(requiresPassword){
-        if(storedPw === undefined){
-          errEl.textContent = `"${matchUser.name}" has no password set. Ask Super Admin to set one in Users & Roles.`;
-          errEl.style.display = 'block';
-          if(btn){ btn.disabled=false; btn.textContent='Sign In'; }
-          return;
-        }
-        if(storedPw !== pVal){
-          errEl.textContent = 'Incorrect password.';
-          errEl.style.display = 'block';
-          if(btn){ btn.disabled=false; btn.textContent='Sign In'; }
-          return;
-        }
-      } else {
-        if(storedPw !== undefined && pVal !== '' && storedPw !== pVal){
-          errEl.textContent = 'Incorrect password.';
-          errEl.style.display = 'block';
-          if(btn){ btn.disabled=false; btn.textContent='Sign In'; }
-          return;
-        }
+    // Query Firestore for email OR name match
+    // We fetch the whole collection (small dataset) and filter client-side
+    // to handle both email and name matching in one round-trip.
+    c.get().then(snap=>{
+      if(snap.empty){
+        // Firestore empty — try local cache
+        _tryLocalMatch(uVal, pVal, errEl, _resetBtn);
+        return;
       }
-      // Accepted
-      errEl.style.display = 'none';
-      loggedInAs  = matchUser;
-      currentRole = resolvedRole;
-      baseRole    = currentRole;
-      if(btn){ btn.disabled=false; btn.textContent='Sign In'; }
-      hideLoginScreen();
-      applySession(matchUser.name, matchUser.dept, matchUser.ini, matchUser.col, matchUser.tc, true);
-      return;
-    }
 
-    // No user found at all
-    errEl.textContent = 'User not found. Use your registered email or full name.';
-    errEl.style.display = 'block';
-    if(btn){ btn.disabled=false; btn.textContent='Sign In'; }
+      // Rebuild USERS + USER_PASSWORDS from live Firestore data
+      const fsUsers=snap.docs.map(d=>{
+        const u={...d.data()};
+        u.id=Number(u.id);
+        if(u._pw!=null){ USER_PASSWORDS[u.id]=u._pw; }
+        return u;
+      });
+      // Merge into global USERS
+      fsUsers.forEach(u=>{
+        const idx=USERS.findIndex(x=>Number(x.id)===u.id);
+        if(idx>-1) USERS[idx]=u; else USERS.push(u);
+      });
+      // Persist to localStorage as a cache
+      try{ localStorage.setItem(USERS_STORE_KEY,JSON.stringify(USERS)); }catch(e){}
+      try{ localStorage.setItem(PWDS_STORE_KEY,JSON.stringify(USER_PASSWORDS)); }catch(e){}
+
+      // Now try matching
+      const matchUser=fsUsers.find(u=>
+        (u.email&&u.email.toLowerCase()===uVal)||(u.name&&u.name.toLowerCase()===uVal)
+      );
+
+      if(!matchUser){
+        errEl.textContent='User not found. Use your registered name or email.';
+        errEl.style.display='block'; _resetBtn(); return;
+      }
+
+      _validateAndLogin(matchUser, pVal, errEl, _resetBtn);
+
+    }).catch(e=>{
+      console.warn('[Login] Firestore query failed:',e.code,e.message);
+      // Fall back to local cache if Firestore is blocked (e.g. rules not set)
+      _tryLocalMatch(uVal, pVal, errEl, _resetBtn, e.code);
+    });
   };
 
-  // ── STEP 3: If we already have users (from localStorage or Firestore), try immediately ──
-  if(USERS.length > 0){
-    _tryMatchUser();
-    return;
+  if(_authFs&&_authFs.currentUser){
+    _doFSQuery();
+  } else if(_authFs){
+    // Not yet signed in — sign in anonymously then query
+    _authFs.signInAnonymously()
+      .then(()=>_doFSQuery())
+      .catch(e=>{
+        console.warn('[Login] Anonymous auth failed:',e.code);
+        // Try local cache anyway
+        _tryLocalMatch(uVal, pVal, errEl, _resetBtn, e.code);
+      });
+  } else {
+    // Firebase not initialised at all
+    _tryLocalMatch(uVal, pVal, errEl, _resetBtn, 'firebase-not-init');
+  }
+}
+
+/* ── Fallback: match against in-memory USERS (localStorage cache) ── */
+function _tryLocalMatch(uVal, pVal, errEl, _resetBtn, errorCode){
+  if(!USERS.length){
+    let msg='Could not connect to server.';
+    if(errorCode==='permission-denied')
+      msg='Firestore rules not set. Go to Settings → Firebase Config and publish the rules, then try again.';
+    else if(errorCode==='auth/operation-not-allowed')
+      msg='Anonymous Auth not enabled. Enable it in Firebase Console → Authentication → Anonymous.';
+    errEl.textContent=msg+' Admin logins (superadmin / admin / developer) always work.';
+    errEl.style.display='block'; _resetBtn(); return;
+  }
+  const matchUser=USERS.find(u=>
+    (u.email&&u.email.toLowerCase()===uVal)||(u.name&&u.name.toLowerCase()===uVal)
+  );
+  if(!matchUser){
+    errEl.textContent='User not found (using cached data). Check spelling or ask admin.';
+    errEl.style.display='block'; _resetBtn(); return;
+  }
+  _validateAndLogin(matchUser, pVal, errEl, _resetBtn);
+}
+
+/* ── Validate password and complete login ── */
+function _validateAndLogin(matchUser, pVal, errEl, _resetBtn){
+  const storedPw=USER_PASSWORDS[Number(matchUser.id)];
+  // Also check _pw field directly on user object (from Firestore)
+  const fsPw=matchUser._pw;
+  const pw=storedPw!==undefined?storedPw:fsPw;
+
+  const roleMap={'super-admin':'super-admin','admin':'admin','top-mgmt':'top-mgmt','manager':'manager','assignee':'assignee'};
+  const resolvedRole=roleMap[matchUser.role]||matchUser.role;
+  const requiresPassword=resolvedRole==='super-admin'||resolvedRole==='admin';
+
+  if(requiresPassword){
+    if(pw===undefined||pw===null){
+      errEl.textContent=`"${matchUser.name}" has no password set. Ask Super Admin to set one in Users & Roles.`;
+      errEl.style.display='block'; _resetBtn(); return;
+    }
+    if(pw!==pVal){
+      errEl.textContent='Incorrect password.'; errEl.style.display='block'; _resetBtn(); return;
+    }
+  } else {
+    if(pw!==undefined&&pw!==null&&pVal!==''&&pw!==pVal){
+      errEl.textContent='Incorrect password.'; errEl.style.display='block'; _resetBtn(); return;
+    }
   }
 
-  // ── STEP 4: No users yet — wait for Firestore to load (max 20 seconds) ──────────────
-  if(btn){ btn.disabled = true; btn.textContent = 'Connecting…'; }
-  errEl.textContent = 'Connecting to server — please wait…';
-  errEl.style.display = 'block';
-
-  let _attempts = 0;
-  const _wait = () => {
-    if(USERS.length > 0 || _fsUsersLoaded){
-      errEl.style.display = 'none';
-      if(btn){ btn.disabled=false; btn.textContent='Sign In'; }
-      _tryMatchUser();
-    } else if(_attempts < 40){ // 40 × 500 ms = 20 s
-      _attempts++;
-      setTimeout(_wait, 500);
-    } else {
-      if(btn){ btn.disabled=false; btn.textContent='Sign In'; }
-      errEl.textContent = 'Server unreachable. Check internet or try again. Admin logins (superadmin/admin/developer) work offline.';
-    }
-  };
-  setTimeout(_wait, 400);
+  // ✅ Accepted
+  errEl.style.display='none';
+  loggedInAs={...matchUser}; delete loggedInAs._pw;
+  currentRole=resolvedRole; baseRole=currentRole;
+  _resetBtn();
+  hideLoginScreen();
+  applySession(matchUser.name,matchUser.dept,matchUser.ini,matchUser.col,matchUser.tc,true);
 }
 
 function loginAsUser(uid){
-  const u=USERS.find(x=>x.id===uid);
-  if(!u)return;
-  loggedInAs=u;
-  const roleMap={'super-admin':'super-admin','admin':'admin','top-mgmt':'top-mgmt','manager':'manager','assignee':'assignee'};
-  currentRole=roleMap[u.role]||'assignee';
-  baseRole=currentRole;
-  hideLoginScreen();
-  applySession(u.name,u.dept,u.ini,u.col,u.tc,true);
+  // Try Firestore first for the most up-to-date data
+  const c=FS_USERS();
+  const _doLogin=(u)=>{
+    if(!u){ showToast('User not found','warn'); return; }
+    loggedInAs={...u}; delete loggedInAs._pw;
+    const roleMap={'super-admin':'super-admin','admin':'admin','top-mgmt':'top-mgmt','manager':'manager','assignee':'assignee'};
+    currentRole=roleMap[u.role]||'assignee';
+    baseRole=currentRole;
+    hideLoginScreen();
+    applySession(u.name,u.dept,u.ini,u.col,u.tc,true);
+  };
+
+  if(c&&_authFs&&_authFs.currentUser){
+    c.doc(String(uid)).get()
+      .then(doc=>{ if(doc.exists){ const u={...doc.data()}; u.id=Number(u.id); if(u._pw!=null)USER_PASSWORDS[u.id]=u._pw; _doLogin(u); }
+                   else _doLogin(USERS.find(x=>Number(x.id)===Number(uid))); })
+      .catch(()=>_doLogin(USERS.find(x=>Number(x.id)===Number(uid))));
+  } else {
+    _doLogin(USERS.find(x=>Number(x.id)===Number(uid)));
+  }
 }
 
 function simulateLinkAccess(){
