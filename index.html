@@ -1572,6 +1572,73 @@ function renderDashboard(){
     </div>
   </div>
 
+  <!-- ── Monthly Task Trend (Dashboard) ── -->
+  <div class="card" style="margin-top:20px;">
+    <div class="ch" style="flex-wrap:wrap;gap:8px;">
+      <div class="ctit">Monthly Task Trend</div>
+      <div style="display:flex;gap:8px;align-items:center;font-size:10px;flex-wrap:wrap;">
+        <span style="display:inline-flex;align-items:center;gap:3px;"><span style="width:10px;height:10px;background:#16a34a;border-radius:2px;display:inline-block;"></span>Completed</span>
+        <span style="display:inline-flex;align-items:center;gap:3px;"><span style="width:10px;height:10px;background:#dc2626;border-radius:2px;display:inline-block;"></span>Overdue</span>
+        <span style="display:inline-flex;align-items:center;gap:3px;"><span style="width:10px;height:10px;background:var(--br2);border-radius:2px;display:inline-block;opacity:.7;"></span>Pending / In-Progress</span>
+        <span style="font-size:10px;color:var(--t3);">· last 6 months by due date</span>
+      </div>
+    </div>
+    ${(()=>{
+      // Build monthly buckets from all tasks visible to the current user
+      const _mttTasks = myTasks.length ? myTasks : TASKS;
+      const _mttCounts = {};
+      _mttTasks.forEach(t=>{
+        if(!t.due) return;
+        const key = t.due.slice(0,7);
+        if(!_mttCounts[key]) _mttCounts[key]={month:key,total:0,completed:0,overdue:0,pending:0};
+        _mttCounts[key].total++;
+        if(t.status==='completed')    _mttCounts[key].completed++;
+        else if(t.status==='overdue') _mttCounts[key].overdue++;
+        else                          _mttCounts[key].pending++;
+      });
+      const _mttKeys  = Object.keys(_mttCounts).sort();
+      const _showMths = _mttKeys.slice(-6);
+      const _mttData  = _showMths.map(k=>_mttCounts[k]);
+      if(!_mttData.length) return '<div style="color:var(--t3);font-size:12px;padding:24px 0;text-align:center;">No task data yet.</div>';
+
+      const maxVal    = Math.max(..._mttData.map(m=>m.total), 1);
+      const cW=520, cH=150, padL=28, padB=22, padT=12;
+      const innerH    = cH-padB-padT;
+      const innerW    = cW-padL-12;
+      const barSpacing= innerW/_mttData.length;
+      const barW      = Math.min(32, barSpacing-8);
+      const monthNames= ['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+      const gridLines = [0,25,50,75,100].map(pct=>{
+        const y   = cH - padB - (pct/100)*innerH;
+        const val = Math.round((pct/100)*maxVal);
+        return `<line x1="${padL}" y1="${y}" x2="${cW-5}" y2="${y}" stroke="var(--br)" stroke-width="0.5" stroke-dasharray="3,3"/>
+        <text x="${padL-3}" y="${y+3}" text-anchor="end" font-size="8" fill="var(--t3)">${val}</text>`;
+      }).join('');
+
+      const bars = _mttData.map((m,i)=>{
+        const x      = padL + i*barSpacing + (barSpacing-barW)/2;
+        const doneH  = (m.completed/maxVal)*innerH;
+        const overH  = (m.overdue/maxVal)*innerH;
+        const pendH  = (m.pending/maxVal)*innerH;
+        const totalH = doneH + overH + pendH;
+        const baseY  = cH - padB;
+        const lbl    = monthNames[parseInt(m.month.slice(5))] || m.month.slice(5);
+        const tip    = `${lbl} ${m.month.slice(0,4)}: ${m.total} tasks (${m.completed} done, ${m.overdue} overdue, ${m.pending} pending)`;
+        return `<g style="cursor:default;" onclick="navigate('reports')" title="${tip}">
+          <title>${tip}</title>
+          <rect x="${x}" y="${baseY-doneH}" width="${barW}" height="${doneH}" fill="#16a34a" rx="2" opacity=".85"/>
+          <rect x="${x}" y="${baseY-doneH-overH}" width="${barW}" height="${overH}" fill="#dc2626" rx="2" opacity=".85"/>
+          <rect x="${x}" y="${baseY-doneH-overH-pendH}" width="${barW}" height="${pendH}" fill="var(--br2)" rx="2" opacity=".6"/>
+          <text x="${x+barW/2}" y="${cH-5}" text-anchor="middle" font-size="9" fill="var(--t3)">${lbl}</text>
+          <text x="${x+barW/2}" y="${baseY-totalH-4}" text-anchor="middle" font-size="8" fill="var(--t2)" font-weight="600">${m.total||''}</text>
+        </g>`;
+      }).join('');
+
+      return `<svg width="100%" viewBox="0 0 ${cW} ${cH}" style="overflow:visible;">${gridLines}${bars}</svg>`;
+    })()}
+  </div>
+
   <!-- ── Meeting-wise Task Compliance (Dashboard) ── -->
   <div class="card" style="margin-top:20px;padding-bottom:10px;">
     <div class="ch" style="flex-wrap:wrap;gap:8px;">
@@ -3429,20 +3496,26 @@ function fsWriteAllMeetingsAndTasks(meetings, tasks) {
 }
 
 function renderFirebase(){
-  const isLive = !!(_db && _listenersStarted);
-  // Rules: Anonymous Auth — any signed-in user (anonymous) can read/write.
-  // App-level login (username/password) is enforced by the app itself, not Firebase.
-  // Firestore just needs: allow read, write: if request.auth != null;
-  const RULES = [
-    "rules_version = \'2\';",
-    "service cloud.firestore {",
-    "  match /databases/{database}/documents {",
-    "    match /{document=**} {",
-    "      allow read, write: if request.auth != null;",
-    "    }",
-    "  }",
-    "}"
-  ].join('\n');
+  const isLive    = !!(_db && _listenersStarted);
+  const storReady = !!_storage;
+
+  const FIRESTORE_RULES = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if request.auth != null;
+    }
+  }
+}`;
+
+  const STORAGE_RULES = `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /{allPaths=**} {
+      allow read, write: if request.auth != null;
+    }
+  }
+}`;
 
   document.getElementById('content').innerHTML = `
   <div style="max-width:700px;">
@@ -3457,13 +3530,15 @@ function renderFirebase(){
       <div style="font-size:12px;color:var(--t2);margin-bottom:10px;">
         Project: <code style="font-family:var(--mo);color:var(--ac);">${_FB_CFG.projectId}</code>
         &nbsp;|&nbsp; Collections: <code style="font-family:var(--mo);color:var(--ac);">mompro_*</code>
+        &nbsp;|&nbsp; Storage: <span style="font-weight:600;color:${storReady?'var(--ok)':'var(--er)'};">${storReady?'✓ Ready':'✗ Not initialised'}</span>
       </div>
       <div class="alert ${isLive?'ai':'aw'}">
         ${isLive
-          ? '<b>Connected - all devices share data in real time.</b> Meetings, tasks and users sync via Firestore automatically.'
-          : '<b>Connecting to Firestore...</b> Data will sync once connected. Check internet if this persists.'}
+          ? '<b>Connected — all devices share data in real time.</b> Meetings, tasks and users sync via Firestore. Evidence files upload to Firebase Storage.'
+          : '<b>Connecting to Firestore…</b> Data will sync once connected. Check internet if this persists.'}
       </div>
     </div>
+
     <div class="card" style="margin-bottom:18px;">
       <div class="ch"><div class="ctit">Users (${USERS.length})</div></div>
       ${USERS.length
@@ -3477,25 +3552,72 @@ function renderFirebase(){
           + '</tbody></table></div>'
         : '<div style="color:var(--t3);font-size:13px;">No users yet.</div>'}
     </div>
+
+    <!-- ── 3-step setup instructions ── -->
+    <div class="card" style="margin-bottom:18px;">
+      <div class="ctit" style="margin-bottom:12px;">Firebase Setup (do once in Console)</div>
+      <div style="display:flex;flex-direction:column;gap:10px;">
+        <div style="display:flex;align-items:flex-start;gap:10px;padding:10px 12px;background:var(--bg3);border-radius:var(--rs);">
+          <div style="width:24px;height:24px;border-radius:50%;background:var(--ac);color:#fff;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex-shrink:0;">1</div>
+          <div style="font-size:12px;color:var(--t2);line-height:1.7;">
+            <b>Authentication → Sign-in method → Anonymous → Enable &amp; Save</b><br>
+            <span style="color:var(--t3);">The app signs every browser in anonymously so Firestore / Storage rules can validate <code style="font-family:var(--mo);">request.auth != null</code>.</span>
+          </div>
+        </div>
+        <div style="display:flex;align-items:flex-start;gap:10px;padding:10px 12px;background:var(--bg3);border-radius:var(--rs);">
+          <div style="width:24px;height:24px;border-radius:50%;background:var(--ac);color:#fff;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex-shrink:0;">2</div>
+          <div style="font-size:12px;color:var(--t2);line-height:1.7;">
+            <b>Firestore Database → Rules → paste the Firestore rules below → Publish</b><br>
+            <span style="color:var(--t3);">Allows any authenticated session to read/write all collections (meetings, tasks, users, evidence metadata…).</span>
+          </div>
+        </div>
+        <div style="display:flex;align-items:flex-start;gap:10px;padding:10px 12px;background:var(--bg3);border-radius:var(--rs);">
+          <div style="width:24px;height:24px;border-radius:50%;background:var(--ac);color:#fff;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex-shrink:0;">3</div>
+          <div style="font-size:12px;color:var(--t2);line-height:1.7;">
+            <b>Storage → Get Started → Rules → paste the Storage rules below → Publish</b><br>
+            <span style="color:var(--t3);">Allows any authenticated session to upload / download evidence files. Without this, file uploads will return <code style="font-family:var(--mo);">storage/unauthorized</code>.</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Firestore Rules ── -->
+    <div class="card" style="margin-bottom:18px;">
+      <div class="ch">
+        <div>
+          <div class="ctit">Firestore Security Rules</div>
+          <div style="font-size:10px;color:var(--t3);margin-top:2px;">Firebase Console → Firestore Database → Rules</div>
+        </div>
+        <button class="btn bs bp" onclick="
+          navigator.clipboard.writeText(document.getElementById('fs-rules-pre').textContent.trim())
+            .then(()=>showToast('Firestore rules copied — paste in Console → Firestore → Rules → Publish','ok'))
+            .catch(()=>showToast('Select the text and copy manually','warn'))
+        ">📋 Copy</button>
+      </div>
+      <pre id="fs-rules-pre" style="background:#0d1117;color:#e5e7eb;border-radius:var(--rs);padding:16px;font-family:var(--mo);font-size:11px;line-height:1.9;overflow-x:auto;white-space:pre;margin:0;">${FIRESTORE_RULES.replace(/</g,'&lt;')}</pre>
+    </div>
+
+    <!-- ── Storage Rules ── -->
     <div class="card">
       <div class="ch">
-        <div class="ctit">Firestore Security Rules</div>
+        <div>
+          <div class="ctit">Firebase Storage Security Rules</div>
+          <div style="font-size:10px;color:var(--t3);margin-top:2px;">Firebase Console → Storage → Rules</div>
+        </div>
         <button class="btn bs bp" onclick="
-          const el=document.getElementById('fs-rules-pre');
-          navigator.clipboard.writeText(el.textContent)
-            .then(()=>showToast('Rules copied - paste in Firebase Console > Firestore > Rules','ok'))
-            .catch(()=>showToast('Select and copy the text manually','warn'))
-        ">Copy Rules</button>
+          navigator.clipboard.writeText(document.getElementById('st-rules-pre').textContent.trim())
+            .then(()=>showToast('Storage rules copied — paste in Console → Storage → Rules → Publish','ok'))
+            .catch(()=>showToast('Select the text and copy manually','warn'))
+        ">📋 Copy</button>
       </div>
-      <div style="background:var(--bg3);border-radius:var(--rs);padding:10px 14px;font-size:12px;color:var(--t2);margin-bottom:10px;line-height:1.9;">
-        <b>3-step setup (do once in Firebase Console):</b><br>
-        <b>①</b> <b>Authentication → Sign-in method → Anonymous → Enable &amp; Save</b><br>
-        <b>②</b> <b>Firestore Database → Rules</b> — paste the rules below and click <b>Publish</b><br>
-        <b>③</b> <b>Storage → Get Started → Rules</b> — paste: <code style="font-family:var(--mo);font-size:10px;">allow read, write: if request.auth != null;</code> and click <b>Publish</b>
+      <pre id="st-rules-pre" style="background:#0d1117;color:#e5e7eb;border-radius:var(--rs);padding:16px;font-family:var(--mo);font-size:11px;line-height:1.9;overflow-x:auto;white-space:pre;margin:0;">${STORAGE_RULES.replace(/</g,'&lt;')}</pre>
+      <div style="margin-top:10px;padding:10px 12px;background:var(--wl);border-radius:var(--rs);font-size:11px;color:var(--wn);line-height:1.7;">
+        ⚠ <b>Storage rules are separate from Firestore rules</b> — you must publish both.
+        If you skip step 3, evidence uploads will fail with <code style="font-family:var(--mo);">storage/unauthorized</code>.
       </div>
-      <pre id="fs-rules-pre" style="background:#0d1117;color:#e5e7eb;border-radius:var(--rs);padding:14px;font-family:var(--mo);font-size:11px;line-height:1.8;overflow-x:auto;white-space:pre;margin:0;">${RULES}</pre>
     </div>
   </div>`;
+}
 }
 
 /* ═══════════════════════════════════════════
@@ -5538,7 +5660,7 @@ function handleEvidenceFiles(files, taskId, uploaderName) {
         _refreshEvList(taskId);
         console.error('[MoMPro] Storage upload error:', error.code, error.message);
         const tips = {
-          'storage/unauthorized': 'Storage rules block the upload. In Firebase Console → Storage → Rules, add: allow read, write: if request.auth != null;',
+          'storage/unauthorized': 'Storage rules are blocking the upload. Go to Settings → Firebase Config and copy + publish the Storage Rules (step 3).',
           'storage/canceled':     'Upload was cancelled.',
           'storage/unknown':      'Unknown storage error — check your internet connection.',
         };
@@ -6040,9 +6162,17 @@ function renderDevApi(){
     </div>
 
     <div class="card">
-      <div class="ch"><div class="ctit">Firestore Rules</div></div>
-      <div style="font-size:12px;color:var(--t2);margin-bottom:10px;"><b>①</b> Firebase Console → Authentication → Sign-in method → <b>Anonymous → Enable</b><br><b>②</b> Firestore → Rules → paste below → <b>Publish</b><br><b>③</b> Storage → Get Started → Rules → set <code style="font-family:var(--mo);font-size:10px;">allow read, write: if request.auth != null;</code> → <b>Publish</b></div>
-      <pre style="background:#0d1117;color:#e5e7eb;border-radius:var(--rs);padding:14px;font-family:var(--mo);font-size:11px;line-height:1.8;overflow-x:auto;margin:0;">rules_version = '2';
+      <div class="ch">
+        <div>
+          <div class="ctit">Firestore Security Rules</div>
+          <div style="font-size:10px;color:var(--t3);margin-top:2px;">Console → Firestore Database → Rules</div>
+        </div>
+        <div style="display:flex;gap:6px;">
+          <button class="btn bs bp" onclick="navigator.clipboard.writeText(\`rules_version = '2';\nservice cloud.firestore {\n  match /databases/{database}/documents {\n    match /{document=**} {\n      allow read, write: if request.auth != null;\n    }\n  }\n}\`).then(()=>showToast('Firestore rules copied','ok'))">📋 Copy</button>
+          <button class="btn bs" onclick="window.open('https://console.firebase.google.com/project/${_FB_CFG.projectId}/firestore/rules','_blank')">Open ↗</button>
+        </div>
+      </div>
+      <pre style="background:#0d1117;color:#e5e7eb;border-radius:var(--rs);padding:14px;font-family:var(--mo);font-size:11px;line-height:1.9;overflow-x:auto;margin:0;">rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     match /{document=**} {
@@ -6050,9 +6180,29 @@ service cloud.firestore {
     }
   }
 }</pre>
-      <div style="margin-top:10px;">
-        <button class="btn bs bp" onclick="navigator.clipboard.writeText(\`rules_version = '2';\nservice cloud.firestore {\n  match /databases/{database}/documents {\n    match /{document=**} {\n      allow read, write: if request.auth != null;\n    }\n  }\n}\`).then(()=>showToast('Rules copied','ok'))">Copy Rules</button>
-        <button class="btn bs" onclick="window.open('https://console.firebase.google.com/project/${_FB_CFG.projectId}/firestore/rules','_blank')" style="margin-left:8px;">Open Firebase Rules ↗</button>
+    </div>
+
+    <div class="card">
+      <div class="ch">
+        <div>
+          <div class="ctit">Firebase Storage Security Rules</div>
+          <div style="font-size:10px;color:var(--t3);margin-top:2px;">Console → Storage → Rules</div>
+        </div>
+        <div style="display:flex;gap:6px;">
+          <button class="btn bs bp" onclick="navigator.clipboard.writeText(\`rules_version = '2';\nservice firebase.storage {\n  match /b/{bucket}/o {\n    match /{allPaths=**} {\n      allow read, write: if request.auth != null;\n    }\n  }\n}\`).then(()=>showToast('Storage rules copied','ok'))">📋 Copy</button>
+          <button class="btn bs" onclick="window.open('https://console.firebase.google.com/project/${_FB_CFG.projectId}/storage/rules','_blank')">Open ↗</button>
+        </div>
+      </div>
+      <pre style="background:#0d1117;color:#e5e7eb;border-radius:var(--rs);padding:14px;font-family:var(--mo);font-size:11px;line-height:1.9;overflow-x:auto;margin:0;">rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /{allPaths=**} {
+      allow read, write: if request.auth != null;
+    }
+  }
+}</pre>
+      <div style="margin-top:8px;padding:8px 12px;background:var(--wl);border-radius:var(--rs);font-size:11px;color:var(--wn);">
+        ⚠ Storage rules are <b>separate</b> from Firestore rules — both must be published or evidence uploads will fail.
       </div>
     </div>
 
