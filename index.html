@@ -5529,6 +5529,44 @@ async function sendDigestNow(){
 /* external attendees store for current modal session */
 let extAttendees=[];
 
+function renderAttendeeList(){
+  const plantId = (document.getElementById('nm-plant')?.value || '');
+  let users;
+  if(!plantId){
+    users = USERS;
+  } else {
+    const plant = PLANTS.find(p=>p.id===plantId);
+    const plantMtgIds = new Set(MEETINGS.filter(m=>m.plantId===plantId).map(m=>m.id));
+    const plantUserIds = new Set(TASKS.filter(t=>plantMtgIds.has(t.mid)).map(t=>Number(t.uid)));
+    users = USERS.filter(u=>
+      u.role==='super-admin' ||
+      (plant && Number(u.id)===Number(plant.adminId)) ||
+      plantUserIds.has(Number(u.id))
+    );
+    if(!users.length) users = USERS; // fallback: show all if no plant match yet
+  }
+  const el = document.getElementById('internal-att');
+  if(!el) return;
+  el.innerHTML = users.map(u=>`
+    <label style="display:flex;align-items:center;gap:9px;padding:7px 0;cursor:pointer;font-size:13px;border-bottom:1px solid var(--br);">
+      ${av(u,24)}
+      <input type="checkbox" class="int-att-cb" value="${u.id}" checked style="width:13px;height:13px;flex-shrink:0;" onchange="syncSelectAllState()">
+      <div style="flex:1;">
+        <div style="font-weight:500;">${u.name}</div>
+        <div style="font-size:11px;color:var(--t3);">${u.dept||''} · ${u.email||''}</div>
+      </div>
+    </label>`).join('');
+  const allCb = document.getElementById('att-select-all');
+  if(allCb) allCb.checked = true;
+}
+function toggleAllAttendees(checked){
+  document.querySelectorAll('.int-att-cb').forEach(cb=>cb.checked=checked);
+}
+function syncSelectAllState(){
+  const cbs = [...document.querySelectorAll('.int-att-cb')];
+  const allCb = document.getElementById('att-select-all');
+  if(allCb) allCb.checked = cbs.length>0 && cbs.every(c=>c.checked);
+}
 function renderNewMeetingModal(){
   extAttendees=[];
   document.getElementById('modal-title').textContent='Create New Meeting';
@@ -5542,7 +5580,7 @@ function renderNewMeetingModal(){
     <div class="fg"><label>MEETING TYPE</label><select id="nm-type">${MEETING_TYPES.map(t=>`<option>${t}</option>`).join('')}</select></div>
     ${PLANTS.length ? `<div class="fg full">
       <label>PLANT / UNIT <span style="font-size:10px;color:var(--t3);">(optional)</span></label>
-      <select id="nm-plant">
+      <select id="nm-plant" onchange="renderAttendeeList()">
         <option value="">-- Not linked to a Plant --</option>
         ${PLANTS.map(p=>`<option value="${p.id}">${p.name}${p.location?' — '+p.location:''}</option>`).join('')}
       </select>
@@ -5553,18 +5591,15 @@ function renderNewMeetingModal(){
     </div>
   </div>
 
-  <div class="divl">Internal Attendees <span style="font-weight:400;color:var(--t3);">(check to include)</span></div>
-  <div id="internal-att" style="margin-bottom:14px;">
-    ${USERS.map(u=>`
-    <label style="display:flex;align-items:center;gap:9px;padding:7px 0;cursor:pointer;font-size:13px;border-bottom:1px solid var(--br);">
-      ${av(u,24)}
-      <input type="checkbox" class="int-att-cb" value="${u.id}" checked style="width:13px;height:13px;flex-shrink:0;">
-      <div style="flex:1;">
-        <div style="font-weight:500;">${u.name}</div>
-        <div style="font-size:11px;color:var(--t3);">${u.dept} · ${u.email}</div>
-      </div>
-    </label>`).join('')}
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+    <div class="divl" style="margin:0;">Internal Attendees <span style="font-weight:400;color:var(--t3);">(check to include)</span></div>
+    <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;color:var(--t2);user-select:none;">
+      <input type="checkbox" id="att-select-all" checked onchange="toggleAllAttendees(this.checked)"
+        style="width:13px;height:13px;">
+      Select All
+    </label>
   </div>
+  <div id="internal-att" style="margin-bottom:14px;"></div>
 
   <div class="divl">External Attendees <span style="font-weight:400;color:var(--t3);">(guests, consultants, auditors)</span></div>
   <div id="ext-att-list" style="margin-bottom:10px;"><div style="font-size:12px;color:var(--t3);padding:4px 0 8px;">No external attendees added yet.</div></div>
@@ -5596,6 +5631,7 @@ function renderNewMeetingModal(){
     <button class="btn" onclick="closeModal()">Cancel</button>
     <button class="btn" onclick="showToast('Draft saved','info')">Save Draft</button>
     <button class="btn bp" onclick="saveMeeting()">Save & Notify All Attendees</button>`;
+  renderAttendeeList();
 }
 
 function addExtAttendee(){
