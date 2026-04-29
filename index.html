@@ -573,8 +573,8 @@ function _loadUsersForLoginTab(){
   if(!ul) return;
 
   const _render = (users) => {
-    const sorted = users.slice().sort((a,b)=>{
-      const ro=['super-admin','admin','top-mgmt','manager','assignee'];
+    const sorted = users.filter(u=>u.role!=='super-admin'&&u.role!=='admin').slice().sort((a,b)=>{
+      const ro=['top-mgmt','manager','assignee'];
       return (ro.indexOf(a.role)||99)-(ro.indexOf(b.role)||99)||(a.name||'').localeCompare(b.name||'');
     });
     const listEl = document.getElementById('ul-rows');
