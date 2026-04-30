@@ -6885,7 +6885,7 @@ setTimeout(() => {
    License gate appears BEFORE login screen.
 ═══════════════════════════════════════════════════════════════════ */
 
-const _LIC_SESS = 'mompro_lic_v1';  // localStorage — persists across sessions
+const _LIC_SESS = 'mompro_lic_v1';
 let _licData   = null;   // full license document from Firestore
 let _licRO     = false;  // true when license expired → read-only mode
 
@@ -7045,19 +7045,60 @@ document.getElementById('lic-info-modal').addEventListener('click', e=>{
 /* ── Session revalidation on load ── */
 (async function _checkLicSession(){
   const sess = localStorage.getItem(_LIC_SESS);
-  if(!sess) return; // gate stays visible
+  if(!sess) return; // no saved key — gate stays visible
+
+  const inp = document.getElementById('lic-key-inp');
+  const btn = document.getElementById('lic-btn');
+  try{ if(inp) inp.placeholder='Checking saved license...'; if(btn) btn.disabled=true; }catch(e){}
+
   try{
     const s = JSON.parse(sess);
-    // Re-validate against Firestore every load
+    if(!s || !s.key){ localStorage.removeItem(_LIC_SESS); return; }
+
+    // Wait for Firebase ready (max 10s) — key fix: was running before Firebase init
+    let waited = 0;
+    while((!_db || !_authFs) && waited < 100){ await new Promise(r=>setTimeout(r,100)); waited++; }
+
+    // Firebase unavailable — use cached license so user isn't blocked
+    if(!_db){
+      if(s.key && s.company){
+        _licData = { key:s.key, company:s.company, customerName:s.customerName||'',
+          expiryDate: s.expiryDate ? new Date(s.expiryDate) : new Date(Date.now()+86400000),
+          features:s.features||[], isActive:true };
+        _unlockApp(s.readOnly||false, _licData); return;
+      }
+      localStorage.removeItem(_LIC_SESS); return;
+    }
+
     const r = await _validateLicKey(s.key);
     if(r.ok){
       _licData = r.data;
+      // Refresh cache with latest data
+      localStorage.setItem(_LIC_SESS, JSON.stringify({
+        key:s.key, company:r.data.company||'', customerName:r.data.customerName||'',
+        expiryDate:r.data.expiryDate?.toString(), readOnly:r.readOnly,
+        features:r.data.features||[], ts:Date.now()
+      }));
       _unlockApp(r.readOnly, r.data);
-    } else {
+    } else if(r.reason==='OFFLINE'){
+      // Offline — trust cached data, don't block user
+      if(s.key && s.company){
+        _licData = { key:s.key, company:s.company, customerName:s.customerName||'',
+          expiryDate: s.expiryDate ? new Date(s.expiryDate) : new Date(Date.now()+86400000),
+          features:s.features||[], isActive:true };
+        _unlockApp(s.readOnly||false, _licData); return;
+      }
       localStorage.removeItem(_LIC_SESS);
-      // gate remains visible
+    } else {
+      // Revoked or invalid — clear and show gate
+      localStorage.removeItem(_LIC_SESS);
     }
-  }catch(e){ localStorage.removeItem(_LIC_SESS); }
+  }catch(e){
+    console.warn('[MoMPro] License check error:', e.message);
+    // Don't clear on parse errors — avoid locking out valid users
+  } finally {
+    try{ if(inp) inp.placeholder='MOM-XXXX-XXXX-XXXX'; if(btn) btn.disabled=false; }catch(e){}
+  }
 })();
 
 </script>
