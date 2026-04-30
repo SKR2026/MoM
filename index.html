@@ -199,9 +199,132 @@ input[type=checkbox].task-cb{width:15px;height:15px;accent-color:var(--ac);curso
 .logout-btn{display:flex;align-items:center;gap:6px;padding:6px 10px;border-radius:var(--rs);color:var(--er);border:1px solid var(--er);background:transparent;font-size:12px;font-weight:500;cursor:pointer;font-family:var(--fn);transition:all .15s;width:100%;margin-top:8px;justify-content:center;}
 .logout-btn:hover{background:var(--el);}
 
+
+/* ════════════════════════════════════════
+   LICENSE GATE — MoM Pro
+════════════════════════════════════════ */
+#lic-gate {
+  position:fixed;inset:0;z-index:99999;
+  background:#000f20;
+  display:flex;align-items:center;justify-content:center;
+  font-family:'DM Sans',sans-serif;
+}
+.lic-card {
+  background:#061a30;border:1px solid #0e3d6a;
+  border-radius:18px;padding:44px 48px;
+  width:460px;max-width:96vw;
+  box-shadow:0 32px 80px rgba(0,0,0,.8),0 0 0 1px rgba(0,144,208,.08);
+  position:relative;overflow:hidden;
+}
+.lic-card::before{content:'';position:absolute;top:-80px;right:-80px;width:240px;height:240px;background:radial-gradient(circle,rgba(2,132,199,.12) 0%,transparent 70%);border-radius:50%;pointer-events:none;}
+.lic-logo{display:flex;align-items:center;gap:12px;margin-bottom:28px;}
+.lic-logo-badge{width:46px;height:46px;border-radius:10px;background:linear-gradient(135deg,#0284c7,#0369a1);display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:700;color:#fff;}
+.lic-logo h1{font-size:20px;font-weight:700;color:#e0f2fe;line-height:1;}
+.lic-logo p{font-size:10px;color:#3a7eaa;text-transform:uppercase;letter-spacing:2px;margin-top:3px;}
+.lic-ttl{font-size:13px;font-weight:600;color:#7ab8e0;margin-bottom:4px;}
+.lic-sub{font-size:11px;color:#3a7eaa;margin-bottom:22px;line-height:1.6;}
+.lic-fmt{font-size:11px;color:#3a7eaa;margin-bottom:16px;display:flex;align-items:center;gap:6px;}
+.lic-fmt code{background:rgba(2,132,199,.12);color:#38bdf8;padding:2px 7px;border-radius:4px;font-family:'DM Mono',monospace;font-size:10px;letter-spacing:1px;}
+.lic-inp-wrap{position:relative;margin-bottom:10px;}
+.lic-inp{width:100%;padding:13px 46px 13px 14px;background:rgba(6,26,48,.9);border:1.5px solid #0e3d6a;color:#e0f2fe;border-radius:9px;font-family:'DM Mono',monospace;font-size:15px;letter-spacing:2px;text-transform:uppercase;transition:border-color .2s,box-shadow .2s;outline:none;}
+.lic-inp:focus{border-color:#0284c7;box-shadow:0 0 0 3px rgba(2,132,199,.18);}
+.lic-inp::placeholder{color:#0e3d6a;font-size:12px;letter-spacing:1px;text-transform:none;}
+.lic-ico{position:absolute;right:13px;top:50%;transform:translateY(-50%);font-size:16px;color:#0e3d6a;}
+.lic-err{margin-top:10px;padding:9px 13px;border-radius:8px;background:rgba(220,38,38,.1);border:1px solid rgba(220,38,38,.25);color:#fca5a5;font-size:12px;display:none;align-items:center;gap:8px;}
+.lic-err.show{display:flex;}
+.lic-btn{width:100%;padding:13px;border:none;border-radius:9px;background:linear-gradient(135deg,#0284c7,#0369a1);color:#fff;font-family:'DM Sans',sans-serif;font-size:14px;font-weight:600;cursor:pointer;transition:all .2s;display:flex;align-items:center;justify-content:center;gap:8px;margin-top:14px;letter-spacing:.3px;}
+.lic-btn:hover{transform:translateY(-1px);box-shadow:0 8px 24px rgba(2,132,199,.35);}
+.lic-btn:disabled{opacity:.5;cursor:not-allowed;transform:none;}
+.lic-btn.loading .lic-lbl{display:none;}
+.lic-spin{width:17px;height:17px;border:2px solid rgba(255,255,255,.3);border-top-color:#fff;border-radius:50%;animation:lspin .7s linear infinite;display:none;}
+.lic-btn.loading .lic-spin{display:block;}
+@keyframes lspin{to{transform:rotate(360deg)}}
+.lic-foot{margin-top:18px;text-align:center;font-size:10px;color:#0e3d6a;line-height:1.9;}
+.lic-foot strong{color:#3a7eaa;}
+
+/* RO banner */
+#ro-banner{display:none;position:fixed;top:0;left:0;right:0;z-index:9000;background:linear-gradient(90deg,#92400e,#b45309);color:#fef3c7;padding:7px 18px;font-size:12px;font-weight:600;flex-align:center;justify-content:space-between;align-items:center;}
+#ro-banner.show{display:flex;}
+.ro-l{display:flex;align-items:center;gap:8px;}
+.ro-acts{display:flex;gap:8px;}
+.ro-btn{padding:3px 12px;border-radius:4px;border:1px solid rgba(254,243,199,.3);background:rgba(254,243,199,.1);color:#fef3c7;font-size:11px;cursor:pointer;font-family:'DM Sans',sans-serif;transition:all .15s;}
+.ro-btn:hover{background:rgba(254,243,199,.2);}
+body.has-ro-banner{padding-top:36px;}
+body.has-ro-banner #login-overlay{top:36px;}
+
+/* Lic chip in topbar */
+#lic-chip{display:none;align-items:center;gap:5px;background:rgba(22,163,74,.1);border:1px solid rgba(22,163,74,.25);border-radius:16px;padding:3px 10px;font-size:11px;color:#16a34a;cursor:pointer;margin-left:8px;white-space:nowrap;}
+#lic-chip.show{display:inline-flex;}
+.lic-pulse{width:6px;height:6px;border-radius:50%;background:#22c55e;animation:lpulse 2s infinite;}
+@keyframes lpulse{0%,100%{opacity:1}50%{opacity:.3}}
+
+/* Lic modal */
+#lic-info-modal{display:none;position:fixed;inset:0;z-index:50000;background:rgba(0,0,0,.6);align-items:center;justify-content:center;}
+#lic-info-modal.open{display:flex;}
+.lim-card{background:#061a30;border:1px solid #0e3d6a;border-radius:14px;padding:26px 30px;width:400px;max-width:95vw;box-shadow:0 20px 50px rgba(0,0,0,.6);}
+.lim-title{font-size:14px;font-weight:700;margin-bottom:16px;color:#e0f2fe;display:flex;align-items:center;gap:8px;}
+.lim-row{display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px dotted #0e3d6a;font-size:12px;}
+.lim-row:last-child{border-bottom:none;}
+.lim-lbl{color:#3a7eaa;}
+.lim-val{font-family:'DM Mono',monospace;font-weight:600;color:#e0f2fe;}
+
 </style>
 </head>
 <body>
+
+<!-- ════ LICENSE GATE ════ -->
+<div id="lic-gate">
+  <div class="lic-card">
+    <div class="lic-logo">
+      <div class="lic-logo-badge">M</div>
+      <div>
+        <h1>MoM Pro</h1>
+        <p>Minutes of Meeting Management</p>
+      </div>
+    </div>
+    <div class="lic-ttl">Enter License Key to continue</div>
+    <div class="lic-sub">Your license key was provided by your software administrator.<br>Contact support if you do not have one.</div>
+    <div class="lic-fmt">Format: <code>MOM-XXXX-XXXX-XXXX</code></div>
+    <div class="lic-inp-wrap">
+      <input class="lic-inp" id="lic-key-inp" type="text" maxlength="19"
+        placeholder="MOM-XXXX-XXXX-XXXX"
+        oninput="fmtLicKey(this)" onkeydown="if(event.key==='Enter')doLicActivate()">
+      <span class="lic-ico">🔑</span>
+    </div>
+    <div class="lic-err" id="lic-err"><span>⚠</span><span id="lic-err-msg">Invalid license key.</span></div>
+    <button class="lic-btn" id="lic-btn" onclick="doLicActivate()">
+      <div class="lic-spin"></div>
+      <span class="lic-lbl">🔓 Activate License</span>
+    </button>
+    <div class="lic-foot">
+      <strong>Offline use is not supported.</strong><br>
+      An active internet connection is required to validate your license.<br>
+      License is verified against our secure server on every session.
+    </div>
+  </div>
+</div>
+
+<!-- ════ READ-ONLY BANNER ════ -->
+<div id="ro-banner">
+  <div class="ro-l">
+    <span>⚠</span>
+    <span>READ-ONLY MODE — License expired on <strong id="ro-expiry-date">—</strong>. All write operations are disabled. Contact your administrator to renew.</span>
+  </div>
+  <div class="ro-acts">
+    <button class="ro-btn" onclick="openLicInfo()">License Info</button>
+    <button class="ro-btn" onclick="doLicLogout()">🔓 Change Key</button>
+  </div>
+</div>
+
+<!-- ════ LICENSE INFO MODAL ════ -->
+<div id="lic-info-modal">
+  <div class="lim-card">
+    <div class="lim-title">🔑 License Information</div>
+    <div id="lim-body"></div>
+    <button class="btn bp" style="margin-top:16px;width:100%" onclick="document.getElementById('lic-info-modal').classList.remove('open')">Close</button>
+  </div>
+</div>
+
 <!-- ════ LOGIN OVERLAY ════ -->
 <div id="login-overlay">
   <div class="login-card">
@@ -311,6 +434,7 @@ input[type=checkbox].task-cb{width:15px;height:15px;accent-color:var(--ac);curso
     <div id="dev-topbadge" style="display:none;"><span class="dev-mode-banner">⚡ DEV MODE</span></div>
     <select id="role-sw" style="width:160px;font-size:12px;" onchange="switchRole(this.value)">
     </select>
+    <span id="lic-chip" onclick="openLicInfo()"><span class="lic-pulse"></span><span id="lic-chip-co">Licensed</span><span style="color:var(--t3);font-size:10px;margin:0 2px">·</span><span id="lic-chip-exp" style="font-size:10px;color:var(--t3)"></span></span>
     <span id="btn-new-meeting"><button class="btn bs bp" onclick="openModal('new-meeting')">+ New Meeting</button></span>
     <button class="btn bs" id="bell-btn" onclick="showBellSummary()" style="position:relative;">
       <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 1a5 5 0 015 5v3l1 2H2l1-2V6a5 5 0 015-5zM6 13a2 2 0 004 0"/></svg>
@@ -6752,6 +6876,190 @@ setTimeout(() => {
     if (lload) lload.style.display = 'flex';
   }
 }, 100);
+
+
+/* ═══════════════════════════════════════════════════════════════════
+   LICENSE SYSTEM — MoM Pro
+   Validates against Firestore 'licenses' collection.
+   Same Firebase project as MoM Pro data (_FB_CFG / _db).
+   License gate appears BEFORE login screen.
+═══════════════════════════════════════════════════════════════════ */
+
+const _LIC_SESS = 'mompro_lic_session_v1';
+let _licData   = null;   // full license document from Firestore
+let _licRO     = false;  // true when license expired → read-only mode
+
+/* ── Key formatter ── */
+function fmtLicKey(el){
+  let v = el.value.replace(/[^A-Za-z0-9]/g,'').toUpperCase();
+  let o = '';
+  for(let i=0;i<Math.min(v.length,16);i++){ if(i===3||i===7||i===11) o+='-'; o+=v[i]; }
+  el.value = o;
+}
+
+/* ── Validate a key against Firestore licenses collection ── */
+async function _validateLicKey(key){
+  if(!key||!key.trim()) return { ok:false, reason:'NO_KEY' };
+  const clean = key.trim().toUpperCase();
+
+  // Wait for Firebase to be ready (max 8s)
+  let waited = 0;
+  while((!_db || !_authFs) && waited < 80){ await new Promise(r=>setTimeout(r,100)); waited++; }
+  if(!_db) return { ok:false, reason:'OFFLINE' };
+
+  // Ensure auth
+  if(!_authFs.currentUser){
+    try{ await _authFs.signInAnonymously(); }
+    catch(e){ return { ok:false, reason:'OFFLINE' }; }
+  }
+
+  try{
+    const snap = await _db.collection('licenses').doc(clean).get();
+    if(!snap.exists) return { ok:false, reason:'INVALID_KEY' };
+    const data = snap.data();
+    if(!data.isActive) return { ok:false, reason:'REVOKED', data };
+
+    const now    = new Date();
+    const expiry = data.expiryDate && data.expiryDate.toDate
+      ? data.expiryDate.toDate()
+      : new Date(data.expiryDate);
+    const expired = now > expiry;
+
+    // Update activation count (non-blocking)
+    try{
+      await _db.collection('licenses').doc(clean).update({
+        lastValidated: firebase.firestore.FieldValue.serverTimestamp(),
+        activationCount: firebase.firestore.FieldValue.increment(1)
+      });
+    }catch(e){ /* non-critical */ }
+
+    return { ok:true, readOnly:expired, reason:expired?'EXPIRED':'OK', data:{...data, expiryDate:expiry, key:clean} };
+  }catch(e){
+    if(e.code==='unavailable'||e.code==='failed-precondition'||e.message?.includes('offline'))
+      return { ok:false, reason:'OFFLINE' };
+    return { ok:false, reason:'ERROR', message:e.message };
+  }
+}
+
+/* ── Activate button handler ── */
+async function doLicActivate(){
+  const key = document.getElementById('lic-key-inp').value.trim();
+  const btn = document.getElementById('lic-btn');
+  const errEl = document.getElementById('lic-err');
+  if(!key){ _showLicErr('Please enter your license key.'); return; }
+  btn.classList.add('loading'); btn.disabled=true;
+  errEl.classList.remove('show');
+  try{
+    const r = await _validateLicKey(key);
+    if(r.ok){
+      _licData = r.data;
+      sessionStorage.setItem(_LIC_SESS, JSON.stringify({
+        key, company:r.data.company||'', customerName:r.data.customerName||'',
+        expiryDate: r.data.expiryDate?.toString(), readOnly:r.readOnly, ts:Date.now()
+      }));
+      _unlockApp(r.readOnly, r.data);
+    } else {
+      const msgs = {
+        INVALID_KEY:'License key not found. Please check and try again.',
+        REVOKED:    'This license has been revoked. Contact your administrator.',
+        OFFLINE:    'Cannot connect to license server. An internet connection is required.',
+        NO_KEY:     'Please enter your license key.',
+        ERROR:      'Verification error. Please try again.'
+      };
+      _showLicErr(msgs[r.reason]||'License validation failed.');
+    }
+  }catch(e){
+    _showLicErr('Connection error. Check your internet and try again.');
+  }finally{
+    btn.classList.remove('loading'); btn.disabled=false;
+  }
+}
+
+function _showLicErr(msg){
+  document.getElementById('lic-err-msg').textContent=msg;
+  document.getElementById('lic-err').classList.add('show');
+}
+
+/* ── Unlock the app ── */
+function _unlockApp(readOnly, data){
+  document.getElementById('lic-gate').style.display='none';
+  _licRO = readOnly;
+  if(readOnly){
+    _applyReadOnly(data);
+  } else {
+    const chip = document.getElementById('lic-chip');
+    chip.classList.add('show');
+    document.getElementById('lic-chip-co').textContent = data.company||data.customerName||'Licensed';
+    const exp = data.expiryDate instanceof Date ? data.expiryDate : new Date(data.expiryDate);
+    const dl  = Math.ceil((exp - new Date())/86400000);
+    document.getElementById('lic-chip-exp').textContent = exp.toLocaleDateString('en-IN') + ' (' + dl + 'd)';
+  }
+}
+
+/* ── Apply read-only mode ── */
+function _applyReadOnly(data){
+  _licRO = true;
+  const ban = document.getElementById('ro-banner');
+  ban.classList.add('show');
+  document.body.classList.add('has-ro-banner');
+  const exp = data.expiryDate instanceof Date ? data.expiryDate : new Date(data.expiryDate);
+  document.getElementById('ro-expiry-date').textContent = exp.toLocaleDateString('en-IN');
+
+  // Disable all primary action buttons
+  document.querySelectorAll('.bp, .bok, .ber').forEach(b=>{
+    b.disabled=true; b.style.opacity='0.35'; b.style.cursor='not-allowed'; b.style.pointerEvents='none';
+  });
+  // Override doLogin to block new meetings / data writes
+  window._licReadOnlyActive = true;
+}
+
+/* ── Logout / change key ── */
+function doLicLogout(){
+  sessionStorage.removeItem(_LIC_SESS);
+  location.reload();
+}
+
+/* ── Open license info modal ── */
+function openLicInfo(){
+  if(!_licData) return;
+  const exp = _licData.expiryDate instanceof Date ? _licData.expiryDate : new Date(_licData.expiryDate);
+  const iss = _licData.issuedDate ? new Date(_licData.issuedDate) : null;
+  document.getElementById('lim-body').innerHTML = [
+    ['License Key', _licData.key||'—'],
+    ['Company', _licData.company||'—'],
+    ['Customer', _licData.customerName||'—'],
+    ['Email', _licData.email||'—'],
+    ['Issued', iss?iss.toLocaleDateString('en-IN'):'—'],
+    ['Expires', exp.toLocaleDateString('en-IN')],
+    ['Features', (_licData.features||['All modules']).join(', ')],
+    ['Status', _licRO?'⚠ EXPIRED':'✓ Active'],
+  ].map(([l,v])=>`<div class="lim-row"><span class="lim-lbl">${l}</span><span class="lim-val">${v}</span></div>`).join('');
+  document.getElementById('lic-info-modal').classList.add('open');
+}
+
+document.getElementById('lic-info-modal').addEventListener('click', e=>{
+  if(e.target===document.getElementById('lic-info-modal'))
+    document.getElementById('lic-info-modal').classList.remove('open');
+});
+
+/* ── Session revalidation on load ── */
+(async function _checkLicSession(){
+  const sess = sessionStorage.getItem(_LIC_SESS);
+  if(!sess) return; // gate stays visible
+  try{
+    const s = JSON.parse(sess);
+    // Re-validate against Firestore every load
+    const r = await _validateLicKey(s.key);
+    if(r.ok){
+      _licData = r.data;
+      _unlockApp(r.readOnly, r.data);
+    } else {
+      sessionStorage.removeItem(_LIC_SESS);
+      // gate remains visible
+    }
+  }catch(e){ sessionStorage.removeItem(_LIC_SESS); }
+})();
+
 </script>
 </body>
 </html>
