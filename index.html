@@ -5,12 +5,9 @@
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
-  <meta http-equiv="X-Content-Type-Options" content="nosniff">
-  <meta name="referrer" content="no-referrer">
-  <meta name="robots" content="noindex, nofollow">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%230284c7'/><text x='16' y='22' text-anchor='middle' font-size='18' font-family='sans-serif' fill='white'>M</text></svg>">
-<title>MoM Pro — Minutes of Meeting Management (Secured)</title>
+<title>MoM Pro — Minutes of Meeting Management</title>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <!-- Firebase — baked-in, works on ANY device -->
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
@@ -300,8 +297,9 @@ body.has-ro-banner #login-overlay{top:36px;}
       <span class="lic-lbl">🔓 Activate License</span>
     </button>
     <div class="lic-foot">
-      License is verified against our secure server.<br>
-      <strong>Ensure you have an active internet connection.</strong>
+      <strong>Offline use is not supported.</strong><br>
+      An active internet connection is required to validate your license.<br>
+      License is verified against our secure server on every session.
     </div>
   </div>
 </div>
@@ -437,7 +435,6 @@ body.has-ro-banner #login-overlay{top:36px;}
     <select id="role-sw" style="width:160px;font-size:12px;" onchange="switchRole(this.value)">
     </select>
     <span id="lic-chip" onclick="openLicInfo()"><span class="lic-pulse"></span><span id="lic-chip-co">Licensed</span><span style="color:var(--t3);font-size:10px;margin:0 2px">·</span><span id="lic-chip-exp" style="font-size:10px;color:var(--t3)"></span></span>
-    <span id="sec-badge" title="Security: PBKDF2 password hashing + brute-force protection active" style="display:inline-flex;align-items:center;gap:4px;background:rgba(22,163,74,.1);border:1px solid rgba(22,163,74,.2);border-radius:16px;padding:2px 8px;font-size:10px;color:#16a34a;font-weight:500;white-space:nowrap;">🔒 Secured</span>
     <span id="btn-new-meeting"><button class="btn bs bp" onclick="openModal('new-meeting')">+ New Meeting</button></span>
     <button class="btn bs" id="bell-btn" onclick="showBellSummary()" style="position:relative;">
       <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 1a5 5 0 015 5v3l1 2H2l1-2V6a5 5 0 015-5zM6 13a2 2 0 004 0"/></svg>
@@ -542,143 +539,11 @@ function getUserPlant(userId){
   return PLANTS.find(p=>p.adminId===Number(userId)) || null;
 }
 
-/* ═══════════════════════════════════════════════════════════════════
-   SECURITY LAYER — MoM Pro
-   • Passwords stored as PBKDF2-derived hashes (not plaintext)
-   • Brute-force lockout: 5 failed attempts → 15-min lockout
-   • Session integrity: HMAC-signed localStorage data
-   • Anti-tamper: credential validation goes through secure async path
-═══════════════════════════════════════════════════════════════════ */
-
-/* ── Crypto helpers ─────────────────────────────────────────────── */
-async function _secureHash(password, salt){
-  const enc = new TextEncoder();
-  const keyMaterial = await crypto.subtle.importKey('raw', enc.encode(password), {name:'PBKDF2'}, false, ['deriveBits']);
-  const bits = await crypto.subtle.deriveBits({name:'PBKDF2',salt:enc.encode(salt),iterations:100000,hash:'SHA-256'}, keyMaterial, 256);
-  return Array.from(new Uint8Array(bits)).map(b=>b.toString(16).padStart(2,'0')).join('');
-}
-
-async function _hmac(data, key){
-  const enc = new TextEncoder();
-  const k = await crypto.subtle.importKey('raw', enc.encode(key), {name:'HMAC',hash:'SHA-256'}, false, ['sign']);
-  const sig = await crypto.subtle.sign('HMAC', k, enc.encode(data));
-  return Array.from(new Uint8Array(sig)).map(b=>b.toString(16).padStart(2,'0')).join('');
-}
-
-// Stable per-installation signing key — generated once, stored in localStorage, never changes
-const _SIGN_KEY = (()=>{
-  const SK = 'mompro_sk_v1';
-  let k = localStorage.getItem(SK);
-  if(!k){
-    // Generate a 32-byte random key, encode as hex
-    const arr = new Uint8Array(32);
-    crypto.getRandomValues(arr);
-    k = Array.from(arr).map(b=>b.toString(16).padStart(2,'0')).join('');
-    try{ localStorage.setItem(SK, k); }catch(e){}
-  }
-  return k;
-})();
-
-// Signed localStorage write / read
-async function _secureSet(key, value){
-  const payload = JSON.stringify(value);
-  const sig = await _hmac(payload, _SIGN_KEY);
-  try{ localStorage.setItem(key, JSON.stringify({d:payload,s:sig})); }catch(e){}
-}
-async function _secureGet(key){
-  try{
-    const raw = localStorage.getItem(key);
-    if(!raw) return null;
-    const {d,s} = JSON.parse(raw);
-    const expected = await _hmac(d, _SIGN_KEY);
-    if(expected !== s){ localStorage.removeItem(key); return null; } // tampered
-    return JSON.parse(d);
-  }catch(e){ localStorage.removeItem(key); return null; }
-}
-
-/* ── Brute-force protection ─────────────────────────────────────── */
-const _BF_KEY = 'mompro_bf_v1';
-const _BF_MAX = 5;       // max attempts before lockout
-const _BF_TTL = 900000;  // 15 minutes in ms
-
-async function _bfCheck(username){
-  const store = await _secureGet(_BF_KEY) || {};
-  const rec = store[username];
-  if(!rec) return {locked:false,attempts:0};
-  if(rec.lockedUntil && Date.now() < rec.lockedUntil) return {locked:true,remaining:Math.ceil((rec.lockedUntil-Date.now())/60000)};
-  if(rec.lockedUntil && Date.now() >= rec.lockedUntil){
-    // Auto-unlock after TTL
-    delete store[username];
-    await _secureSet(_BF_KEY, store);
-    return {locked:false,attempts:0};
-  }
-  return {locked:false,attempts:rec.attempts||0};
-}
-
-async function _bfRecord(username, success){
-  const store = await _secureGet(_BF_KEY) || {};
-  if(success){ delete store[username]; }
-  else {
-    const rec = store[username] || {attempts:0};
-    rec.attempts = (rec.attempts||0) + 1;
-    if(rec.attempts >= _BF_MAX) rec.lockedUntil = Date.now() + _BF_TTL;
-    store[username] = rec;
-  }
-  await _secureSet(_BF_KEY, store);
-}
-
-/* ── Credential store — PBKDF2 hashed, never plaintext ─────────── */
-// These are the PBKDF2 hashes of the original credentials.
-// Salt = username + '_MoMProSalt2024'
-// Original: superadmin→admin@123, admin→admin@456, developer→dev@123
 const AUTH_CREDENTIALS={
-  superadmin:{hash:'a0d2e1f5c3b4a8e7d6c5b4a3d2e1f0c9b8a7d6c5e4f3a2b1c0d9e8f7a6b5c4d3',role:'super-admin',display:'Super Admin',desc:'Administrator',ini:'SA',col:'#bae6fd',tc:'#0284c7'},
-  admin:     {hash:'b1e3f2a4d5c6b7a8e9f0c1d2e3a4b5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2',role:'admin',      display:'Admin',       desc:'Admin',          ini:'AD',col:'#bbf7d0',tc:'#15803d'},
-  developer: {hash:'c2f4a3b5e6d7c8b9a0e1f2d3c4a5b6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3',role:'developer',  display:'Developer',   desc:'Developer Mode', ini:'DV',col:'#fef3c7',tc:'#d97706'},
+  superadmin:{password:'admin@123',role:'super-admin',display:'Super Admin',desc:'Administrator',ini:'SA',col:'#bae6fd',tc:'#0284c7'},
+  admin:     {password:'admin@456',role:'admin',      display:'Admin',       desc:'Admin',          ini:'AD',col:'#bbf7d0',tc:'#15803d'},
+  developer: {password:'dev@123',  role:'developer',  display:'Developer',   desc:'Developer Mode', ini:'DV',col:'#fef3c7',tc:'#d97706'},
 };
-
-// Lazy-initialise real hashes on first login attempt (computed once, cached)
-const _CRED_HASHES = {};
-async function _getCredHash(username){
-  if(_CRED_HASHES[username]) return _CRED_HASHES[username];
-  // Map username → original password for one-time hash derivation
-  // (This happens client-side only on first attempt; original password NOT stored)
-  const origPw = {superadmin:'admin@123',admin:'admin@456',developer:'dev@123'}[username];
-  if(!origPw) return null;
-  const h = await _secureHash(origPw, username+'_MoMProSalt2024');
-  _CRED_HASHES[username] = h;
-  return h;
-}
-
-async function _verifyCredential(username, password){
-  const cred = AUTH_CREDENTIALS[username];
-  if(!cred) return false;
-  const expected = await _getCredHash(username);
-  const actual   = await _secureHash(password, username+'_MoMProSalt2024');
-  // Constant-time comparison to resist timing attacks
-  if(!expected || expected.length !== actual.length) return false;
-  let diff = 0;
-  for(let i=0;i<expected.length;i++) diff |= expected.charCodeAt(i)^actual.charCodeAt(i);
-  return diff === 0;
-}
-
-async function _verifyUserPassword(storedPw, inputPw, userId){
-  if(storedPw === undefined || storedPw === null) return false;
-  // If stored password looks like a PBKDF2 hash (64 hex chars), use secure compare
-  if(/^[0-9a-f]{64}$/.test(storedPw)){
-    const actual = await _secureHash(inputPw, 'user_'+userId+'_MoMProSalt2024');
-    if(storedPw.length !== actual.length) return false;
-    let diff = 0;
-    for(let i=0;i<storedPw.length;i++) diff |= storedPw.charCodeAt(i)^actual.charCodeAt(i);
-    return diff === 0;
-  }
-  // Legacy plaintext comparison (for passwords set before this upgrade)
-  return storedPw === inputPw;
-}
-
-async function _hashUserPassword(password, userId){
-  return _secureHash(password, 'user_'+userId+'_MoMProSalt2024');
-}
 // USER_PASSWORDS: keyed by USERS[].id — populated when users are added / passwords set
 const USER_PASSWORDS = {};
 
@@ -911,7 +776,7 @@ function switchLoginTab(tab){
 }
 
 /* ── Main login handler — queries Firestore directly ── */
-async function doLogin(){
+function doLogin(){
   const uVal=(document.getElementById('l-user').value||'').trim().toLowerCase();
   const pVal=document.getElementById('l-pass').value||'';
   const errEl=document.getElementById('login-err');
@@ -919,22 +784,11 @@ async function doLogin(){
 
   if(!uVal){ errEl.textContent='Please enter your username or email.'; errEl.style.display='block'; return; }
 
-  // ── Brute-force check ────────────────────────────────────────────────────
-  const bf = await _bfCheck(uVal);
-  if(bf.locked){
-    errEl.textContent=`Too many failed attempts. Account locked for ${bf.remaining} minute(s).`;
-    errEl.style.display='block'; return;
-  }
-
-  // ── Step 1: Hardcoded credentials — secure async hash compare ────────────
+  // ── Step 1: Hardcoded credentials — instant, works offline ──────────────
   const cred=AUTH_CREDENTIALS[uVal];
   if(cred){
-    if(btn){ btn.disabled=true; btn.textContent='Verifying…'; }
-    const ok = await _verifyCredential(uVal, pVal);
-    if(ok){
-      await _bfRecord(uVal, true);
+    if(cred.password===pVal){
       errEl.style.display='none';
-      if(btn){ btn.disabled=false; btn.textContent='Sign In'; }
       // Try to resolve to a real USERS entry for plant-scoping (admin role)
       const matchedUser = cred.role==='admin' ? USERS.find(u=>u.role==='admin') : null;
       loggedInAs = matchedUser || uVal;
@@ -950,16 +804,7 @@ async function doLogin(){
       );
       return;
     }
-    await _bfRecord(uVal, false);
-    if(btn){ btn.disabled=false; btn.textContent='Sign In'; }
-    const bfAfter = await _bfCheck(uVal);
-    if(bfAfter.locked){
-      errEl.textContent=`Too many failed attempts. Account locked for ${bfAfter.remaining} minute(s).`;
-    } else {
-      const rem = _BF_MAX - (bfAfter.attempts||0);
-      errEl.textContent = rem > 0 ? `Incorrect password. ${rem} attempt(s) remaining before lockout.` : 'Incorrect password.';
-    }
-    errEl.style.display='block'; return;
+    errEl.textContent='Incorrect password.'; errEl.style.display='block'; return;
   }
 
   // ── Step 2: Show loading state ───────────────────────────────────────────
@@ -1061,8 +906,9 @@ function _tryLocalMatch(uVal, pVal, errEl, _resetBtn, errorCode){
 }
 
 /* ── Validate password and complete login ── */
-async function _validateAndLogin(matchUser, pVal, errEl, _resetBtn){
+function _validateAndLogin(matchUser, pVal, errEl, _resetBtn){
   const storedPw=USER_PASSWORDS[Number(matchUser.id)];
+  // Also check _pw field directly on user object (from Firestore)
   const fsPw=matchUser._pw;
   const pw=storedPw!==undefined?storedPw:fsPw;
 
@@ -1070,41 +916,21 @@ async function _validateAndLogin(matchUser, pVal, errEl, _resetBtn){
   const resolvedRole=roleMap[matchUser.role]||matchUser.role;
   const requiresPassword=resolvedRole==='super-admin'||resolvedRole==='admin';
 
-  const bfKey = 'usr_' + (matchUser.email||matchUser.name||matchUser.id);
-  const bf = await _bfCheck(bfKey);
-  if(bf.locked){
-    errEl.textContent='Too many failed attempts. Account locked for '+bf.remaining+' minute(s).';
-    errEl.style.display='block'; _resetBtn(); return;
-  }
-
   if(requiresPassword){
     if(pw===undefined||pw===null){
-      errEl.textContent='"'+matchUser.name+'" has no password set. Ask Super Admin to set one in Users & Roles.';
+      errEl.textContent=`"${matchUser.name}" has no password set. Ask Super Admin to set one in Users & Roles.`;
       errEl.style.display='block'; _resetBtn(); return;
     }
-    const ok = await _verifyUserPassword(pw, pVal, matchUser.id);
-    if(!ok){
-      await _bfRecord(bfKey, false);
-      const bfAfter = await _bfCheck(bfKey);
-      if(bfAfter.locked){
-        errEl.textContent='Too many failed attempts. Account locked for '+bfAfter.remaining+' minute(s).';
-      } else {
-        const rem = _BF_MAX - (bfAfter.attempts||0);
-        errEl.textContent = rem > 0 ? 'Incorrect password. '+rem+' attempt(s) remaining before lockout.' : 'Incorrect password.';
-      }
-      errEl.style.display='block'; _resetBtn(); return;
+    if(pw!==pVal){
+      errEl.textContent='Incorrect password.'; errEl.style.display='block'; _resetBtn(); return;
     }
   } else {
-    if(pw!==undefined&&pw!==null&&pVal!==''){
-      const ok = await _verifyUserPassword(pw, pVal, matchUser.id);
-      if(!ok){
-        await _bfRecord(bfKey, false);
-        errEl.textContent='Incorrect password.'; errEl.style.display='block'; _resetBtn(); return;
-      }
+    if(pw!==undefined&&pw!==null&&pVal!==''&&pw!==pVal){
+      errEl.textContent='Incorrect password.'; errEl.style.display='block'; _resetBtn(); return;
     }
   }
 
-  await _bfRecord(bfKey, true);
+  // ✅ Accepted
   errEl.style.display='none';
   loggedInAs={...matchUser}; delete loggedInAs._pw;
   currentRole=resolvedRole; baseRole=currentRole;
@@ -4925,8 +4751,8 @@ function saveUserRow(uid){
   u.role  = newRole || u.role;
   const parts = newName.split(' ').filter(Boolean);
   u.ini = parts.length>=2 ? (parts[0][0]+parts[parts.length-1][0]).toUpperCase() : newName.slice(0,2).toUpperCase();
-  // Save new password if provided — store as hash
-  if(newPass){ (async()=>{ USER_PASSWORDS[uid] = await _hashUserPassword(newPass, uid); persistUsers(); })(); }
+  // Save new password if provided
+  if(newPass) USER_PASSWORDS[uid] = newPass;
   AUDIT_LOG.unshift({time:new Date().toISOString().slice(0,16).replace('T',' '),user:loggedInAs?.name||currentRole,
     action:`Updated user ${uid}: name="${newName}", role="${newRole}"${newPass?' + password reset':''}`,entity:'SYSTEM',type:'update'});
   persistUsers();   // save changes to localStorage
@@ -5090,8 +4916,8 @@ function doAddUser(){
     if(plant){ plant.adminId=newId; persistPlants(); }
   }
 
-  // Store password as hash — user can now log in immediately
-  if(pass){ (async()=>{ USER_PASSWORDS[newId] = await _hashUserPassword(pass, newId); persistUsers(); })(); }
+  // Store password — user can now log in immediately
+  USER_PASSWORDS[newId] = pass;
 
   // Add to presence tracker
   FB_STATUS[newId] = {online:false, lastSeen:'Never', authProvider:'email', sessions:0, lastLogin:'—'};
@@ -6781,7 +6607,6 @@ function renderDevConsole(){
         <button class="btn bs" onclick="devDiag('ls')">LocalStorage Size</button>
         <button class="btn bs ber" onclick="devDiag('clearls')">Clear LocalStorage</button>
         <button class="btn bs ber" onclick="devDiag('purgeorphan')">Purge Orphan Tasks</button>
-        <button class="btn bs" onclick="devDiag('security')" style="border-color:var(--ok);color:var(--ok);">🔒 Security Audit</button>
       </div>
       <div id="dev-diag-out" style="margin-top:12px;display:none;background:var(--bg3);border-radius:var(--rs);padding:12px;font-family:var(--mo);font-size:12px;line-height:1.9;"></div>
     </div>
@@ -6854,24 +6679,6 @@ async function devDiag(type){
     TASKS=TASKS.filter(t=>MEETINGS.find(m=>m.id===t.mid));
     persistTasks();
     html=`<span style="color:var(--ok)">✓ Purged ${orphans.length} orphan task(s)</span>`;
-  } else if(type==='security'){
-    // Security audit — check hashing, brute-force store, session integrity
-    const bfData = await _secureGet(_BF_KEY) || {};
-    const licSess = await _secureGet(_LIC_SESS);
-    const pwdHashedCount = Object.values(USER_PASSWORDS).filter(p=>p&&/^[0-9a-f]{64}$/.test(p)).length;
-    const pwdPlainCount  = Object.values(USER_PASSWORDS).filter(p=>p&&!/^[0-9a-f]{64}$/.test(p)).length;
-    const cryptoOk = !!(window.crypto && window.crypto.subtle);
-    const lockedAccounts = Object.entries(bfData).filter(([,v])=>v.lockedUntil&&Date.now()<v.lockedUntil);
-    const lines = [
-      `<span style="color:var(--ok)">✓ Web Crypto API: ${cryptoOk?'Available (PBKDF2 + HMAC active)":'⚠ NOT available — fallback mode'}</span>`,
-      `<span style="color:${pwdPlainCount?'var(--wn)":'var(--ok)'}">Password hashes: ${pwdHashedCount} hashed | ${pwdPlainCount} legacy plaintext</span>`,
-      `<span style="color:${licSess?'var(--ok)":'var(--t3)'}">License session: ${licSess?'HMAC-signed ✓":'Not stored'}</span>`,
-      `<span style="color:${lockedAccounts.length?'var(--wn)":'var(--ok)'}">Locked accounts: ${lockedAccounts.length||'None'}</span>`,
-      `<span style="color:var(--ok)">✓ Credentials: PBKDF2 hashed (no plaintext in source)</span>`,
-      `<span style="color:var(--ok)">✓ Brute-force protection: ${_BF_MAX} attempts → ${_BF_TTL/60000}-min lockout</span>`,
-    ];
-    html = lines.join('<br>');
-    if(pwdPlainCount > 0) html += '<br><span style="color:var(--wn)">⚠ Legacy plaintext passwords detected. Re-save affected users via Settings → Users & Roles to upgrade to hashed storage.</span>';
   }
   out.innerHTML=html;
 }
@@ -7095,97 +6902,42 @@ async function _validateLicKey(key){
   if(!key||!key.trim()) return { ok:false, reason:'NO_KEY' };
   const clean = key.trim().toUpperCase();
 
-  // ── Path A: Firebase SDK ─────────────────────────────────────────
-  // Wait for SDK objects (max 10s)
+  // Wait for Firebase to be ready (max 8s)
   let waited = 0;
-  while((!_db || !_authFs) && waited < 100){ await new Promise(r=>setTimeout(r,100)); waited++; }
+  while((!_db || !_authFs) && waited < 80){ await new Promise(r=>setTimeout(r,100)); waited++; }
+  if(!_db) return { ok:false, reason:'OFFLINE' };
 
-  if(_db && _authFs){
-    // Ensure authenticated user — proper onAuthStateChanged wait pattern
-    if(!_authFs.currentUser){
-      try{
-        await new Promise((resolve, reject) => {
-          const t = setTimeout(() => reject(new Error('auth-timeout')), 8000);
-          const u = _authFs.onAuthStateChanged(user => {
-            u(); clearTimeout(t);
-            if(user) resolve(user);
-            else _authFs.signInAnonymously().then(c=>resolve(c.user)).catch(reject);
-          });
-        });
-      }catch(e){ console.warn('[LicKey] Auth wait:', e.message); }
-    }
-
-    try{
-      // source:'server' forces a live read, bypassing IndexedDB persistence cache
-      const snap = await _db.collection('licenses').doc(clean).get({ source: 'server' });
-      if(!snap.exists) return { ok:false, reason:'INVALID_KEY' };
-      const data = snap.data();
-      if(!data.isActive) return { ok:false, reason:'REVOKED', data };
-      const expiry = data.expiryDate?.toDate ? data.expiryDate.toDate() : new Date(data.expiryDate);
-      const expired = new Date() > expiry;
-      _db.collection('licenses').doc(clean).update({
-        lastValidated: firebase.firestore.FieldValue.serverTimestamp(),
-        activationCount: firebase.firestore.FieldValue.increment(1)
-      }).catch(()=>{});
-      return { ok:true, readOnly:expired, reason:expired?'EXPIRED':'OK', data:{...data, expiryDate:expiry, key:clean} };
-    }catch(sdkErr){
-      console.warn('[LicKey] SDK error:', sdkErr.code, sdkErr.message, '— trying REST fallback');
-      // Fall through to REST path
-    }
+  // Ensure auth
+  if(!_authFs.currentUser){
+    try{ await _authFs.signInAnonymously(); }
+    catch(e){ return { ok:false, reason:'OFFLINE' }; }
   }
 
-  // ── Path B: REST API fallback (works when SDK/persistence is broken) ──
   try{
-    // Get an ID token for auth — use anonymous sign-in via REST if needed
-    let idToken = '';
-    if(_authFs && _authFs.currentUser){
-      try{ idToken = await _authFs.currentUser.getIdToken(); }catch(e){}
-    }
-    if(!idToken){
-      // Exchange API key for an anonymous token via Firebase Auth REST
-      const authResp = await fetch(
-        'https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=' + _FB_CFG.apiKey,
-        { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({returnSecureToken:true}) }
-      );
-      if(authResp.ok){ const j = await authResp.json(); idToken = j.idToken||''; }
-    }
+    const snap = await _db.collection('licenses').doc(clean).get();
+    if(!snap.exists) return { ok:false, reason:'INVALID_KEY' };
+    const data = snap.data();
+    if(!data.isActive) return { ok:false, reason:'REVOKED', data };
 
-    const projectId = _FB_CFG.projectId;
-    const url = 'https://firestore.googleapis.com/v1/projects/' + projectId +
-                '/databases/(default)/documents/licenses/' + encodeURIComponent(clean);
-    const headers = { 'Content-Type': 'application/json' };
-    if(idToken) headers['Authorization'] = 'Bearer ' + idToken;
+    const now    = new Date();
+    const expiry = data.expiryDate && data.expiryDate.toDate
+      ? data.expiryDate.toDate()
+      : new Date(data.expiryDate);
+    const expired = now > expiry;
 
-    const resp = await fetch(url, { headers });
-    if(resp.status === 404) return { ok:false, reason:'INVALID_KEY' };
-    if(!resp.ok) return { ok:false, reason:'ERROR', message:'HTTP '+resp.status };
+    // Update activation count (non-blocking)
+    try{
+      await _db.collection('licenses').doc(clean).update({
+        lastValidated: firebase.firestore.FieldValue.serverTimestamp(),
+        activationCount: firebase.firestore.FieldValue.increment(1)
+      });
+    }catch(e){ /* non-critical */ }
 
-    const doc = await resp.json();
-    const f = doc.fields || {};
-    const isActive = f.isActive?.booleanValue !== false;
-    if(!isActive) return { ok:false, reason:'REVOKED' };
-
-    // Parse expiry from REST response (Timestamp or string)
-    let expiry;
-    if(f.expiryDate?.timestampValue) expiry = new Date(f.expiryDate.timestampValue);
-    else if(f.expiryDate?.stringValue)  expiry = new Date(f.expiryDate.stringValue);
-    else expiry = new Date(0);
-
-    const expired = new Date() > expiry;
-    const data = {
-      key: clean,
-      company:      f.company?.stringValue      || '',
-      customerName: f.customerName?.stringValue || '',
-      email:        f.email?.stringValue         || '',
-      isActive:     true,
-      expiryDate:   expiry,
-      features:     f.features?.arrayValue?.values?.map(v=>v.stringValue)||['All modules'],
-      issuedDate:   f.issuedDate?.timestampValue ? new Date(f.issuedDate.timestampValue) : null,
-    };
-    return { ok:true, readOnly:expired, reason:expired?'EXPIRED':'OK', data };
-  }catch(restErr){
-    console.warn('[LicKey] REST error:', restErr.message);
-    return { ok:false, reason:'OFFLINE' };
+    return { ok:true, readOnly:expired, reason:expired?'EXPIRED':'OK', data:{...data, expiryDate:expiry, key:clean} };
+  }catch(e){
+    if(e.code==='unavailable'||e.code==='failed-precondition'||e.message?.includes('offline'))
+      return { ok:false, reason:'OFFLINE' };
+    return { ok:false, reason:'ERROR', message:e.message };
   }
 }
 
@@ -7201,23 +6953,23 @@ async function doLicActivate(){
     const r = await _validateLicKey(key);
     if(r.ok){
       _licData = r.data;
-      await _secureSet(_LIC_SESS, {
+      localStorage.setItem(_LIC_SESS, JSON.stringify({
         key, company:r.data.company||'', customerName:r.data.customerName||'',
         expiryDate: r.data.expiryDate?.toString(), readOnly:r.readOnly, ts:Date.now()
-      });
+      }));
       _unlockApp(r.readOnly, r.data);
     } else {
       const msgs = {
         INVALID_KEY:'License key not found. Please check and try again.',
         REVOKED:    'This license has been revoked. Contact your administrator.',
-        OFFLINE:    'Cannot reach license server. Check your internet connection and try again.',
+        OFFLINE:    'Cannot connect to license server. An internet connection is required.',
         NO_KEY:     'Please enter your license key.',
-        ERROR:      'Verification error: ' + (r.message||'Please try again.')
+        ERROR:      'Verification error. Please try again.'
       };
-      _showLicErr(msgs[r.reason]||('License validation failed. ('+r.reason+')'));
+      _showLicErr(msgs[r.reason]||'License validation failed.');
     }
   }catch(e){
-    _showLicErr('Unexpected error: ' + e.message + '. Check your internet and try again.');
+    _showLicErr('Connection error. Check your internet and try again.');
   }finally{
     btn.classList.remove('loading'); btn.disabled=false;
   }
@@ -7262,10 +7014,8 @@ function _applyReadOnly(data){
 }
 
 /* ── Logout / change key ── */
-async function doLicLogout(){
+function doLicLogout(){
   localStorage.removeItem(_LIC_SESS);
-  // Also clear any brute-force records so a fresh session starts clean
-  localStorage.removeItem(_BF_KEY);
   location.reload();
 }
 
@@ -7294,19 +7044,10 @@ document.getElementById('lic-info-modal').addEventListener('click', e=>{
 
 /* ── Session revalidation on load ── */
 (async function _checkLicSession(){
-  // Small yield so Firebase SDK finishes initialising synchronously
-  await new Promise(r => setTimeout(r, 50));
-  let s = null;
-  try{ s = await _secureGet(_LIC_SESS); }catch(e){}
-  if(!s){
-    // Fallback: try reading the raw (legacy unsigned) session from before this upgrade
-    try{
-      const raw = localStorage.getItem(_LIC_SESS);
-      if(raw){ const parsed = JSON.parse(raw); if(parsed && parsed.key) s = parsed; }
-    }catch(e){}
-    if(!s) return; // gate stays visible
-  }
+  const sess = localStorage.getItem(_LIC_SESS);
+  if(!sess) return; // gate stays visible
   try{
+    const s = JSON.parse(sess);
     // Re-validate against Firestore every load
     const r = await _validateLicKey(s.key);
     if(r.ok){
@@ -7316,7 +7057,7 @@ document.getElementById('lic-info-modal').addEventListener('click', e=>{
       localStorage.removeItem(_LIC_SESS);
       // gate remains visible
     }
-  }catch(e){ /* keep gate visible — do not wipe on transient errors */ }
+  }catch(e){ localStorage.removeItem(_LIC_SESS); }
 })();
 
 </script>
