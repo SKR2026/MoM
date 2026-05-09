@@ -566,12 +566,18 @@ async function _hmac(data, key){
   return Array.from(new Uint8Array(sig)).map(b=>b.toString(16).padStart(2,'0')).join('');
 }
 
-// Device-bound signing key — derived from multiple browser signals
+// Stable per-installation signing key — generated once, stored in localStorage, never changes
 const _SIGN_KEY = (()=>{
-  const parts = [navigator.userAgent, screen.width, screen.height, navigator.language, Intl.DateTimeFormat().resolvedOptions().timeZone].join('|');
-  let h = 0x811c9dc5;
-  for(let i=0;i<parts.length;i++){ h ^= parts.charCodeAt(i); h = (h*0x01000193)>>>0; }
-  return 'MoMPro_' + h.toString(16);
+  const SK = 'mompro_sk_v1';
+  let k = localStorage.getItem(SK);
+  if(!k){
+    // Generate a 32-byte random key, encode as hex
+    const arr = new Uint8Array(32);
+    crypto.getRandomValues(arr);
+    k = Array.from(arr).map(b=>b.toString(16).padStart(2,'0')).join('');
+    try{ localStorage.setItem(SK, k); }catch(e){}
+  }
+  return k;
 })();
 
 // Signed localStorage write / read
@@ -7204,6 +7210,8 @@ function _applyReadOnly(data){
 /* ── Logout / change key ── */
 async function doLicLogout(){
   localStorage.removeItem(_LIC_SESS);
+  // Also clear any brute-force records so a fresh session starts clean
+  localStorage.removeItem(_BF_KEY);
   location.reload();
 }
 
@@ -7232,8 +7240,18 @@ document.getElementById('lic-info-modal').addEventListener('click', e=>{
 
 /* ── Session revalidation on load ── */
 (async function _checkLicSession(){
-  const s = await _secureGet(_LIC_SESS);
-  if(!s) return; // gate stays visible — nothing stored or tampered
+  // Small yield so Firebase SDK finishes initialising synchronously
+  await new Promise(r => setTimeout(r, 50));
+  let s = null;
+  try{ s = await _secureGet(_LIC_SESS); }catch(e){}
+  if(!s){
+    // Fallback: try reading the raw (legacy unsigned) session from before this upgrade
+    try{
+      const raw = localStorage.getItem(_LIC_SESS);
+      if(raw){ const parsed = JSON.parse(raw); if(parsed && parsed.key) s = parsed; }
+    }catch(e){}
+    if(!s) return; // gate stays visible
+  }
   try{
     // Re-validate against Firestore every load
     const r = await _validateLicKey(s.key);
@@ -7244,7 +7262,7 @@ document.getElementById('lic-info-modal').addEventListener('click', e=>{
       localStorage.removeItem(_LIC_SESS);
       // gate remains visible
     }
-  }catch(e){ localStorage.removeItem(_LIC_SESS); }
+  }catch(e){ /* keep gate visible — do not wipe on transient errors */ }
 })();
 
 </script>
