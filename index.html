@@ -300,9 +300,8 @@ body.has-ro-banner #login-overlay{top:36px;}
       <span class="lic-lbl">🔓 Activate License</span>
     </button>
     <div class="lic-foot">
-      <strong>Offline use is not supported.</strong><br>
-      An active internet connection is required to validate your license.<br>
-      License is verified against our secure server on every session.
+      License is verified against our secure server.<br>
+      <strong>Ensure you have an active internet connection.</strong>
     </div>
   </div>
 </div>
@@ -7096,15 +7095,32 @@ async function _validateLicKey(key){
   if(!key||!key.trim()) return { ok:false, reason:'NO_KEY' };
   const clean = key.trim().toUpperCase();
 
-  // Wait for Firebase to be ready (max 8s)
+  // Wait for Firebase SDK objects to be assigned (max 10s)
   let waited = 0;
-  while((!_db || !_authFs) && waited < 80){ await new Promise(r=>setTimeout(r,100)); waited++; }
-  if(!_db) return { ok:false, reason:'OFFLINE' };
+  while((!_db || !_authFs) && waited < 100){ await new Promise(r=>setTimeout(r,100)); waited++; }
+  if(!_db || !_authFs) return { ok:false, reason:'OFFLINE' };
 
-  // Ensure auth
+  // Ensure we have an authenticated Firebase user — wait for onAuthStateChanged to fire
+  // rather than checking currentUser which may be null during SDK init
   if(!_authFs.currentUser){
-    try{ await _authFs.signInAnonymously(); }
-    catch(e){ return { ok:false, reason:'OFFLINE' }; }
+    try{
+      await new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => reject(new Error('auth-timeout')), 8000);
+        const unsub = _authFs.onAuthStateChanged(user => {
+          unsub();
+          clearTimeout(timeout);
+          if(user){ resolve(user); }
+          else {
+            _authFs.signInAnonymously()
+              .then(c => resolve(c.user))
+              .catch(reject);
+          }
+        });
+      });
+    }catch(e){
+      // Auth failed — still try Firestore in case rules allow unauthenticated reads
+      console.warn('[LicKey] Auth wait failed:', e.message);
+    }
   }
 
   try{
@@ -7120,18 +7136,20 @@ async function _validateLicKey(key){
     const expired = now > expiry;
 
     // Update activation count (non-blocking)
-    try{
-      await _db.collection('licenses').doc(clean).update({
-        lastValidated: firebase.firestore.FieldValue.serverTimestamp(),
-        activationCount: firebase.firestore.FieldValue.increment(1)
-      });
-    }catch(e){ /* non-critical */ }
+    _db.collection('licenses').doc(clean).update({
+      lastValidated: firebase.firestore.FieldValue.serverTimestamp(),
+      activationCount: firebase.firestore.FieldValue.increment(1)
+    }).catch(()=>{});
 
     return { ok:true, readOnly:expired, reason:expired?'EXPIRED':'OK', data:{...data, expiryDate:expiry, key:clean} };
   }catch(e){
-    if(e.code==='unavailable'||e.code==='failed-precondition'||e.message?.includes('offline'))
+    console.warn('[LicKey] Firestore error:', e.code, e.message);
+    if(e.code==='unavailable'||e.code==='failed-precondition'||e.code==='auth/network-request-failed'||
+       (e.message&&(e.message.includes('offline')||e.message.includes('network'))))
       return { ok:false, reason:'OFFLINE' };
-    return { ok:false, reason:'ERROR', message:e.message };
+    if(e.code==='permission-denied')
+      return { ok:false, reason:'OFFLINE' }; // rules not set — treated as offline
+    return { ok:false, reason:'ERROR', message:e.code+': '+e.message };
   }
 }
 
@@ -7156,14 +7174,14 @@ async function doLicActivate(){
       const msgs = {
         INVALID_KEY:'License key not found. Please check and try again.',
         REVOKED:    'This license has been revoked. Contact your administrator.',
-        OFFLINE:    'Cannot connect to license server. An internet connection is required.',
+        OFFLINE:    'Cannot reach license server. Check your internet connection and try again.',
         NO_KEY:     'Please enter your license key.',
-        ERROR:      'Verification error. Please try again.'
+        ERROR:      'Verification error: ' + (r.message||'Please try again.')
       };
-      _showLicErr(msgs[r.reason]||'License validation failed.');
+      _showLicErr(msgs[r.reason]||('License validation failed. ('+r.reason+')'));
     }
   }catch(e){
-    _showLicErr('Connection error. Check your internet and try again.');
+    _showLicErr('Unexpected error: ' + e.message + '. Check your internet and try again.');
   }finally{
     btn.classList.remove('loading'); btn.disabled=false;
   }
