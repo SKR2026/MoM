@@ -1348,6 +1348,7 @@ const NAV=[
     {id:'tasks',label:'My Tasks',icon:'<path d="M6 4h8M6 8h8M6 12h8M2 4h.5M2 8h.5M2 12h.5"/>'},
     {id:'escalations',label:'Escalations',icon:'<path d="M8 1l2 5h5l-4 3 1.5 5L8 11l-4.5 3L5 9 1 6h5z"/>',roles:['super-admin','admin','top-mgmt','manager','developer','assignee']},
     {id:'calendar',label:'Calendar',icon:'<rect x="1" y="2" width="14" height="12" rx="2"/><path d="M1 6h14M5 1v2M11 1v2"/>',roles:['super-admin','admin','top-mgmt','manager','developer','assignee']},
+    {id:'meeting-dashboard',label:'Meeting Dashboard',icon:'<path d="M1 11V5a2 2 0 012-2h10a2 2 0 012 2v6M1 11h14M5 13v2M11 13v2M3 13h10"/><path d="M5 8h2M9 8h3M5 10h1"/>',roles:['super-admin','admin','top-mgmt','manager','developer','assignee']},
   ]},
   {section:'Actions',roles:['super-admin','admin','developer'],items:[
     {id:'bulk-upload',label:'Bulk Upload',icon:'<path d="M8 2v8M5 5l3-3 3 3M2 11v2a1 1 0 001 1h10a1 1 0 001-1v-2"/>'},
@@ -1442,9 +1443,9 @@ function navigate(page){
   document.querySelectorAll('.ni').forEach(n=>n.classList.remove('active'));
   const el=document.getElementById('ni-'+page);
   if(el)el.classList.add('active');
-  const titles={dashboard:'Dashboard Overview',meetings:'All Meetings',tasks:'My Tasks',escalations:'Escalation Tracker',calendar:'Calendar View','bulk-upload':'Bulk Upload',reports:'Reports & Analytics',audit:'Audit Trail','email-log':'Email Log','settings-firebase':'Firebase Configuration','settings-email':'Email — Office 365','settings-users':'Users & Roles','settings-escalation':'Escalation Rules','settings-notifications':'Notification Settings','settings-company':'Company Settings','settings-meeting-types':'Meeting Types','settings-plants':'Plants & Admins','dev-console':'Developer Console','dev-api':'API Configuration','dev-system':'System Information'};
+  const titles={dashboard:'Dashboard Overview',meetings:'All Meetings',tasks:'My Tasks',escalations:'Escalation Tracker',calendar:'Calendar View','meeting-dashboard':'Meeting Dashboard','bulk-upload':'Bulk Upload',reports:'Reports & Analytics',audit:'Audit Trail','email-log':'Email Log','settings-firebase':'Firebase Configuration','settings-email':'Email — Office 365','settings-users':'Users & Roles','settings-escalation':'Escalation Rules','settings-notifications':'Notification Settings','settings-company':'Company Settings','settings-meeting-types':'Meeting Types','settings-plants':'Plants & Admins','dev-console':'Developer Console','dev-api':'API Configuration','dev-system':'System Information'};
   document.getElementById('pt').textContent=titles[page]||page;
-  const fns={dashboard:renderDashboard,meetings:renderMeetings,tasks:renderTasks,escalations:renderEscalations,calendar:renderCalendar,'bulk-upload':renderBulkUpload,reports:renderReports,audit:renderAudit,'email-log':renderEmailLog,'settings-firebase':renderFirebase,'settings-email':renderEmailCfg,'settings-users':renderUsers,'settings-escalation':renderEscCfg,'settings-notifications':renderNotifCfg,'settings-company':renderCompanySettings,'settings-meeting-types':renderMeetingTypes,'settings-plants':renderPlants,'dev-console':renderDevConsole,'dev-api':renderDevApi,'dev-system':renderDevSystem};
+  const fns={dashboard:renderDashboard,meetings:renderMeetings,tasks:renderTasks,escalations:renderEscalations,calendar:renderCalendar,'meeting-dashboard':renderMeetingDashboard,'bulk-upload':renderBulkUpload,reports:renderReports,audit:renderAudit,'email-log':renderEmailLog,'settings-firebase':renderFirebase,'settings-email':renderEmailCfg,'settings-users':renderUsers,'settings-escalation':renderEscCfg,'settings-notifications':renderNotifCfg,'settings-company':renderCompanySettings,'settings-meeting-types':renderMeetingTypes,'settings-plants':renderPlants,'dev-console':renderDevConsole,'dev-api':renderDevApi,'dev-system':renderDevSystem};
   if(fns[page])fns[page]();
 }
 
@@ -1849,6 +1850,329 @@ function switchRole(r){
   applyRoleUI();
   showToast(`Switched to ${roleLabels[r]} view`,'info');
   navigate('dashboard');
+}
+
+/* ═══════════════════════════════════════════
+   MEETING DASHBOARD
+═══════════════════════════════════════════ */
+let _mdSelectedMeeting = 'all'; // 'all' or a meeting id
+
+function renderMeetingDashboard(){
+  const visibleMeetings = getVisibleMeetings ? getVisibleMeetings() : MEETINGS;
+  const sel = _mdSelectedMeeting;
+
+  // Determine data scope
+  let scopeMeetings, scopeTasks, scopeTitle;
+  if(sel === 'all'){
+    scopeMeetings = visibleMeetings;
+    scopeTasks    = getVisibleTasks();
+    scopeTitle    = 'All Meetings';
+  } else {
+    const mtg = MEETINGS.find(m=>m.id===sel);
+    scopeMeetings = mtg ? [mtg] : [];
+    scopeTasks    = TASKS.filter(t=>t.mid===sel);
+    scopeTitle    = mtg ? mtg.title : 'Unknown Meeting';
+  }
+
+  // ── Compute stats ──
+  const tot   = scopeTasks.length;
+  const comp  = scopeTasks.filter(t=>t.status==='completed').length;
+  const inp   = scopeTasks.filter(t=>t.status==='in-progress').length;
+  const over  = scopeTasks.filter(t=>t.status==='overdue').length;
+  const pend  = scopeTasks.filter(t=>t.status==='pending').length;
+  const pct   = tot ? Math.round(comp/tot*100) : 0;
+  const esc   = scopeTasks.filter(t=>t.esc>0).length;
+
+  // Meeting status counts
+  const mTot   = scopeMeetings.length;
+  const mComp  = scopeMeetings.filter(m=>m.status==='completed').length;
+  const mInP   = scopeMeetings.filter(m=>m.status==='in-progress').length;
+  const mSched = scopeMeetings.filter(m=>m.status==='scheduled').length;
+  const mOther = mTot - mComp - mInP - mSched;
+
+  // ── Assignee breakdown ──
+  const assigneeMap = {};
+  scopeTasks.forEach(t=>{
+    const u = USERS.find(u=>Number(u.id)===Number(t.uid));
+    const name = u ? u.name : (t.assignee||'Unassigned');
+    if(!assigneeMap[name]) assigneeMap[name]={total:0,comp:0,over:0,inp:0,pend:0};
+    assigneeMap[name].total++;
+    if(t.status==='completed') assigneeMap[name].comp++;
+    else if(t.status==='overdue') assigneeMap[name].over++;
+    else if(t.status==='in-progress') assigneeMap[name].inp++;
+    else assigneeMap[name].pend++;
+  });
+  const assigneeRows = Object.entries(assigneeMap).sort((a,b)=>b[1].total-a[1].total);
+
+  // ── Meeting type breakdown ──
+  const typeMap = {};
+  scopeMeetings.forEach(m=>{
+    const type = m.type || 'Uncategorised';
+    if(!typeMap[type]) typeMap[type]={count:0,tasks:0,comp:0};
+    typeMap[type].count++;
+    const mt = TASKS.filter(t=>t.mid===m.id);
+    typeMap[type].tasks += mt.length;
+    typeMap[type].comp  += mt.filter(t=>t.status==='completed').length;
+  });
+  const typeRows = Object.entries(typeMap).sort((a,b)=>b[1].count-a[1].count);
+
+  // ── Department breakdown ──
+  const deptMap = {};
+  scopeTasks.forEach(t=>{
+    const u = USERS.find(u=>Number(u.id)===Number(t.uid));
+    const dept = (u&&u.dept) ? u.dept : 'Unassigned';
+    if(!deptMap[dept]) deptMap[dept]={total:0,comp:0,over:0};
+    deptMap[dept].total++;
+    if(t.status==='completed') deptMap[dept].comp++;
+    if(t.status==='overdue')   deptMap[dept].over++;
+  });
+  const deptRows = Object.entries(deptMap).sort((a,b)=>b[1].total-a[1].total);
+
+  // ── Recent meetings table (when viewing all) ──
+  const recentMtgs = [...scopeMeetings].sort((a,b)=>new Date(b.date||0)-new Date(a.date||0)).slice(0,8);
+
+  // ── Per-meeting task summary (when a meeting is selected) ──
+  const selectedMtg = sel !== 'all' ? MEETINGS.find(m=>m.id===sel) : null;
+
+  // ── Selector ──
+  const meetingOptions = [`<option value="all"${sel==='all'?' selected':''}>📊 All Meetings (${visibleMeetings.length})</option>`,
+    ...visibleMeetings.map(m=>`<option value="${m.id}"${sel===m.id?' selected':''}>${m.title} — ${m.date||'—'}</option>`)
+  ].join('');
+
+  // ── Bar chart helper: horizontal bar ──
+  function hbar(val, max, color){
+    const w = max ? Math.round(val/max*100) : 0;
+    return `<div style="height:8px;background:var(--bg3);border-radius:4px;overflow:hidden;flex:1;">
+      <div style="width:${w}%;height:100%;background:${color};border-radius:4px;transition:width .4s;"></div></div>`;
+  }
+
+  document.getElementById('content').innerHTML = `
+  <!-- ── Selector row ── -->
+  <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;flex-wrap:wrap;">
+    <div style="font-size:13px;font-weight:600;color:var(--t2);white-space:nowrap;">View:</div>
+    <select id="md-select" onchange="_mdSelectedMeeting=this.value;renderMeetingDashboard();"
+      style="padding:7px 12px;border-radius:var(--rs);border:1px solid var(--br2);background:var(--bg2);color:var(--tx);font-size:13px;font-family:var(--fn);min-width:260px;max-width:440px;">
+      ${meetingOptions}
+    </select>
+    ${selectedMtg?`<span class="bdg b-in">${selectedMtg.type||'Meeting'}</span>
+      ${selectedMtg.status==='completed'?'<span class="bdg b-ok">Completed</span>':selectedMtg.status==='in-progress'?'<span class="bdg b-wn">In Progress</span>':'<span class="bdg b-df">'+(selectedMtg.status||'Scheduled')+'</span>'}
+      <span style="font-size:11px;color:var(--t3);">📅 ${selectedMtg.date||'—'} &nbsp;👤 ${selectedMtg.chair||'—'}</span>`:''}
+    <button class="btn bs" onclick="renderMeetingDashboard()" style="margin-left:auto;">↻ Refresh</button>
+  </div>
+
+  <!-- ── KPI Stat Row ── -->
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px;margin-bottom:20px;">
+    ${[
+      ['Meetings',mTot,'var(--ac)','📋',''],
+      ['Total Tasks',tot,'var(--tx)','📝',''],
+      ['Completed',comp,'var(--ok)','✅',pct+'% done'],
+      ['In Progress',inp,'#3b82f6','🔄',''],
+      ['Overdue',over,'var(--er)','🔴',over?'⚠ Needs attention':''],
+      ['Escalated',esc,esc?'var(--er)':'var(--t3)','🚨',''],
+    ].map(([lbl,val,col,ico,sub])=>`
+      <div class="sc" style="padding:12px 14px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
+          <div class="sl-">${lbl}</div><span style="font-size:16px;">${ico}</span>
+        </div>
+        <div class="sv" style="color:${col};font-size:22px;">${val}</div>
+        ${sub?`<div class="sc2">${sub}</div>`:''}
+      </div>`).join('')}
+  </div>
+
+  <!-- ── Progress bar ── -->
+  <div class="card" style="margin-bottom:20px;padding:14px 18px;">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+      <div class="ctit">Overall Task Completion</div>
+      <div style="font-size:22px;font-weight:800;color:${pct>=80?'var(--ok)':pct>=50?'var(--ac)':'var(--er)'};">${pct}%</div>
+    </div>
+    <div style="height:12px;border-radius:6px;overflow:hidden;display:flex;background:var(--bg3);margin-bottom:8px;">
+      ${comp?`<div style="width:${Math.round(comp/Math.max(tot,1)*100)}%;background:#22c55e;transition:width .5s;" title="Completed: ${comp}"></div>`:''}
+      ${inp ?`<div style="width:${Math.round(inp /Math.max(tot,1)*100)}%;background:#3b82f6;transition:width .5s;" title="In Progress: ${inp}"></div>`:''}
+      ${over?`<div style="width:${Math.round(over/Math.max(tot,1)*100)}%;background:#ef4444;transition:width .5s;" title="Overdue: ${over}"></div>`:''}
+      ${pend?`<div style="width:${Math.round(pend/Math.max(tot,1)*100)}%;background:#94a3b8;opacity:.5;transition:width .5s;" title="Pending: ${pend}"></div>`:''}
+    </div>
+    <div style="display:flex;gap:16px;flex-wrap:wrap;">
+      ${[['#22c55e','Completed',comp],['#3b82f6','In Progress',inp],['#ef4444','Overdue',over],['#94a3b8','Pending',pend]].map(([c,l,v])=>
+        `<div style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--t2);">
+          <div style="width:9px;height:9px;border-radius:50%;background:${c};flex-shrink:0;"></div>${l}: <b style="color:var(--tx);">${v}</b></div>`).join('')}
+    </div>
+  </div>
+
+  <!-- ── Meeting Status + Type grid ── -->
+  <div class="g2" style="margin-bottom:20px;">
+
+    <!-- Meeting Status Breakdown -->
+    <div class="card">
+      <div class="ch"><div class="ctit">Meeting Status</div><span style="font-size:12px;color:var(--t3);">${mTot} total</span></div>
+      ${mTot===0?'<div style="color:var(--t3);font-size:13px;text-align:center;padding:20px 0;">No meetings in scope</div>':''}
+      ${[['Completed',mComp,'var(--ok)','var(--ol)'],['In Progress',mInP,'var(--ac)','var(--al)'],['Scheduled',mSched,'var(--in)','var(--il)'],['Other / Cancelled',mOther,'var(--t3)','var(--bg3)']].filter(r=>r[1]>0).map(([lbl,val,col,bg])=>`
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
+          <div style="width:36px;height:36px;border-radius:var(--rs);background:${bg};display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;color:${col};flex-shrink:0;">${val}</div>
+          <div style="flex:1;">${hbar(val,mTot,col)}</div>
+          <div style="font-size:11px;color:var(--t2);white-space:nowrap;width:90px;">${lbl}</div>
+          <div style="font-size:12px;font-weight:600;color:${col};width:36px;text-align:right;">${mTot?Math.round(val/mTot*100):0}%</div>
+        </div>`).join('')}
+    </div>
+
+    <!-- Meeting Type Breakdown -->
+    <div class="card">
+      <div class="ch"><div class="ctit">By Meeting Type</div></div>
+      ${typeRows.length===0?'<div style="color:var(--t3);font-size:13px;text-align:center;padding:20px 0;">No data</div>':''}
+      <div class="tw"><table>
+        <thead><tr><th>Type</th><th>Meetings</th><th>Tasks</th><th>Done</th><th>%</th></tr></thead>
+        <tbody>
+          ${typeRows.map(([type,d])=>{
+            const p=d.tasks?Math.round(d.comp/d.tasks*100):0;
+            return `<tr>
+              <td style="font-weight:500;">${type}</td>
+              <td>${d.count}</td>
+              <td>${d.tasks}</td>
+              <td style="color:var(--ok);font-weight:600;">${d.comp}</td>
+              <td>
+                <div style="display:flex;align-items:center;gap:6px;">
+                  <div style="flex:1;height:6px;background:var(--bg3);border-radius:3px;overflow:hidden;min-width:40px;">
+                    <div style="width:${p}%;height:100%;background:${p>=80?'var(--ok)':p>=50?'var(--ac)':'var(--er)'};border-radius:3px;"></div>
+                  </div>
+                  <span style="font-size:11px;font-weight:600;color:${p>=80?'var(--ok)':p>=50?'var(--ac)':'var(--er)'};">${p}%</span>
+                </div>
+              </td>
+            </tr>`;}).join('')}
+        </tbody>
+      </table></div>
+    </div>
+  </div>
+
+  <!-- ── Assignee & Department breakdown ── -->
+  <div class="g2" style="margin-bottom:20px;">
+
+    <!-- Assignee Workload -->
+    <div class="card">
+      <div class="ch"><div class="ctit">Assignee Workload</div><span style="font-size:12px;color:var(--t3);">${assigneeRows.length} assignees</span></div>
+      ${assigneeRows.length===0?'<div style="color:var(--t3);font-size:13px;text-align:center;padding:20px 0;">No tasks assigned</div>':''}
+      <div class="tw"><table>
+        <thead><tr><th>Assignee</th><th>Total</th><th>Done</th><th>Active</th><th>Overdue</th><th>Progress</th></tr></thead>
+        <tbody>
+          ${assigneeRows.slice(0,12).map(([name,d])=>{
+            const p=d.total?Math.round(d.comp/d.total*100):0;
+            const u=USERS.find(u=>u.name===name);
+            const ini=(u&&u.ini)||name.slice(0,2).toUpperCase();
+            const col=(u&&u.col)||'var(--al)';
+            const tc=(u&&u.tc)||'var(--ac)';
+            return `<tr>
+              <td>
+                <div style="display:flex;align-items:center;gap:7px;">
+                  <div class="av" style="width:24px;height:24px;font-size:10px;background:${col};color:${tc};">${ini}</div>
+                  <span style="font-size:12px;">${name}</span>
+                </div>
+              </td>
+              <td style="font-weight:600;">${d.total}</td>
+              <td style="color:var(--ok);font-weight:600;">${d.comp}</td>
+              <td style="color:var(--ac);">${d.inp}</td>
+              <td style="color:${d.over?'var(--er)':'var(--t3)'};">${d.over}</td>
+              <td style="min-width:80px;">
+                <div style="display:flex;align-items:center;gap:5px;">
+                  <div style="flex:1;height:5px;background:var(--bg3);border-radius:3px;overflow:hidden;">
+                    <div style="width:${p}%;height:100%;background:${p>=80?'var(--ok)':p>=50?'var(--ac)':'var(--er)'};border-radius:3px;"></div>
+                  </div>
+                  <span style="font-size:10px;color:var(--t2);">${p}%</span>
+                </div>
+              </td>
+            </tr>`;}).join('')}
+        </tbody>
+      </table></div>
+    </div>
+
+    <!-- Department breakdown -->
+    <div class="card">
+      <div class="ch"><div class="ctit">Department Summary</div></div>
+      ${deptRows.length===0?'<div style="color:var(--t3);font-size:13px;text-align:center;padding:20px 0;">No department data</div>':''}
+      ${deptRows.map(([dept,d])=>{
+        const p=d.total?Math.round(d.comp/d.total*100):0;
+        return `<div style="margin-bottom:14px;">
+          <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:5px;">
+            <span style="font-weight:600;">${dept}</span>
+            <span style="color:var(--t3);">${d.comp}/${d.total} done${d.over?' · <span style="color:var(--er);">'+d.over+' overdue</span>':''}</span>
+          </div>
+          <div style="height:8px;border-radius:4px;overflow:hidden;background:var(--bg3);">
+            <div style="width:${p}%;height:100%;background:${p>=80?'#22c55e':p>=50?'#3b82f6':'#ef4444'};border-radius:4px;transition:width .4s;"></div>
+          </div>
+        </div>`;}).join('')}
+    </div>
+  </div>
+
+  <!-- ── Meetings table (all view) or task list (single meeting) ── -->
+  ${sel==='all'?`
+  <div class="card" style="margin-bottom:20px;">
+    <div class="ch">
+      <div class="ctit">Recent Meetings</div>
+      <button class="btn bs" onclick="navigate('meetings')">View All →</button>
+    </div>
+    <div class="tw"><table>
+      <thead><tr><th>Meeting</th><th>Date</th><th>Type</th><th>Status</th><th>Attendees</th><th>Tasks</th><th>Done</th><th>%</th></tr></thead>
+      <tbody>
+        ${recentMtgs.length===0?'<tr><td colspan="8" style="text-align:center;color:var(--t3);padding:20px;">No meetings yet</td></tr>':''}
+        ${recentMtgs.map(m=>{
+          const mt=TASKS.filter(t=>t.mid===m.id);
+          const mc=mt.filter(t=>t.status==='completed').length;
+          const mp=mt.length?Math.round(mc/mt.length*100):0;
+          const statMap={'completed':'b-ok','in-progress':'b-wn','scheduled':'b-in','cancelled':'b-er'};
+          return `<tr style="cursor:pointer;" onclick="_mdSelectedMeeting='${m.id}';renderMeetingDashboard();">
+            <td style="font-weight:500;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${m.title}</td>
+            <td style="white-space:nowrap;font-size:12px;">${m.date||'—'}</td>
+            <td><span class="bdg b-in" style="font-size:10px;">${m.type||'—'}</span></td>
+            <td><span class="bdg ${statMap[m.status]||'b-df'}">${m.status||'—'}</span></td>
+            <td style="font-size:12px;">${(m.attendees||[]).length}</td>
+            <td style="font-weight:600;">${mt.length}</td>
+            <td style="color:var(--ok);font-weight:600;">${mc}</td>
+            <td>
+              <div style="display:flex;align-items:center;gap:5px;">
+                <div style="width:42px;height:5px;background:var(--bg3);border-radius:3px;overflow:hidden;">
+                  <div style="width:${mp}%;height:100%;background:${mp>=80?'var(--ok)':mp>=50?'var(--ac)':'var(--er)'};border-radius:3px;"></div>
+                </div>
+                <span style="font-size:11px;">${mp}%</span>
+              </div>
+            </td>
+          </tr>`;}).join('')}
+      </tbody>
+    </table></div>
+  </div>`:`
+  <!-- Single-meeting task list -->
+  ${selectedMtg?`
+  <div class="card" style="margin-bottom:20px;">
+    <div class="ch">
+      <div class="ctit">Tasks — ${selectedMtg.title}</div>
+      <button class="btn bs bp" onclick="openModal('meeting-detail','${selectedMtg.id}')">Open Meeting →</button>
+    </div>
+    ${scopeTasks.length===0?'<div style="color:var(--t3);text-align:center;padding:24px;">No tasks for this meeting</div>':''}
+    <div class="tw"><table>
+      <thead><tr><th>Task</th><th>Assignee</th><th>Due</th><th>Status</th><th>Priority</th><th>Escalation</th></tr></thead>
+      <tbody>
+        ${scopeTasks.map(t=>{
+          const u=USERS.find(u=>Number(u.id)===Number(t.uid));
+          const name=u?u.name:(t.assignee||'—');
+          const ini=(u&&u.ini)||name.slice(0,2).toUpperCase();
+          const col=(u&&u.col)||'var(--al)';
+          const tc=(u&&u.tc)||'var(--ac)';
+          const statMap={'completed':'b-ok','in-progress':'b-wn','overdue':'b-er','pending':'b-df'};
+          const priMap={'high':'b-er','medium':'b-wn','low':'b-ok'};
+          return `<tr>
+            <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500;">${t.text||'—'}</td>
+            <td>
+              <div style="display:flex;align-items:center;gap:6px;">
+                <div class="av" style="width:22px;height:22px;font-size:10px;background:${col};color:${tc};">${ini}</div>
+                <span style="font-size:12px;">${name}</span>
+              </div>
+            </td>
+            <td style="font-size:12px;white-space:nowrap;${t.status==='overdue'?'color:var(--er);font-weight:600;':''}">${t.due||'—'}</td>
+            <td><span class="bdg ${statMap[t.status]||'b-df'}">${t.status||'—'}</span></td>
+            <td><span class="bdg ${priMap[(t.priority||'').toLowerCase()]||'b-df'}">${t.priority||'—'}</span></td>
+            <td>${t.esc>0?`<span class="bdg b-er">L${t.esc}</span>`:'<span style="color:var(--t3);font-size:11px;">—</span>'}</td>
+          </tr>`;}).join('')}
+      </tbody>
+    </table></div>
+  </div>`:''}
+  `}
+  `;
 }
 
 /* ═══════════════════════════════════════════
