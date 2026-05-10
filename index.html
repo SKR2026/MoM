@@ -1435,6 +1435,7 @@ function navigate(page){
   _currentPage = page;
   // Reset plant filter when leaving dashboard
   if(page !== 'dashboard') _dashPlantFilter = 'all';
+  if(page !== 'meeting-dashboard'){ _mdPlantFilter = 'all'; _mdSelectedMeeting = 'all'; }
   // Role guard
   const isAdmin=currentRole==='super-admin'||currentRole==='admin'||currentRole==='developer';
   const isManagerOrAbove=isAdmin||currentRole==='manager'||currentRole==='top-mgmt';
@@ -1856,16 +1857,37 @@ function switchRole(r){
    MEETING DASHBOARD
 ═══════════════════════════════════════════ */
 let _mdSelectedMeeting = 'all'; // 'all' or a meeting id
+let _mdPlantFilter     = 'all'; // 'all', 'corporate', or a plant id
 
 function renderMeetingDashboard(){
-  const visibleMeetings = getVisibleMeetings ? getVisibleMeetings() : MEETINGS;
+  const allVisible = getVisibleMeetings ? getVisibleMeetings() : MEETINGS;
+
+  // ── Apply plant filter to narrow meeting pool ──
+  let plantFilteredMeetings;
+  if(_mdPlantFilter === 'all'){
+    plantFilteredMeetings = allVisible;
+  } else if(_mdPlantFilter === 'corporate'){
+    const corpIds = new Set(PLANTS.filter(p=>p.adminId==='__superadmin__').map(p=>p.id));
+    const unassigned = allVisible.filter(m=>!m.plantId||!PLANTS.find(p=>p.id===m.plantId));
+    const corp       = allVisible.filter(m=>corpIds.has(m.plantId));
+    plantFilteredMeetings = [...corp, ...unassigned];
+  } else {
+    plantFilteredMeetings = allVisible.filter(m=>m.plantId===_mdPlantFilter);
+  }
+
+  // If current meeting selection is no longer in filtered pool, reset to 'all'
+  if(_mdSelectedMeeting !== 'all' && !plantFilteredMeetings.find(m=>m.id===_mdSelectedMeeting)){
+    _mdSelectedMeeting = 'all';
+  }
+
   const sel = _mdSelectedMeeting;
 
   // Determine data scope
   let scopeMeetings, scopeTasks, scopeTitle;
   if(sel === 'all'){
-    scopeMeetings = visibleMeetings;
-    scopeTasks    = getVisibleTasks();
+    scopeMeetings = plantFilteredMeetings;
+    const plantMids = new Set(plantFilteredMeetings.map(m=>m.id));
+    scopeTasks    = getVisibleTasks().filter(t=>plantMids.has(t.mid));
     scopeTitle    = 'All Meetings';
   } else {
     const mtg = MEETINGS.find(m=>m.id===sel);
@@ -1935,9 +1957,18 @@ function renderMeetingDashboard(){
   const selectedMtg = sel !== 'all' ? MEETINGS.find(m=>m.id===sel) : null;
 
   // ── Selector ──
-  const meetingOptions = [`<option value="all"${sel==='all'?' selected':''}>📊 All Meetings (${visibleMeetings.length})</option>`,
-    ...visibleMeetings.map(m=>`<option value="${m.id}"${sel===m.id?' selected':''}>${m.title} — ${m.date||'—'}</option>`)
+  const meetingOptions = [`<option value="all"${sel==='all'?' selected':''}>📊 All Meetings (${plantFilteredMeetings.length})</option>`,
+    ...plantFilteredMeetings.map(m=>`<option value="${m.id}"${sel===m.id?' selected':''}>${m.title} — ${m.date||'—'}</option>`)
   ].join('');
+
+  // ── Plant tabs ──
+  const canSeePlants = (currentRole==='super-admin'||currentRole==='developer'||currentRole==='top-mgmt');
+  const plantTabs = [];
+  if(canSeePlants && PLANTS.length){
+    plantTabs.push({id:'all', label:'🌐 All'});
+    if(PLANTS.some(p=>p.adminId==='__superadmin__')) plantTabs.push({id:'corporate', label:'🏢 Corporate'});
+    PLANTS.forEach(p=>plantTabs.push({id:p.id, label:'🏭 '+p.name}));
+  }
 
   // ── Bar chart helper: horizontal bar ──
   function hbar(val, max, color){
@@ -1947,17 +1978,41 @@ function renderMeetingDashboard(){
   }
 
   document.getElementById('content').innerHTML = `
-  <!-- ── Selector row ── -->
-  <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;flex-wrap:wrap;">
-    <div style="font-size:13px;font-weight:600;color:var(--t2);white-space:nowrap;">View:</div>
-    <select id="md-select" onchange="_mdSelectedMeeting=this.value;renderMeetingDashboard();"
-      style="padding:7px 12px;border-radius:var(--rs);border:1px solid var(--br2);background:var(--bg2);color:var(--tx);font-size:13px;font-family:var(--fn);min-width:260px;max-width:440px;">
-      ${meetingOptions}
-    </select>
-    ${selectedMtg?`<span class="bdg b-in">${selectedMtg.type||'Meeting'}</span>
+  <!-- ── Plant tabs + Meeting selector ── -->
+  <div style="background:var(--sf);border:1px solid var(--br);border-radius:var(--r);margin-bottom:18px;overflow:hidden;">
+    <div style="display:flex;align-items:stretch;flex-wrap:wrap;border-bottom:1px solid var(--br);">
+      <!-- Left: Plant Tabs -->
+      ${plantTabs.length ? `
+      <div style="display:flex;align-items:center;flex-wrap:wrap;flex:1;min-width:0;padding:0 6px;gap:2px;border-right:1px solid var(--br);">
+        <span style="font-size:10px;font-weight:700;color:var(--t3);letter-spacing:.6px;text-transform:uppercase;padding:0 6px;white-space:nowrap;">Plant</span>
+        ${plantTabs.map(t=>{
+          const a=(_mdPlantFilter===t.id);
+          return `<button onclick="_mdPlantFilter='${t.id}';_mdSelectedMeeting='all';renderMeetingDashboard();"
+            style="padding:10px 13px;font-size:12px;font-weight:${a?'700':'400'};border:none;
+            border-bottom:3px solid ${a?'var(--ac)':'transparent'};
+            background:${a?'var(--al)':'transparent'};
+            color:${a?'var(--ac)':'var(--t2)'};
+            cursor:pointer;white-space:nowrap;transition:all .15s;font-family:var(--fn);">${t.label}</button>`;
+        }).join('')}
+      </div>` : ''}
+      <!-- Right: Meeting Dropdown -->
+      <div style="display:flex;align-items:center;gap:8px;padding:8px 14px;flex-shrink:0;">
+        <span style="font-size:10px;font-weight:700;color:var(--t3);letter-spacing:.6px;text-transform:uppercase;white-space:nowrap;">Meeting</span>
+        <select id="md-select" onchange="_mdSelectedMeeting=this.value;renderMeetingDashboard();"
+          style="padding:6px 10px;border-radius:var(--rs);border:1px solid var(--br2);background:var(--bg2);color:var(--tx);font-size:12px;font-family:var(--fn);min-width:200px;max-width:320px;">
+          ${meetingOptions}
+        </select>
+        <button class="btn bs" onclick="renderMeetingDashboard()" title="Refresh" style="padding:5px 9px;">↻</button>
+      </div>
+    </div>
+    ${selectedMtg?`
+    <div style="display:flex;align-items:center;gap:10px;padding:8px 14px;flex-wrap:wrap;background:var(--bg3);">
+      <span class="bdg b-in">${selectedMtg.type||'Meeting'}</span>
       ${selectedMtg.status==='completed'?'<span class="bdg b-ok">Completed</span>':selectedMtg.status==='in-progress'?'<span class="bdg b-wn">In Progress</span>':'<span class="bdg b-df">'+(selectedMtg.status||'Scheduled')+'</span>'}
-      <span style="font-size:11px;color:var(--t3);">📅 ${selectedMtg.date||'—'} &nbsp;👤 ${selectedMtg.chair||'—'}</span>`:''}
-    <button class="btn bs" onclick="renderMeetingDashboard()" style="margin-left:auto;">↻ Refresh</button>
+      <span style="font-size:11px;color:var(--t3);">📅 ${selectedMtg.date||'—'}</span>
+      <span style="font-size:11px;color:var(--t3);">👤 ${selectedMtg.chair||'—'}</span>
+      ${selectedMtg.plantId&&PLANTS.find(p=>p.id===selectedMtg.plantId)?`<span style="font-size:11px;color:var(--t3);">🏭 ${PLANTS.find(p=>p.id===selectedMtg.plantId).name}</span>`:''}
+    </div>`:''}
   </div>
 
   <!-- ── KPI Stat Row ── -->
