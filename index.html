@@ -2471,6 +2471,7 @@ function renderEditMeetingModal(meetingId){
           <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
             <span class="bdg ${priBadge}" style="font-size:10px;">${t.priority}</span>
             <span style="font-size:13px;font-weight:500;flex:1;">${t.title}</span>
+            <button class="btn bs ber" onclick="deleteTaskFromMeeting('${t.id}','${meetingId}')" title="Delete this task" style="flex-shrink:0;padding:3px 8px;">✕ Delete</button>
           </div>
           <div class="fgrid" style="gap:8px;">
             <div class="fg" style="margin:0;"><label>TITLE</label><input id="emt-title-${t.id}" value="${t.title}"></div>
@@ -2669,7 +2670,7 @@ function renderTasks(){
   ${isPlantAdmin && !myPlantForTasks ? `<div class="alert" style="background:var(--wl);color:var(--wn);border-color:var(--wn);margin-bottom:14px;">⚠ You are not assigned to any plant. Ask Super Admin to assign you.</div>` : ''}
   ${_mtgFilterObj ? `<div class="alert ai" style="margin-bottom:14px;display:flex;align-items:center;justify-content:space-between;gap:10px;"><span>📋 Showing tasks for <strong>${_mtgFilterObj.no} — ${_mtgFilterObj.title}</strong> (${initTasks.length} task${initTasks.length!==1?'s':''})</span><button class="btn bs" onclick="renderTasks()" style="flex-shrink:0;">✕ Clear filter</button></div>` : ''}
   <div class="tabs" id="task-tabs">${tabsHtml}</div>
-  ${isSA?`<div id="task-sel-bar" class="task-sel-bar" style="display:none;">
+  ${(isSA||currentRole==='admin'||currentRole==='developer')?`<div id="task-sel-bar" class="task-sel-bar" style="display:none;">
     <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M13 4L6 11 3 8"/></svg>
     <span id="sel-count">0 tasks selected</span>
     <button class="btn ber bs" style="margin-left:auto;" onclick="deleteSelectedTasks()">
@@ -2702,8 +2703,10 @@ function filterTasks(s,el){
 
 function taskRows(data){
   const isSA=currentRole==='super-admin';
-  const cbHeader=isSA?`<th style="width:32px;padding:9px 6px 9px 12px;"><input type="checkbox" class="task-cb" id="cb-all" onclick="toggleSelectAll(this)" title="Select all"></th>`:'';
-  const rows=data.map(t=>{const u=gu(t.uid);const cbCell=isSA?`<td style="padding:10px 6px 10px 12px;"><input type="checkbox" class="task-cb task-row-cb" value="${t.id}" onchange="toggleTaskSelect('${t.id}',this)"></td>`:'';const dlHighlight=window._deepLinkTasks&&window._deepLinkTasks.includes(t.id)?'background:var(--al);outline:2px solid var(--ac);outline-offset:-2px;':'';
+  // admin can delete tasks — but only within their own plant (checked at deletion time)
+  const canDelete=currentRole==='super-admin'||currentRole==='admin'||currentRole==='developer';
+  const cbHeader=canDelete?`<th style="width:32px;padding:9px 6px 9px 12px;"><input type="checkbox" class="task-cb" id="cb-all" onclick="toggleSelectAll(this)" title="Select all"></th>`:'';
+  const rows=data.map(t=>{const u=gu(t.uid);const cbCell=canDelete?`<td style="padding:10px 6px 10px 12px;"><input type="checkbox" class="task-cb task-row-cb" value="${t.id}" onchange="toggleTaskSelect('${t.id}',this)"></td>`:'';const dlHighlight=window._deepLinkTasks&&window._deepLinkTasks.includes(t.id)?'background:var(--al);outline:2px solid var(--ac);outline-offset:-2px;':'';
     return`<tr id="trow-${t.id}" style="${dlHighlight}">
     ${cbCell}
     <td style="font-weight:500;max-width:180px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${t.title}">${t.title}</td>
@@ -2714,7 +2717,10 @@ function taskRows(data){
     <td style="min-width:90px;"><div class="prog"><div class="pf" style="width:${t.pct}%;background:${t.pct===100?'var(--ok)':t.status==='overdue'?'var(--er)':'var(--ac)'}"></div></div><div style="font-size:10px;color:var(--t3);margin-top:2px;">${t.pct}%</div></td>
     <td>${sb(t.status)}</td>
     ${isSA?`<td>${eb(t.esc)}</td>`:''}
-    <td><button class="btn bs" onclick="openModal('task','${t.id}')">${isSA?'Update':'Update Status'}</button></td>
+    <td style="white-space:nowrap;display:flex;gap:4px;">
+      <button class="btn bs" onclick="openModal('task','${t.id}')">${canDelete?'Update':'Update Status'}</button>
+      ${canDelete?`<button class="btn bs ber" onclick="deleteTaskInline('${t.id}')" title="Delete this task">✕</button>`:''}
+    </td>
   </tr>`}).join('');
   const escCol=isSA?'<th>Escalation</th>':'';
   return`<table><thead><tr>${cbHeader}<th>Task</th><th>Meeting</th><th>Assignee</th><th>Due</th><th>Priority</th><th>Progress</th><th>Status</th>${escCol}<th></th></tr></thead><tbody>${rows}</tbody></table>`;
@@ -2750,16 +2756,68 @@ function updateSelBar(){
   const cnt=document.getElementById('sel-count');
   if(cnt)cnt.textContent=`${n} task${n!==1?'s':''} selected`;
 }
+/* ── Plant-scope check: can the current user delete a given task? ──
+   super-admin / developer → yes, any task
+   admin                   → only tasks from meetings in their plant
+   others                  → no
+────────────────────────────────────────────────────────────────── */
+function canDeleteTask(taskId){
+  if(currentRole==='super-admin'||currentRole==='developer') return true;
+  if(currentRole==='admin'){
+    const plantMtgIds=getAdminPlantMeetingIds();
+    if(!plantMtgIds) return false;
+    const t=TASKS.find(x=>x.id===taskId);
+    return t ? plantMtgIds.has(t.mid) : false;
+  }
+  return false;
+}
+
+function deleteTaskInline(taskId){
+  if(!canDeleteTask(taskId)){showToast('You can only delete tasks in your own plant.','err');return;}
+  const t=TASKS.find(x=>x.id===taskId);
+  if(!t){showToast('Task not found.','warn');return;}
+  if(!confirm(`Delete task "${t.title}"? This cannot be undone.`))return;
+  TASKS=TASKS.filter(x=>x.id!==taskId);
+  AUDIT_LOG.unshift({time:new Date().toISOString().slice(0,16).replace('T',' '),user:document.getElementById('un')?.textContent||'Admin',action:`Deleted task "${t.title}" (${t.id})`,entity:taskId,type:'delete'});
+  persistTasks();
+  fsDeleteTask(taskId);
+  showToast(`Task "${t.title}" deleted.`,'ok');
+  renderTasks();
+}
+
+function deleteTaskFromMeeting(taskId, meetingId){
+  if(!canDeleteTask(taskId)){showToast('You can only delete tasks in your own plant.','err');return;}
+  const t=TASKS.find(x=>x.id===taskId);
+  if(!t){showToast('Task not found.','warn');return;}
+  if(!confirm(`Delete task "${t.title}"?\nThis cannot be undone.`))return;
+  TASKS=TASKS.filter(x=>x.id!==taskId);
+  AUDIT_LOG.unshift({time:new Date().toISOString().slice(0,16).replace('T',' '),user:document.getElementById('un')?.textContent||'Admin',action:`Deleted task "${t.title}" from meeting ${t.mno}`,entity:taskId,type:'delete'});
+  persistTasks();
+  fsDeleteTask(taskId);
+  showToast(`Task "${t.title}" deleted.`,'ok');
+  // Refresh whichever modal is open
+  if(document.getElementById('modal').style.display==='flex'){
+    renderEditMeetingModal(meetingId);
+  }
+}
+
 function deleteSelectedTasks(){
   if(selectedTasks.size===0){showToast('No tasks selected','warn');return;}
-  if(!confirm(`Delete ${selectedTasks.size} selected task${selectedTasks.size!==1?'s':''}? This cannot be undone.`))return;
-  const ids=[...selectedTasks];
+  // Filter to only tasks this role is allowed to delete
+  const ids=[...selectedTasks].filter(id=>canDeleteTask(id));
+  const blocked=[...selectedTasks].length-ids.length;
+  if(ids.length===0){showToast('None of the selected tasks are in your plant.','err');return;}
+  const msg=`Delete ${ids.length} task${ids.length!==1?'s':''}?`
+    +(blocked>0?`\n\n⚠ ${blocked} task(s) outside your plant will be skipped.`:'')
+    +'\n\nThis cannot be undone.';
+  if(!confirm(msg))return;
   TASKS=TASKS.filter(t=>!ids.includes(t.id));
-  AUDIT_LOG.unshift({time:new Date().toISOString().slice(0,16).replace('T',' '),user:'Super Admin',action:`Bulk deleted ${ids.length} task${ids.length!==1?'s':''}: ${ids.join(', ')}`,entity:'BULK',type:'delete'});
+  const actor=document.getElementById('un')?.textContent||'Admin';
+  AUDIT_LOG.unshift({time:new Date().toISOString().slice(0,16).replace('T',' '),user:actor,action:`Bulk deleted ${ids.length} task${ids.length!==1?'s':''}: ${ids.join(', ')}`,entity:'BULK',type:'delete'});
   selectedTasks=new Set();
   persistTasks();
   ids.forEach(id=>fsDeleteTask(id));
-  showToast(`${ids.length} task${ids.length!==1?'s':''} deleted successfully.`,'ok');
+  showToast(`${ids.length} task${ids.length!==1?'s':''} deleted.`,'ok');
   renderTasks();
 }
 
@@ -6517,14 +6575,33 @@ function renderMeetingDetailModal(meetingId){_momId=meetingId;
   </div>`:''}
   <div class="divl">Action Items (${mt.length})</div>
   <div style="overflow-x:auto;">
-  <table style="font-size:12px;"><thead><tr><th>#</th><th>Task</th><th>Assignee</th><th>Due</th><th>Status</th><th>Escalation</th></tr></thead>
-  <tbody>${mt.map((t,i)=>{const u=gu(t.uid);return`<tr><td>${i+1}</td><td>${t.title}</td><td>${ma(u)}</td><td>${displayDate(t.due)}</td><td>${sb(t.status)}</td><td>${eb(t.esc)}</td></tr>`}).join('')}</tbody></table>
+  ${(()=>{
+    const canDel=(currentRole==='super-admin'||currentRole==='developer')||(currentRole==='admin'&&(()=>{const pmids=getAdminPlantMeetingIds();return pmids&&pmids.has(meetingId);})());
+    const delCol=canDel?'<th></th>':'';
+    const rows=mt.map((t,i)=>{const u=gu(t.uid);const delBtn=canDel?`<td><button class="btn bs ber" onclick="deleteTaskFromMeetingDetailModal('${t.id}','${meetingId}')" title="Delete task" style="padding:3px 8px;">✕</button></td>`:'';return`<tr><td>${i+1}</td><td>${t.title}</td><td>${ma(u)}</td><td>${displayDate(t.due)}</td><td>${sb(t.status)}</td><td>${eb(t.esc)}</td>${delBtn}</tr>`;}).join('');
+    return`<table style="font-size:12px;"><thead><tr><th>#</th><th>Task</th><th>Assignee</th><th>Due</th><th>Status</th><th>Escalation</th>${delCol}</tr></thead><tbody>${rows}</tbody></table>`;
+  })()}
   </div>`;
   document.getElementById('modal-footer').innerHTML=`
     <button class="btn" onclick="closeModal()">Close</button>
     <button class="btn" onclick="emailMoM(_momId);closeModal()">Email MoM</button>
     <button class="btn bp" onclick="exportMoMPDF(_momId)">Export PDF</button>
     <button class="btn bok" onclick="exportMoMExcel(_momId)">Export Excel</button>`;
+}
+
+
+function deleteTaskFromMeetingDetailModal(taskId, meetingId){
+  if(!canDeleteTask(taskId)){showToast('You can only delete tasks in your own plant.','err');return;}
+  const t=TASKS.find(x=>x.id===taskId);
+  if(!t){showToast('Task not found.','warn');return;}
+  if(!confirm(`Delete task "${t.title}"?\nThis cannot be undone.`))return;
+  TASKS=TASKS.filter(x=>x.id!==taskId);
+  AUDIT_LOG.unshift({time:new Date().toISOString().slice(0,16).replace('T',' '),user:document.getElementById('un')?.textContent||'Admin',action:`Deleted task "${t.title}" from meeting ${t.mno}`,entity:taskId,type:'delete'});
+  persistTasks();
+  fsDeleteTask(taskId);
+  showToast(`Task "${t.title}" deleted.`,'ok');
+  // Re-render the meeting detail modal to reflect the removal
+  renderMeetingDetailModal(meetingId);
 }
 
 
