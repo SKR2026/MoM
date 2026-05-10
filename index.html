@@ -476,7 +476,8 @@ const COMMENTS={};
 const AUDIT_LOG=[];
 const EMAIL_LOG=[];
 let currentRole='super-admin';
-let _dashPlantFilter = 'all'; // 'all' or a plant ID — used in super-admin / top-mgmt dashboard
+let _dashPlantFilter   = 'all'; // 'all' or a plant ID — used in super-admin / top-mgmt dashboard
+let _dashMeetingFilter = 'all'; // 'all' or a meeting ID — used in main dashboard meeting dropdown
 let baseRole='super-admin'; // the role the user actually logged in as — never changes during a session
 let darkMode=false;
 let aiItemCount=2;
@@ -1434,7 +1435,7 @@ function navigate(page){
   }
   _currentPage = page;
   // Reset plant filter when leaving dashboard
-  if(page !== 'dashboard') _dashPlantFilter = 'all';
+  if(page !== 'dashboard'){ _dashPlantFilter = 'all'; _dashMeetingFilter = 'all'; }
   if(page !== 'meeting-dashboard'){ _mdPlantFilter = 'all'; _mdSelectedMeeting = 'all'; }
   // Role guard
   const isAdmin=currentRole==='super-admin'||currentRole==='admin'||currentRole==='developer';
@@ -2245,30 +2246,104 @@ function getDashboardTasks(){
 }
 function renderDashboardPlantTabs(){
   var bar = document.getElementById('plant-tabs-bar');
-  if(!bar || !(currentRole==='super-admin'||currentRole==='developer'||currentRole==='top-mgmt') || !PLANTS.length) return;
-  var html = '<div style="margin-bottom:18px;border-bottom:2px solid var(--br)">'
-    +'<div style="display:flex;gap:0;flex-wrap:wrap;align-items:center;">';
-  var tabs = [];
-  if(PLANTS.some(function(p){return p.adminId==='__superadmin__';}))
-    tabs.push({id:'corporate', label:'🏢 Corporate'});
-  tabs.push({id:'all', label:'🌐 All Plants'});
-  PLANTS.forEach(function(p){tabs.push({id:p.id, label:'🏭 '+p.name});});
-  tabs.forEach(function(t){
-    var a = (_dashPlantFilter===t.id);
-    html += '<button onclick="switchPlantTab(\''+t.id+'\')"'
-      +' style="padding:8px 16px;font-size:12px;font-weight:'+(a?'600':'400')
-      +';border:none;border-bottom:3px solid '+(a?'var(--ac)':'transparent')
-      +';background:transparent;color:'+(a?'var(--ac)':'var(--t2)')
-      +';cursor:pointer;white-space:nowrap;transition:all .15s;">'+t.label+'</button>';
+  if(!bar) return;
+
+  var canSeePlants = (currentRole==='super-admin'||currentRole==='developer'||currentRole==='top-mgmt');
+
+  // ── Compute which meetings are in scope after plant filter ──
+  var plantMids = null; // null = all
+  if(canSeePlants && _dashPlantFilter !== 'all'){
+    var _fpi;
+    if(_dashPlantFilter === 'corporate'){
+      _fpi = new Set(PLANTS.filter(function(p){return p.adminId==='__superadmin__';}).map(function(p){return p.id;}));
+    } else {
+      _fpi = new Set([_dashPlantFilter]);
+    }
+    plantMids = new Set(MEETINGS.filter(function(m){return _fpi.has(m.plantId);}).map(function(m){return m.id;}));
+  }
+  var scopedMeetings = plantMids
+    ? MEETINGS.filter(function(m){return plantMids.has(m.id);})
+    : MEETINGS;
+
+  // Reset meeting filter if selected meeting is no longer in scope
+  if(_dashMeetingFilter !== 'all' && !scopedMeetings.find(function(m){return m.id===_dashMeetingFilter;})){
+    _dashMeetingFilter = 'all';
+  }
+
+  // ── Build meeting dropdown options ──
+  var mtgOpts = '<option value="all"'+(_dashMeetingFilter==='all'?' selected':'')+'>📋 All Meetings ('+scopedMeetings.length+')</option>';
+  scopedMeetings.forEach(function(m){
+    var sel = _dashMeetingFilter===m.id?' selected':'';
+    mtgOpts += '<option value="'+m.id+'"'+sel+'>'+m.title+(m.date?' — '+m.date:'')+'</option>';
   });
-  html += '<span style="margin-left:auto;padding:4px 8px;">'
-    +'<button class="btn bs" onclick="navigate(\'settings-plants\')" style="font-size:11px;">Manage Plants</button>'
-    +'</span></div></div>';
+
+  // ── Active meeting chip (shown when a specific meeting is selected) ──
+  var activeMtg = _dashMeetingFilter !== 'all' ? MEETINGS.find(function(m){return m.id===_dashMeetingFilter;}) : null;
+  var chipHtml = '';
+  if(activeMtg){
+    var statCls = activeMtg.status==='completed'?'b-ok':activeMtg.status==='in-progress'?'b-wn':activeMtg.status==='overdue'?'b-er':'b-df';
+    chipHtml = '<div style="display:flex;align-items:center;gap:7px;padding:5px 14px 5px;flex-wrap:wrap;border-top:1px solid var(--br);background:var(--bg3);">'
+      +'<span style="font-size:11px;font-weight:600;color:var(--t2);">Viewing:</span>'
+      +'<span style="font-size:12px;font-weight:600;color:var(--tx);">'+activeMtg.title+'</span>'
+      +(activeMtg.type?'<span class="bdg b-in" style="font-size:10px;">'+activeMtg.type+'</span>':'')
+      +'<span class="bdg '+statCls+'" style="font-size:10px;">'+(activeMtg.status||'scheduled')+'</span>'
+      +(activeMtg.date?'<span style="font-size:11px;color:var(--t3);">📅 '+activeMtg.date+'</span>':'')
+      +(activeMtg.chair?'<span style="font-size:11px;color:var(--t3);">👤 '+activeMtg.chair+'</span>':'')
+      +'<button class="btn bs ber" style="margin-left:auto;font-size:10px;padding:2px 8px;" onclick="_dashMeetingFilter=\'all\';renderDashboard();">✕ Clear</button>'
+      +'</div>';
+  }
+
+  // ── Build plant tabs (only for eligible roles with plants) ──
+  var plantTabsHtml = '';
+  if(canSeePlants && PLANTS.length){
+    var tabs = [];
+    if(PLANTS.some(function(p){return p.adminId==='__superadmin__';}))
+      tabs.push({id:'corporate', label:'🏢 Corporate'});
+    tabs.push({id:'all', label:'🌐 All Plants'});
+    PLANTS.forEach(function(p){tabs.push({id:p.id, label:'🏭 '+p.name});});
+
+    plantTabsHtml = '<div style="display:flex;align-items:center;flex:1;min-width:0;flex-wrap:wrap;">';
+    tabs.forEach(function(t){
+      var a = (_dashPlantFilter===t.id);
+      plantTabsHtml += '<button onclick="switchPlantTab(\''+t.id+'\')"'
+        +' style="padding:9px 14px;font-size:12px;font-weight:'+(a?'700':'400')
+        +';border:none;border-bottom:3px solid '+(a?'var(--ac)':'transparent')
+        +';background:'+(a?'var(--al)':'transparent')
+        +';color:'+(a?'var(--ac)':'var(--t2)')
+        +';cursor:pointer;white-space:nowrap;transition:all .15s;font-family:var(--fn);">'+t.label+'</button>';
+    });
+    plantTabsHtml += '</div>';
+  }
+
+  // ── Meeting filter dropdown (always shown) ──
+  var dropdownHtml = '<div style="display:flex;align-items:center;gap:7px;padding:6px 12px;'
+    +(canSeePlants && PLANTS.length ? 'border-left:1px solid var(--br);' : '')
+    +'flex-shrink:0;">'
+    +'<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="var(--t3)" stroke-width="1.5"><rect x="1" y="2" width="14" height="12" rx="2"/><path d="M1 6h14M5 1v2M11 1v2"/></svg>'
+    +'<span style="font-size:10px;font-weight:700;color:var(--t3);letter-spacing:.5px;text-transform:uppercase;white-space:nowrap;">Meeting</span>'
+    +'<select onchange="_dashMeetingFilter=this.value;renderDashboard();"'
+    +' style="padding:5px 9px;border-radius:var(--rs);border:1px solid var(--br2);background:var(--bg2);color:var(--tx);font-size:12px;font-family:var(--fn);min-width:180px;max-width:300px;cursor:pointer;">'
+    +mtgOpts
+    +'</select>'
+    +(canSeePlants && PLANTS.length
+      ? '<button class="btn bs" onclick="navigate(\'settings-plants\')" style="font-size:10px;padding:3px 8px;white-space:nowrap;">Manage Plants</button>'
+      : '')
+    +'</div>';
+
+  var html = '<div style="background:var(--sf);border:1px solid var(--br);border-radius:var(--r);margin-bottom:18px;overflow:hidden;">'
+    +'<div style="display:flex;align-items:stretch;flex-wrap:wrap;border-bottom:'+(!activeMtg?'none':'1px solid var(--br)')+';">'
+    + plantTabsHtml
+    + dropdownHtml
+    +'</div>'
+    + chipHtml
+    +'</div>';
+
   bar.innerHTML = html;
 }
 
 function switchPlantTab(plantId){
   _dashPlantFilter = plantId;
+  _dashMeetingFilter = 'all';
   renderDashboard();
 }
 
@@ -2286,6 +2361,16 @@ function renderDashboard(){
     _activePlantMtgIds = new Set(MEETINGS.filter(m=>_filterPlantIds.has(m.plantId)).map(m=>m.id));
     myTasks = myTasks.filter(t=>_activePlantMtgIds.has(t.mid));
   }
+
+  // ── Apply meeting filter (narrows to single meeting if selected) ──
+  if(_dashMeetingFilter !== 'all'){
+    myTasks = myTasks.filter(t=>t.mid===_dashMeetingFilter);
+    if(!_activePlantMtgIds){
+      _activePlantMtgIds = new Set(MEETINGS.map(m=>m.id));
+    }
+    _activePlantMtgIds = new Set([_dashMeetingFilter]);
+  }
+
   const _visibleMeetings = _activePlantMtgIds
     ? MEETINGS.filter(m=>_activePlantMtgIds.has(m.id))
     : MEETINGS;
