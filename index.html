@@ -697,22 +697,21 @@ function persistUsersAndSync(){
   persistUsers();
   USERS.forEach(u => fsWriteUser(u));
 }
-/* ── Deleted-user tombstone set — prevents Firestore re-syncing deleted users ── */
-const _DELETED_USERS_KEY = 'mompro_deleted_uids_v1';
-const _deletedUserIds = new Set(
-  (()=>{ try{ const s=localStorage.getItem(_DELETED_USERS_KEY); return s?JSON.parse(s):[]; }catch(e){return[];} })()
-);
-function _recordDeletedUid(id){
-  _deletedUserIds.add(Number(id));
-  try{ localStorage.setItem(_DELETED_USERS_KEY, JSON.stringify([..._deletedUserIds])); }catch(e){}
-}
+/* ── Tombstone set REMOVED — unified docChanges() handler in onSnapshot
+   correctly propagates Firestore deletions, making tombstones redundant and
+   harmful (they were causing ID-reuse to wipe newly-added users). ── */
+const _deletedUserIds = new Set(); // kept as empty no-op for any code still referencing it
+function _recordDeletedUid(_id){ /* no-op */ }
+// Clear any legacy tombstones from previous versions so they don't keep nuking new users
+try{ localStorage.removeItem('mompro_deleted_uids_v1'); }catch(e){}
 
 function persistDeleteUser(id){
-  _recordDeletedUid(id);
+  // 1. Save current USERS to localStorage (it has already been spliced by caller)
   try{
     localStorage.setItem(USERS_STORE_KEY, JSON.stringify(USERS));
     localStorage.setItem(PWDS_STORE_KEY,  JSON.stringify(USER_PASSWORDS));
-  }catch(e){}
+  }catch(e){ console.warn('localStorage save failed:', e); }
+  // 2. Delete the Firestore doc — onSnapshot will fire 'removed' which is idempotent
   fsDeleteUser(id);
 }
 
@@ -724,7 +723,7 @@ function loadPersistedUsers(){
       // Replace the in-memory array contents with saved data
       // Ensure all ids are numbers (JSON may preserve type but be safe)
       USERS.length = 0;
-      savedUsers.forEach(u => { u.id = Number(u.id); if(!_deletedUserIds.has(u.id)) USERS.push(u); });
+      savedUsers.forEach(u => { u.id = Number(u.id); USERS.push(u); });
     }
     if(savedPwds && typeof savedPwds === 'object'){
       // Restore passwords — keys are stored as strings, convert back to numbers
@@ -4401,13 +4400,16 @@ function initFirestoreListeners() {
     _firstUsersSnap = true;
     _fsUsersLoaded  = true;
 
+    // Unified docChanges handler — works correctly for first and all subsequent snapshots.
+    // Firestore offline persistence reports all existing docs as 'added' on first call,
+    // so the same upsert/remove logic handles both cases.
     snap.docChanges().forEach(change => {
-      const raw  = change.doc.data();
-      const uid  = Number(raw.id || change.doc.id);
+      const raw = change.doc.data() || {};
+      const uid = Number(raw.id != null ? raw.id : change.doc.id);
+      if (!Number.isFinite(uid)) return; // skip malformed docs
 
-      if (change.type === 'removed' || _deletedUserIds.has(uid)) {
-        // Confirmed deletion from Firestore OR locally tombstoned
-        if (_deletedUserIds.has(uid)) fsDeleteUser(uid); // re-delete if stale in FS
+      if (change.type === 'removed') {
+        // Firestore confirmed deletion — remove locally if still present
         const idx = USERS.findIndex(x => Number(x.id) === uid);
         if (idx > -1) USERS.splice(idx, 1);
         delete USER_PASSWORDS[uid];
@@ -4416,16 +4418,23 @@ function initFirestoreListeners() {
 
       // 'added' or 'modified' — upsert into USERS
       const u = {...raw};
-      u.id = Number(u.id);
-      if (u._pw !== undefined && u._pw !== null) USER_PASSWORDS[u.id] = u._pw;
+      u.id = uid;
+      if (u._pw !== undefined && u._pw !== null) USER_PASSWORDS[uid] = u._pw;
       delete u._pw;
-      const idx = USERS.findIndex(x => Number(x.id) === u.id);
+      const idx = USERS.findIndex(x => Number(x.id) === uid);
       if (idx > -1) USERS[idx] = u;
-      else USERS.push(u);
+      else          USERS.push(u);
+
+      // Keep the high-water mark ahead of any seen ID
+      try{
+        const HWM_KEY = 'mompro_user_id_hwm_v1';
+        const hwm = parseInt(localStorage.getItem(HWM_KEY)||'0',10) || 0;
+        if (uid > hwm) localStorage.setItem(HWM_KEY, String(uid));
+      }catch(e){}
     });
 
+    // Seed Firestore from local data if Firestore is genuinely empty on first load
     if (isFirst && snap.docs.length === 0 && USERS.length > 0) {
-      // Firestore empty on first load — seed from localStorage so other devices sync
       USERS.forEach(u => fsWriteUser(u));
       console.log('[MoMPro] Seeded', USERS.length, 'users to Firestore');
     }
@@ -5473,25 +5482,59 @@ function saveUserRow(uid){
   renderUsers();
 }
 
-function deleteUserRow(uid){
-  uid=Number(uid);
-  const u=USERS.find(x=>Number(x.id)===uid);
-  if(!u)return;
-  // Plant admin: can only delete users in their plant, not admins/super-admins
-  if(currentRole==='admin'){
-    const myPlant=getAdminPlant();
-    if(!myPlant){showToast('No plant assigned to you','warn');return;}
-    if(u.role==='super-admin'||u.role==='admin'){showToast('You cannot remove admin-level users','warn');return;}
-    if(u.plantId!==myPlant.id){showToast('You can only remove users in your plant','warn');return;}
+async function deleteUserRow(uid){
+  uid = Number(uid);
+  if (!Number.isFinite(uid)) { console.warn('deleteUserRow: bad uid', uid); return; }
+
+  const u = USERS.find(x => Number(x.id) === uid);
+  if (!u) { console.warn('deleteUserRow: user not in USERS', uid); return; }
+
+  // Plant admin: can only delete users in their own plant, never admins/super-admins
+  if (currentRole === 'admin') {
+    const myPlant = getAdminPlant();
+    if (!myPlant) { showToast('No plant assigned to you','warn'); return; }
+    if (u.role === 'super-admin' || u.role === 'admin') {
+      showToast('You cannot remove admin-level users','warn'); return;
+    }
+    if (u.plantId !== myPlant.id) {
+      showToast('You can only remove users in your plant','warn'); return;
+    }
   }
-  if(!confirm(`Remove ${u.name} from the system? This cannot be undone.`))return;
-  const idx=USERS.findIndex(x=>Number(x.id)===uid);
-  if(idx>-1)USERS.splice(idx,1);
-  delete USER_PASSWORDS[uid];   // remove password entry too
-  AUDIT_LOG.unshift({time:new Date().toISOString().slice(0,16).replace('T',' '),user:loggedInAs?.name||currentRole,action:`Deleted user: ${u.name} (${u.email})`,entity:'SYSTEM',type:'delete'});
-  persistDeleteUser(uid);       // saves localStorage + deletes Firestore doc (does NOT re-write all users)
-  showToast(`${u.name} removed.`,'warn');
+
+  if (!confirm(`Remove ${u.name} from the system? This cannot be undone.`)) return;
+
+  // 1. Remove from in-memory array immediately
+  const idx = USERS.findIndex(x => Number(x.id) === uid);
+  if (idx > -1) USERS.splice(idx, 1);
+  delete USER_PASSWORDS[uid];
+
+  // 2. Save to localStorage immediately so a refresh-before-Firestore-confirms keeps the delete
+  try{
+    localStorage.setItem(USERS_STORE_KEY, JSON.stringify(USERS));
+    localStorage.setItem(PWDS_STORE_KEY,  JSON.stringify(USER_PASSWORDS));
+  }catch(e){ console.warn('localStorage save failed:', e); }
+
+  AUDIT_LOG.unshift({
+    time: new Date().toISOString().slice(0,16).replace('T',' '),
+    user: loggedInAs?.name || currentRole,
+    action: `Deleted user: ${u.name} (${u.email})`,
+    entity: 'SYSTEM', type: 'delete'
+  });
+
+  // 3. Render immediately so user sees the change
   renderUsers();
+  showToast(`${u.name} removed.`, 'warn');
+
+  // 4. Delete from Firestore — await so we can show error if it fails
+  const fsCol = FS_USERS();
+  if (fsCol) {
+    try {
+      await fsCol.doc(String(uid)).delete();
+    } catch (e) {
+      console.warn('Firestore delete failed:', e);
+      showToast('Deleted locally. Firestore sync pending.', 'warn');
+    }
+  }
 }
 
 function renderAddUserModal(){
@@ -5626,9 +5669,14 @@ async function _doAddUserInner(){
   if(pass.length < 6)               { showToast('Password must be at least 6 characters','warn'); return; }
   if(USERS.find(u=>u.email===email)){ showToast('A user with this email already exists','warn'); return; }
 
-  // Never reuse a deleted user's ID — tombstoned IDs must stay retired
-  const allKnownIds = [...USERS.map(u=>Number(u.id)), ..._deletedUserIds];
-  const newId = allKnownIds.length > 0 ? Math.max(...allKnownIds) + 1 : 1;
+  // Generate a new ID that NEVER conflicts with anything past or present.
+  // We track a high-water mark in localStorage so deleted IDs are never reused.
+  const HWM_KEY = 'mompro_user_id_hwm_v1';
+  let hwm = 0;
+  try{ hwm = parseInt(localStorage.getItem(HWM_KEY)||'0',10) || 0; }catch(e){}
+  const currentMax = USERS.length > 0 ? Math.max(...USERS.map(u=>Number(u.id))) : 0;
+  const newId = Math.max(hwm, currentMax) + 1;
+  try{ localStorage.setItem(HWM_KEY, String(newId)); }catch(e){}
   const col   = window._nuCol || {bg:'#dcfce7', tc:'#16a34a'};
   const newUserPlantId = (isPlantAdminAdding && getAdminPlant()) ? getAdminPlant().id : (role==='admin' && plantId ? plantId : '');
 
