@@ -4403,16 +4403,27 @@ function initFirestoreListeners() {
           console.log('[MoMPro] Seeded', USERS.length, 'users to Firestore from localStorage');
         }
       } else {
-        // Fully replace USERS from Firestore, honouring tombstones
-        USERS.length = 0;
+        // Merge Firestore into local USERS — never drop a locally-added user not yet in Firestore
         fsUsers.forEach(d => {
           const u = {...d};
           u.id = Number(u.id);
           if (_deletedUserIds.has(u.id)) { fsDeleteUser(u.id); return; } // re-delete stragglers
           if (u._pw !== undefined && u._pw !== null) USER_PASSWORDS[u.id] = u._pw;
           delete u._pw;
-          USERS.push(u);
+          const idx = USERS.findIndex(x => Number(x.id) === u.id);
+          if (idx > -1) USERS[idx] = u; // update existing
+          else USERS.push(u);           // add new from Firestore
         });
+        // Remove from USERS any that Firestore doesn't have AND aren't in localStorage
+        // (i.e. they were deleted on another device) — but keep locally-added ones
+        const fsIds = new Set(fsUsers.map(d => Number(d.id)));
+        // Only remove if also absent from localStorage (not a locally-pending write)
+        const lsUsers = JSON.parse(localStorage.getItem(USERS_STORE_KEY)||'[]');
+        const lsIds = new Set(lsUsers.map(u => Number(u.id)));
+        for(let i = USERS.length-1; i >= 0; i--){
+          const uid = Number(USERS[i].id);
+          if(!fsIds.has(uid) && !lsIds.has(uid)) USERS.splice(i,1);
+        }
         try { localStorage.setItem(USERS_STORE_KEY, JSON.stringify(USERS)); } catch(e2) {}
         try { localStorage.setItem(PWDS_STORE_KEY,  JSON.stringify(USER_PASSWORDS)); } catch(e2) {}
       }
@@ -5633,22 +5644,28 @@ async function _doAddUserInner(){
   if(USERS.find(u=>u.email===email)){ showToast('A user with this email already exists','warn'); return; }
 
   const newId = USERS.length > 0 ? Math.max(...USERS.map(u=>u.id)) + 1 : 1;
-  const col   = window._nuCol || {bg:'#e0f2fe', tc:'#0284c7'};
-
-  // Add to users list
+  const col   = window._nuCol || {bg:'#dcfce7', tc:'#16a34a'};
   const newUserPlantId = (isPlantAdminAdding && getAdminPlant()) ? getAdminPlant().id : (role==='admin' && plantId ? plantId : '');
-  USERS.push({id:newId, name, role, dept, email, ini, col:col.bg, tc:col.tc, plantId: newUserPlantId||undefined});
 
-  // If admin assigned to a plant, update that plant
+  // Hash password BEFORE touching USERS — prevents "already exists" ghost if user re-clicks during await
+  let pwHash = null;
+  if(pass){
+    pwHash = await _hashUserPw(pass, newId);
+  }
+
+  // Duplicate check again after async gap (in case two clicks slipped through)
+  if(USERS.find(u=>u.email===email)){ showToast('A user with this email already exists','warn'); return; }
+
+  // Now safely build and push the new user
+  const newUser = {id:newId, name, role, dept, email, ini, col:col.bg, tc:col.tc};
+  if(newUserPlantId) newUser.plantId = newUserPlantId;
+  USERS.push(newUser);
+  if(pwHash !== null) USER_PASSWORDS[newId] = pwHash;
+
+  // If admin assigned to a plant, update that plant record
   if(role==='admin' && plantId){
     const plant = PLANTS.find(p=>p.id===plantId);
     if(plant){ plant.adminId=newId; persistPlants(); }
-  }
-
-  // Store password as PBKDF2 hash — await so user exists fully before persist
-  if(pass){
-    const h = await _hashUserPw(pass, newId);
-    USER_PASSWORDS[newId] = h;
   }
 
   // Add to presence tracker
@@ -5663,17 +5680,23 @@ async function _doAddUserInner(){
     type: 'create'
   });
 
-  // Save to localStorage immediately
+  // 1. Save to localStorage first — survives refresh even if Firestore is slow/offline
   try{
     localStorage.setItem(USERS_STORE_KEY, JSON.stringify(USERS));
     localStorage.setItem(PWDS_STORE_KEY,  JSON.stringify(USER_PASSWORDS));
-  }catch(e){}
-  // Write ONLY the new user to Firestore (not all users — avoids N onSnapshot floods)
-  const newUserObj = USERS[USERS.length-1];
-  const pw = USER_PASSWORDS[newId];
-  const c = FS_USERS();
-  if(c) c.doc(String(newId)).set({...newUserObj, _pw: pw !== undefined ? pw : null})
-         .catch(e=>console.warn('fsWriteUser new user:',e));
+  }catch(e){ console.warn('localStorage save failed:', e); }
+
+  // 2. Write ONLY this new user to Firestore (targeted — avoids N-snapshot flood)
+  const fsCol = FS_USERS();
+  if(fsCol){
+    try{
+      await fsCol.doc(String(newId)).set({...newUser, _pw: pwHash !== null ? pwHash : null});
+    }catch(e){
+      console.warn('Firestore write failed — user saved locally only:', e);
+      showToast('Saved locally. Firestore sync pending.','warn');
+    }
+  }
+
   closeModal();
   renderUsers();
   showToast(`${name} added. They can now log in with their email and password.`, 'ok');
