@@ -4440,8 +4440,11 @@ function initFirestoreListeners() {
       try { localStorage.setItem(USERS_STORE_KEY, JSON.stringify(USERS)); } catch(e2) {}
       try { localStorage.setItem(PWDS_STORE_KEY,  JSON.stringify(USER_PASSWORDS)); } catch(e2) {}
     }
-    if (loggedInAs) { initLogin(); buildNav(); refreshCurrentPage(); }
-    else {
+    if (loggedInAs) {
+      initLogin(); buildNav();
+      // Only re-render if currently viewing the users page — avoid unnecessary full re-renders
+      if(_currentPage === 'settings-users') renderUsers();
+    } else {
       initLogin();
       const errEl = document.getElementById('login-err');
       if (errEl && errEl._preFirestoreError) { errEl.style.display = 'none'; errEl._preFirestoreError = false; }
@@ -5595,6 +5598,18 @@ function genPassword(){
 }
 
 async function doAddUser(){
+  // Prevent double-submit during async PBKDF2 hash (100k iterations = ~300-800ms)
+  const _btn = document.querySelector('#modal-footer .btn.bp');
+  if(_btn){
+    if(_btn.disabled) return; // already running
+    _btn.disabled = true;
+    _btn.textContent = 'Adding…';
+  }
+  try{ await _doAddUserInner(); }finally{
+    if(_btn){ _btn.disabled=false; _btn.textContent='+ Add User'; }
+  }
+}
+async function _doAddUserInner(){
   const name    = document.getElementById('nu-name').value.trim();
   const email   = document.getElementById('nu-email').value.trim();
   const ini     = (document.getElementById('nu-ini').value.trim() || name.split(' ').map(w=>w[0]).join('')).toUpperCase().slice(0,2);
@@ -5648,8 +5663,17 @@ async function doAddUser(){
     type: 'create'
   });
 
-  // Persist once — after hash is ready
-  persistUsers();
+  // Save to localStorage immediately
+  try{
+    localStorage.setItem(USERS_STORE_KEY, JSON.stringify(USERS));
+    localStorage.setItem(PWDS_STORE_KEY,  JSON.stringify(USER_PASSWORDS));
+  }catch(e){}
+  // Write ONLY the new user to Firestore (not all users — avoids N onSnapshot floods)
+  const newUserObj = USERS[USERS.length-1];
+  const pw = USER_PASSWORDS[newId];
+  const c = FS_USERS();
+  if(c) c.doc(String(newId)).set({...newUserObj, _pw: pw !== undefined ? pw : null})
+         .catch(e=>console.warn('fsWriteUser new user:',e));
   closeModal();
   renderUsers();
   showToast(`${name} added. They can now log in with their email and password.`, 'ok');
@@ -5662,18 +5686,16 @@ async function doAddUser(){
     const body    = `<p>Hi ${name},</p><p>Your MoM Pro account has been set up. Log in at the app URL using your email address and the temporary password provided by your admin.</p><p>Please change your password after first login.</p>`;
     const azReady = az && az.msClientId && az.msTenantId && location.protocol !== 'file:';
     if(azReady){
-      // Fire-and-forget — do NOT await; email must never block or freeze the UI
       sendNotificationEmail(email, subject, body).catch(e=>{
         console.warn('Welcome email failed:',e);
         showToast('Welcome email failed: '+e.message,'warn');
       });
       EMAIL_LOG.unshift({time:ts, to:email, subject, status:'queued', trigger:'New user welcome'});
     } else {
-      // Office 365 not configured — log only, no popup
       EMAIL_LOG.unshift({time:ts, to:email, subject, status:'simulated (Office 365 not configured)', trigger:'New user welcome'});
     }
   }
-}
+} // end _doAddUserInner
 
 /* ═══════════════════════════════════════════
    PLANTS & ADMINS
