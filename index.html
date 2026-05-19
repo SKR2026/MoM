@@ -5626,7 +5626,9 @@ async function _doAddUserInner(){
   if(pass.length < 6)               { showToast('Password must be at least 6 characters','warn'); return; }
   if(USERS.find(u=>u.email===email)){ showToast('A user with this email already exists','warn'); return; }
 
-  const newId = USERS.length > 0 ? Math.max(...USERS.map(u=>u.id)) + 1 : 1;
+  // Never reuse a deleted user's ID — tombstoned IDs must stay retired
+  const allKnownIds = [...USERS.map(u=>Number(u.id)), ..._deletedUserIds];
+  const newId = allKnownIds.length > 0 ? Math.max(...allKnownIds) + 1 : 1;
   const col   = window._nuCol || {bg:'#dcfce7', tc:'#16a34a'};
   const newUserPlantId = (isPlantAdminAdding && getAdminPlant()) ? getAdminPlant().id : (role==='admin' && plantId ? plantId : '');
 
