@@ -685,10 +685,16 @@ const USERS_STORE_KEY = 'mompro_users_v2';
 const PWDS_STORE_KEY  = 'mompro_passwords_v2';
 
 function persistUsers(){
+  // Save to localStorage only — callers handle targeted Firestore writes per-user
+  // Writing ALL users to Firestore here floods onSnapshot with N events per save
   try{
     localStorage.setItem(USERS_STORE_KEY, JSON.stringify(USERS));
     localStorage.setItem(PWDS_STORE_KEY,  JSON.stringify(USER_PASSWORDS));
   }catch(e){ console.warn('Could not persist users:', e); }
+}
+function persistUsersAndSync(){
+  // Use this when ALL users need syncing (e.g. bulk operations, dept rename)
+  persistUsers();
   USERS.forEach(u => fsWriteUser(u));
 }
 /* ── Deleted-user tombstone set — prevents Firestore re-syncing deleted users ── */
@@ -4391,76 +4397,52 @@ function initFirestoreListeners() {
   // ── Users ──────────────────────────────────────────────────────────────────
   const fu = FS_USERS();
   if (fu) fu.onSnapshot(snap => {
-    if (!_firstUsersSnap) {
-      // ── First snapshot: full replace ──────────────────────────────────────
-      _firstUsersSnap = true;
-      _fsUsersLoaded  = true;
-      const fsUsers = snap.docs.map(d => d.data());
-      if (fsUsers.length === 0) {
-        // Firestore empty — seed from local data so other devices can access them
-        if (USERS.length > 0) {
-          USERS.forEach(u => fsWriteUser(u));
-          console.log('[MoMPro] Seeded', USERS.length, 'users to Firestore from localStorage');
-        }
-      } else {
-        // Merge Firestore into local USERS — never drop a locally-added user not yet in Firestore
-        fsUsers.forEach(d => {
-          const u = {...d};
-          u.id = Number(u.id);
-          if (_deletedUserIds.has(u.id)) { fsDeleteUser(u.id); return; } // re-delete stragglers
-          if (u._pw !== undefined && u._pw !== null) USER_PASSWORDS[u.id] = u._pw;
-          delete u._pw;
-          const idx = USERS.findIndex(x => Number(x.id) === u.id);
-          if (idx > -1) USERS[idx] = u; // update existing
-          else USERS.push(u);           // add new from Firestore
-        });
-        // Remove from USERS any that Firestore doesn't have AND aren't in localStorage
-        // (i.e. they were deleted on another device) — but keep locally-added ones
-        const fsIds = new Set(fsUsers.map(d => Number(d.id)));
-        // Only remove if also absent from localStorage (not a locally-pending write)
-        const lsUsers = JSON.parse(localStorage.getItem(USERS_STORE_KEY)||'[]');
-        const lsIds = new Set(lsUsers.map(u => Number(u.id)));
-        for(let i = USERS.length-1; i >= 0; i--){
-          const uid = Number(USERS[i].id);
-          if(!fsIds.has(uid) && !lsIds.has(uid)) USERS.splice(i,1);
-        }
-        try { localStorage.setItem(USERS_STORE_KEY, JSON.stringify(USERS)); } catch(e2) {}
-        try { localStorage.setItem(PWDS_STORE_KEY,  JSON.stringify(USER_PASSWORDS)); } catch(e2) {}
+    const isFirst = !_firstUsersSnap;
+    _firstUsersSnap = true;
+    _fsUsersLoaded  = true;
+
+    snap.docChanges().forEach(change => {
+      const raw  = change.doc.data();
+      const uid  = Number(raw.id || change.doc.id);
+
+      if (change.type === 'removed' || _deletedUserIds.has(uid)) {
+        // Confirmed deletion from Firestore OR locally tombstoned
+        if (_deletedUserIds.has(uid)) fsDeleteUser(uid); // re-delete if stale in FS
+        const idx = USERS.findIndex(x => Number(x.id) === uid);
+        if (idx > -1) USERS.splice(idx, 1);
+        delete USER_PASSWORDS[uid];
+        return;
       }
-      const lload = document.getElementById('login-fs-loading');
-      if (lload) lload.style.display = 'none';
-    } else {
-      // ── Subsequent snapshots: incremental changes (handles deletions correctly) ──
-      snap.docChanges().forEach(change => {
-        const uid = Number(change.doc.data().id || change.doc.id);
-        if (change.type === 'removed') {
-          // Firestore confirmed deletion — remove from local array too
-          const idx = USERS.findIndex(x => Number(x.id) === uid);
-          if (idx > -1) USERS.splice(idx, 1);
-          delete USER_PASSWORDS[uid];
-        } else if (change.type === 'added' || change.type === 'modified') {
-          if (_deletedUserIds.has(uid)) { fsDeleteUser(uid); return; } // honour tombstone
-          const u = {...change.doc.data()};
-          u.id = Number(u.id);
-          if (u._pw !== undefined && u._pw !== null) USER_PASSWORDS[u.id] = u._pw;
-          delete u._pw;
-          const idx = USERS.findIndex(x => Number(x.id) === u.id);
-          if (idx > -1) USERS[idx] = u; else USERS.push(u);
-        }
-      });
-      try { localStorage.setItem(USERS_STORE_KEY, JSON.stringify(USERS)); } catch(e2) {}
-      try { localStorage.setItem(PWDS_STORE_KEY,  JSON.stringify(USER_PASSWORDS)); } catch(e2) {}
+
+      // 'added' or 'modified' — upsert into USERS
+      const u = {...raw};
+      u.id = Number(u.id);
+      if (u._pw !== undefined && u._pw !== null) USER_PASSWORDS[u.id] = u._pw;
+      delete u._pw;
+      const idx = USERS.findIndex(x => Number(x.id) === u.id);
+      if (idx > -1) USERS[idx] = u;
+      else USERS.push(u);
+    });
+
+    if (isFirst && snap.docs.length === 0 && USERS.length > 0) {
+      // Firestore empty on first load — seed from localStorage so other devices sync
+      USERS.forEach(u => fsWriteUser(u));
+      console.log('[MoMPro] Seeded', USERS.length, 'users to Firestore');
     }
+
+    try { localStorage.setItem(USERS_STORE_KEY, JSON.stringify(USERS)); } catch(e2) {}
+    try { localStorage.setItem(PWDS_STORE_KEY,  JSON.stringify(USER_PASSWORDS)); } catch(e2) {}
+
+    const lload = document.getElementById('login-fs-loading');
+    if (lload) lload.style.display = 'none';
+
     if (loggedInAs) {
       initLogin(); buildNav();
-      // Only re-render if currently viewing the users page — avoid unnecessary full re-renders
-      if(_currentPage === 'settings-users') renderUsers();
+      if (_currentPage === 'settings-users') renderUsers();
     } else {
       initLogin();
       const errEl = document.getElementById('login-err');
       if (errEl && errEl._preFirestoreError) { errEl.style.display = 'none'; errEl._preFirestoreError = false; }
-      const lload = document.getElementById('login-fs-loading');
-      if (lload) lload.style.display = 'none';
     }
   }, e => console.warn("[MoMPro] Users listener:", e.code));
 
@@ -5482,10 +5464,11 @@ function saveUserRow(uid){
   const parts = newName.split(' ').filter(Boolean);
   u.ini = parts.length>=2 ? (parts[0][0]+parts[parts.length-1][0]).toUpperCase() : newName.slice(0,2).toUpperCase();
   // Save new password as PBKDF2 hash
-  if(newPass){ _hashUserPw(newPass, uid).then(h=>{ USER_PASSWORDS[uid]=h; persistUsers(); }); }
+  if(newPass){ _hashUserPw(newPass, uid).then(h=>{ USER_PASSWORDS[uid]=h; persistUsers(); fsWriteUser(u); }); }
   AUDIT_LOG.unshift({time:new Date().toISOString().slice(0,16).replace('T',' '),user:loggedInAs?.name||currentRole,
     action:`Updated user ${uid}: name="${newName}", role="${newRole}"${newPass?' + password reset':''}`,entity:'SYSTEM',type:'update'});
-  persistUsers();   // save changes to localStorage
+  persistUsers();   // save to localStorage
+  fsWriteUser(u);   // sync only this user to Firestore
   showToast(`${newName} saved.${newPass?' Password updated.':USER_PASSWORDS[uid]?'':' No password set — user cannot log in yet.'}`,'ok');
   renderUsers();
 }
@@ -6265,7 +6248,7 @@ function renameDept(input){
   USERS.forEach(function(u){ if(u.dept===oldName){ u.dept=val; fsWriteUser(u); } });
   DEPARTMENTS[idx]=val;
   persistDepartments();
-  persistUsers();
+  persistUsersAndSync();
   showToast('Renamed "'+oldName+'" to "'+val+'"','ok');
   document.getElementById('dept-card').outerHTML=buildDeptCard();
 }
