@@ -4391,46 +4391,60 @@ function initFirestoreListeners() {
   // ── Users ──────────────────────────────────────────────────────────────────
   const fu = FS_USERS();
   if (fu) fu.onSnapshot(snap => {
-    const fsUsers = snap.docs.map(d => d.data());
-    if (!_firstUsersSnap && fsUsers.length === 0) {
-      // First snapshot with no data — Firestore is empty
+    if (!_firstUsersSnap) {
+      // ── First snapshot: full replace ──────────────────────────────────────
       _firstUsersSnap = true;
-      _fsUsersLoaded = true;
-      // If we have local users, push them to Firestore so other devices can access them
-      if (USERS.length > 0) {
-        USERS.forEach(u => fsWriteUser(u));
-        console.log('[MoMPro] Seeded', USERS.length, 'users to Firestore from localStorage');
+      _fsUsersLoaded  = true;
+      const fsUsers = snap.docs.map(d => d.data());
+      if (fsUsers.length === 0) {
+        // Firestore empty — seed from local data so other devices can access them
+        if (USERS.length > 0) {
+          USERS.forEach(u => fsWriteUser(u));
+          console.log('[MoMPro] Seeded', USERS.length, 'users to Firestore from localStorage');
+        }
+      } else {
+        // Fully replace USERS from Firestore, honouring tombstones
+        USERS.length = 0;
+        fsUsers.forEach(d => {
+          const u = {...d};
+          u.id = Number(u.id);
+          if (_deletedUserIds.has(u.id)) { fsDeleteUser(u.id); return; } // re-delete stragglers
+          if (u._pw !== undefined && u._pw !== null) USER_PASSWORDS[u.id] = u._pw;
+          delete u._pw;
+          USERS.push(u);
+        });
+        try { localStorage.setItem(USERS_STORE_KEY, JSON.stringify(USERS)); } catch(e2) {}
+        try { localStorage.setItem(PWDS_STORE_KEY,  JSON.stringify(USER_PASSWORDS)); } catch(e2) {}
       }
       const lload = document.getElementById('login-fs-loading');
       if (lload) lload.style.display = 'none';
-      return;
-    }
-    _firstUsersSnap = true;
-    if (fsUsers.length) {
-      // Filter out any users that were deleted locally (tombstone set)
-      const liveUsers = fsUsers.filter(d => !_deletedUserIds.has(Number(d.id)));
-      // Re-delete from Firestore any that still appear there after local deletion
-      fsUsers.filter(d => _deletedUserIds.has(Number(d.id))).forEach(d => fsDeleteUser(Number(d.id)));
-      USERS.length = 0;
-      liveUsers.forEach(d => {
-        const u = {...d};
-        u.id = Number(u.id);
-        if (u._pw !== undefined && u._pw !== null) USER_PASSWORDS[u.id] = u._pw;
-        delete u._pw;
-        USERS.push(u);
+    } else {
+      // ── Subsequent snapshots: incremental changes (handles deletions correctly) ──
+      snap.docChanges().forEach(change => {
+        const uid = Number(change.doc.data().id || change.doc.id);
+        if (change.type === 'removed') {
+          // Firestore confirmed deletion — remove from local array too
+          const idx = USERS.findIndex(x => Number(x.id) === uid);
+          if (idx > -1) USERS.splice(idx, 1);
+          delete USER_PASSWORDS[uid];
+        } else if (change.type === 'added' || change.type === 'modified') {
+          if (_deletedUserIds.has(uid)) { fsDeleteUser(uid); return; } // honour tombstone
+          const u = {...change.doc.data()};
+          u.id = Number(u.id);
+          if (u._pw !== undefined && u._pw !== null) USER_PASSWORDS[u.id] = u._pw;
+          delete u._pw;
+          const idx = USERS.findIndex(x => Number(x.id) === u.id);
+          if (idx > -1) USERS[idx] = u; else USERS.push(u);
+        }
       });
       try { localStorage.setItem(USERS_STORE_KEY, JSON.stringify(USERS)); } catch(e2) {}
       try { localStorage.setItem(PWDS_STORE_KEY,  JSON.stringify(USER_PASSWORDS)); } catch(e2) {}
     }
-    _fsUsersLoaded = true;
-    if (loggedInAs) { initLogin(); buildNav(); }
+    if (loggedInAs) { initLogin(); buildNav(); refreshCurrentPage(); }
     else {
-      initLogin(); // refresh user-access tab list
+      initLogin();
       const errEl = document.getElementById('login-err');
-      if (errEl && errEl._preFirestoreError) {
-        errEl.style.display = 'none';
-        errEl._preFirestoreError = false;
-      }
+      if (errEl && errEl._preFirestoreError) { errEl.style.display = 'none'; errEl._preFirestoreError = false; }
       const lload = document.getElementById('login-fs-loading');
       if (lload) lload.style.display = 'none';
     }
@@ -5045,7 +5059,7 @@ async function sendGroupedTaskNotifications(taskIds, context='assigned', meeting
     const subject = (ctxSubjects[context] || ctxSubjects.assigned)(tasks);
     const html    = buildTaskEmailHtml({ user, tasks, meeting, context, extraNote });
     EMAIL_LOG.unshift({time:ts, to:user.email, subject, status: az?.msClientId ? 'sent' : 'simulated', trigger: context});
-    if(az && az.msClientId && az.msTenantId){
+    if(az && az.msClientId && az.msTenantId && location.protocol !== 'file:'){
       await sendNotificationEmail(user.email, subject, html);
     } else {
       showToast(`📧 Digest queued for ${user.name} (${tasks.length} task${tasks.length>1?'s':''}). Connect Office 365 to send live.`,'info');
@@ -5536,7 +5550,7 @@ function renderAddUserModal(){
     <div class="fg">
       <label>SEND WELCOME EMAIL</label>
       <div style="display:flex;align-items:center;gap:10px;margin-top:8px;">
-        <div class="tgl on" id="welcome-tgl" onclick="this.classList.toggle('on')" title="Toggle welcome email"></div>
+        <div class="tgl" id="welcome-tgl" onclick="this.classList.toggle('on')" title="Toggle welcome email"></div>
         <span style="font-size:12px;color:var(--t3);">Via Office 365 (if configured)</span>
       </div>
     </div>
@@ -5640,18 +5654,23 @@ async function doAddUser(){
   renderUsers();
   showToast(`${name} added. They can now log in with their email and password.`, 'ok');
 
-  // Send welcome email AFTER user is saved, non-blocking (fire-and-forget — never hangs the UI)
+  // Send welcome email AFTER user is saved — only if Azure is fully configured AND toggle is on
   if(welcome){
     const az = typeof azureSavedConfig==='function' ? azureSavedConfig() : null;
     const ts  = new Date().toISOString().slice(0,16).replace('T',' ');
     const subject = '[MoM Pro] Your account has been created';
     const body    = `<p>Hi ${name},</p><p>Your MoM Pro account has been set up. Log in at the app URL using your email address and the temporary password provided by your admin.</p><p>Please change your password after first login.</p>`;
-    if(az && az.msClientId && az.msTenantId){
-      // Fire-and-forget — do NOT await; email popup must never block user creation
-      sendNotificationEmail(email, subject, body).catch(e=>console.warn('Welcome email failed:',e));
+    const azReady = az && az.msClientId && az.msTenantId && location.protocol !== 'file:';
+    if(azReady){
+      // Fire-and-forget — do NOT await; email must never block or freeze the UI
+      sendNotificationEmail(email, subject, body).catch(e=>{
+        console.warn('Welcome email failed:',e);
+        showToast('Welcome email failed: '+e.message,'warn');
+      });
       EMAIL_LOG.unshift({time:ts, to:email, subject, status:'queued', trigger:'New user welcome'});
     } else {
-      EMAIL_LOG.unshift({time:ts, to:email, subject, status:'simulated', trigger:'New user welcome'});
+      // Office 365 not configured — log only, no popup
+      EMAIL_LOG.unshift({time:ts, to:email, subject, status:'simulated (Office 365 not configured)', trigger:'New user welcome'});
     }
   }
 }
