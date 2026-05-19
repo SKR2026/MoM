@@ -5410,7 +5410,8 @@ function updateAccessBadge(uid, role){
 }
 
 function saveUserRow(uid){
-  const u=USERS.find(x=>x.id===uid);
+  uid=Number(uid);
+  const u=USERS.find(x=>Number(x.id)===uid);
   if(!u)return;
   // Plant admin: can only save users in their plant, not other admins/super-admins
   if(currentRole==='admin'){
@@ -5444,7 +5445,8 @@ function saveUserRow(uid){
 }
 
 function deleteUserRow(uid){
-  const u=USERS.find(x=>x.id===uid);
+  uid=Number(uid);
+  const u=USERS.find(x=>Number(x.id)===uid);
   if(!u)return;
   // Plant admin: can only delete users in their plant, not admins/super-admins
   if(currentRole==='admin'){
@@ -5454,7 +5456,7 @@ function deleteUserRow(uid){
     if(u.plantId!==myPlant.id){showToast('You can only remove users in your plant','warn');return;}
   }
   if(!confirm(`Remove ${u.name} from the system? This cannot be undone.`))return;
-  const idx=USERS.findIndex(x=>x.id===uid);
+  const idx=USERS.findIndex(x=>Number(x.id)===uid);
   if(idx>-1)USERS.splice(idx,1);
   delete USER_PASSWORDS[uid];   // remove password entry too
   AUDIT_LOG.unshift({time:new Date().toISOString().slice(0,16).replace('T',' '),user:loggedInAs?.name||currentRole,action:`Deleted user: ${u.name} (${u.email})`,entity:'SYSTEM',type:'delete'});
