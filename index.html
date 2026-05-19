@@ -691,8 +691,22 @@ function persistUsers(){
   }catch(e){ console.warn('Could not persist users:', e); }
   USERS.forEach(u => fsWriteUser(u));
 }
+/* ── Deleted-user tombstone set — prevents Firestore re-syncing deleted users ── */
+const _DELETED_USERS_KEY = 'mompro_deleted_uids_v1';
+const _deletedUserIds = new Set(
+  (()=>{ try{ const s=localStorage.getItem(_DELETED_USERS_KEY); return s?JSON.parse(s):[]; }catch(e){return[];} })()
+);
+function _recordDeletedUid(id){
+  _deletedUserIds.add(Number(id));
+  try{ localStorage.setItem(_DELETED_USERS_KEY, JSON.stringify([..._deletedUserIds])); }catch(e){}
+}
+
 function persistDeleteUser(id){
-  try{localStorage.setItem(USERS_STORE_KEY,JSON.stringify(USERS));}catch(e){}
+  _recordDeletedUid(id);
+  try{
+    localStorage.setItem(USERS_STORE_KEY, JSON.stringify(USERS));
+    localStorage.setItem(PWDS_STORE_KEY,  JSON.stringify(USER_PASSWORDS));
+  }catch(e){}
   fsDeleteUser(id);
 }
 
@@ -865,10 +879,10 @@ function _loadUsersForLoginTab(){
     c.get().then(snap=>{
       if(snap.empty){ _render(USERS); return; }
       const fsUsers = snap.docs.map(d=>{ const u={...d.data()}; u.id=Number(u.id); return u; });
-      // Merge into USERS cache
+      // Merge into USERS cache — only update existing entries, never resurrect deleted users
       fsUsers.forEach(u=>{
         const idx=USERS.findIndex(x=>Number(x.id)===u.id);
-        if(idx>-1) USERS[idx]=u; else USERS.push(u);
+        if(idx>-1){ USERS[idx]=u; } // update existing only; deleted users stay deleted
         if(u._pw!=null) USER_PASSWORDS[u.id]=u._pw;
       });
       _render(fsUsers);
@@ -986,10 +1000,10 @@ async function doLogin(){
         if(u._pw!=null){ USER_PASSWORDS[u.id]=u._pw; }
         return u;
       });
-      // Merge into global USERS
+      // Merge into global USERS — only update existing; deleted users stay deleted
       fsUsers.forEach(u=>{
         const idx=USERS.findIndex(x=>Number(x.id)===u.id);
-        if(idx>-1) USERS[idx]=u; else USERS.push(u);
+        if(idx>-1) USERS[idx]=u; // update existing only
       });
       // Persist to localStorage as a cache
       try{ localStorage.setItem(USERS_STORE_KEY,JSON.stringify(USERS)); }catch(e){}
@@ -4393,8 +4407,12 @@ function initFirestoreListeners() {
     }
     _firstUsersSnap = true;
     if (fsUsers.length) {
+      // Filter out any users that were deleted locally (tombstone set)
+      const liveUsers = fsUsers.filter(d => !_deletedUserIds.has(Number(d.id)));
+      // Re-delete from Firestore any that still appear there after local deletion
+      fsUsers.filter(d => _deletedUserIds.has(Number(d.id))).forEach(d => fsDeleteUser(Number(d.id)));
       USERS.length = 0;
-      fsUsers.forEach(d => {
+      liveUsers.forEach(d => {
         const u = {...d};
         u.id = Number(u.id);
         if (u._pw !== undefined && u._pw !== null) USER_PASSWORDS[u.id] = u._pw;
@@ -5460,8 +5478,7 @@ function deleteUserRow(uid){
   if(idx>-1)USERS.splice(idx,1);
   delete USER_PASSWORDS[uid];   // remove password entry too
   AUDIT_LOG.unshift({time:new Date().toISOString().slice(0,16).replace('T',' '),user:loggedInAs?.name||currentRole,action:`Deleted user: ${u.name} (${u.email})`,entity:'SYSTEM',type:'delete'});
-  persistUsers();
-  fsDeleteUser(uid);
+  persistDeleteUser(uid);       // saves localStorage + deletes Firestore doc (does NOT re-write all users)
   showToast(`${u.name} removed.`,'warn');
   renderUsers();
 }
